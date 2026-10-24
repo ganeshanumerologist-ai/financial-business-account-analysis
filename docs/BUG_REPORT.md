@@ -347,3 +347,17 @@ Rule: no "fixed" status without a failing-then-passing test recorded in `docs/TE
 
 Rule unchanged: no "fixed" status without a failing-then-passing test recorded in
 `docs/TEST_RESULTS.md`.
+
+
+### Design assets ? 2026-10-24 (owner update)
+
+The owner replaced the original mockups in the workspace. Current state, verified by file listing:
+
+| File | Format | Size | Status |
+|---|---|---|---|
+| `Arthivio Business Dashboard Hero.png` | PNG 1536?1024 | 2,011,950 B | **Canonical design reference**, tracked in git |
+| `WhatsApp Image 2026-10-24 at 10.10.22 AM.jpeg` | JPEG 1536?1024 | 189,820 B | Retained as received; not tracked (historical attachment) |
+| `Arthivio Smarter Finance Dashboard.png` | PNG | ? | Removed by owner; deletion committed |
+
+The spec still governs on conflicts (D-003). The single PNG remains a visual reference only; it is
+not shipped as a UI asset. B-009 stays open for the missing theme source and repository contents.
