@@ -288,3 +288,31 @@ Fix:      allocate rounding residual to the largest line per policy §C-006
 ```
 
 Rule: no "fixed" status without a failing-then-passing test recorded in `docs/TEST_RESULTS.md`.
+
+
+---
+
+## Status update — 2026-10-24 (Build 0.1)
+
+| ID | Previous state | Current state | Evidence |
+|---|---|---|---|
+| B-001 | BLOCKER: no application source | **RESOLVED** | `app/` implements the accounting core; 42 tests pass |
+| B-002 | No git repository in workspace | **RESOLVED** | `git init`, baseline commits on `main` |
+| B-010 | (new) duplicate journal numbers | **FIXED** | sequence insert corrected; invoice tests |
+| B-011 | (new) statement rows not linked to invoices | **FIXED** | `journal_entry.source_id` set in the invoice transaction |
+| B-012 | (new) negative demo inventory, service revenue misclassified | **FIXED** | opening-stock journal, per-item `revenue_code` |
+| B-004 | Mockup uses a city-photo hero | OPEN (design reference only) | spec §4 still applies to future UI |
+| B-005 | Mockup shows unsupported marketing claims | OPEN (do not reuse copy) | — |
+| B-008 | Two mockups disagree on figures | OPEN (mockups are not data) | — |
+
+### Known gaps (not defects — not built yet)
+
+| ID | Gap | Impact |
+|---|---|---|
+| G-01 | No receipts/payments against invoices | AR cannot be settled; ageing is invoice-only |
+| G-02 | No purchases/AP/vendor ledger | Expense side is manual journals only |
+| G-03 | No credit notes / debit notes | Corrections require a manual reversal |
+| G-04 | No GST returns or exports | Filing still manual |
+| G-05 | Backup/restore documented but not automated | RPO/RTO unproven |
+| G-06 | Single-user session UI; no invite/role admin screens | Roles exist in the data layer only |
+| G-07 | No PostgreSQL deployment; SQLite only | Single-node, local |

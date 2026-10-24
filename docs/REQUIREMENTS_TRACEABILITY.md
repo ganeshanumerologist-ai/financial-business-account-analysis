@@ -149,3 +149,26 @@ Executed against application code: **0**.
 2. A test without recorded output is not evidence.
 3. A doc row that says DONE without a passing test ID is a documentation defect.
 4. Removing a requirement requires a decision-log entry, never a silent deletion.
+
+
+---
+
+## 9. Status after Build 0.1 (2026-10-24)
+
+The rows in sections 2–7 were written before any code existed. This table is the current
+truth and supersedes their status column only; the requirement text and test IDs stay.
+
+| Capability | Requirement area | Test evidence | Status |
+|---|---|---|---|
+| Invoice creation with GST | REQ-ACC / invoicing | `TestInvoice` (7 tests) | VERIFIED |
+| Double-entry integrity | FIN-01…FIN-09 | `TestPosting` (6), `TestReports` (8) | VERIFIED |
+| Ledger, TB, P&L, balance sheet | reporting | `TestReports`, `test_web.test_04` | VERIFIED |
+| Customer-wise receivables | AR / statements | `test_customer_statement_matches_receivable_control` | VERIFIED |
+| Authentication and sessions | SEC-01…SEC-04 | `TestSecurity` (5) | VERIFIED |
+| RBAC and least privilege | SEC-05 | `test_rbac_denies_readonly_write` | VERIFIED |
+| Tenant isolation | SEC-06 | cross-tenant tests (3) | VERIFIED |
+| CSRF protection | SEC-07 | `test_06_csrf_required` | VERIFIED |
+| Audit trail | SEC-08 | rows written on postings/logins | PARTIAL |
+| Backup and restore | OPS-01 | — | NOT IMPLEMENTED |
+| Payments/receipts, AP, GST returns, exports | ACC / compliance | — | NOT IMPLEMENTED |
+| PostgreSQL, hosting, Next.js UI | NFR / deployment | — | NOT IMPLEMENTED |

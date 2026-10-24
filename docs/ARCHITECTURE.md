@@ -183,3 +183,30 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 8. Backup script + **restore-verify** script + drill.
 9. Test suite + evidence in `docs/TEST_RESULTS.md`.
 10. Stop, report, wait for owner approval before Phase 2 (accounting core).
+
+
+---
+
+## 11. Implementation status (2026-10-24, Build 0.1)
+
+| Module | Responsibility | State |
+|---|---|---|
+| `app/money.py` | integer paise, half-up rounding, largest-remainder allocation | Implemented, tested |
+| `app/db.py` | schema, chart of accounts, per-tenant sequences, WAL connection | Implemented, tested |
+| `app/accounting.py` | posting, reversals, invoicing, ledger, TB, P&L, balance sheet, customer statements | Implemented, tested |
+| `app/security.py` | scrypt hashing, sessions, CSRF token, RBAC, tenant authorisation, lockout | Implemented, tested |
+| `app/server.py` | HTTP routing, server-rendered UI, cookie/CSRF handling | Implemented, HTTP-tested |
+| `app/demo.py`, `scripts/seed_demo.py` | synthetic demo books | Implemented |
+| `dev.ps1` | test → seed → run | Implemented |
+
+Deviations from the original plan, both recorded in `docs/DECISION_LOG.md`:
+
+1. **D-007** — runtime is the Python standard library plus SQLite, not FastAPI + Next.js,
+   because PyPI is unreachable on this machine. The schema and service boundaries are
+   framework-neutral so the API can be wrapped later.
+2. **D-008** — accounting features ship in the same slice as the security foundation, but
+   every posting still passes tenant authorisation and writes an audit record.
+
+Not yet implemented from Phases 1–6: automated backup + restore drill, payment/receipt
+posting, purchases/AP, credit notes in the UI, GST returns, exports, multi-user admin UI,
+PostgreSQL deployment, and the React front end.

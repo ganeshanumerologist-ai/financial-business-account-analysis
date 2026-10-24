@@ -161,3 +161,51 @@ curl https://api.github.com/repos/ganeshanumerologist-ai/financial-business-acco
 The software cannot be described as working, partially working, or broken at the feature level. It does not exist yet. The audit's value is the enforceable baseline: environment constraints identified, spec conflicts caught before they were coded, defects logged, and an 89-case test plan waiting to be executed.
 
 Next step is an owner decision on stack and system installs, then Phase 1 implementation with the security and accounting gates in `docs/TEST_PLAN.md` §8.
+
+
+---
+
+## 6. Application run `RUN-2026-10-24-02` — first implementation slice
+
+| Field | Value |
+|---|---|
+| Date | 2026-10-24 |
+| Type | Automated unit + end-to-end HTTP tests (real server, temporary SQLite DB) |
+| Command | `python -m unittest discover -s tests` |
+| Environment | Windows, Python 3.14.6, SQLite (stdlib), zero pip packages |
+| Tests | **42 executed, 42 passed, 0 failed** (~3.4 s) |
+| Verdict | Accounting core and the Phase 1 security controls verified for this build |
+
+### 6.1 What was actually executed
+
+| Suite | Tests | Verified behaviour |
+|---|---|---|
+| `TestMoney` | 5 | float rejection, 2-dp validation, half-up tax rounding, largest-remainder allocation sums exactly |
+| `TestPosting` | 6 | unbalanced entries rejected with no rows written, one-sided lines enforced, idempotency, period lock, cross-tenant account rejection |
+| `TestInvoice` | 7 | CGST/SGST split, IGST for inter-state, COGS + stock decrement, negative-stock block, discount guard, round-off posting, invoice idempotency, service-revenue classification |
+| `TestReports` | 8 | TB totals equal raw journal sums, balance sheet A = L + E, P&L matches ledger, running balances, reversal nets to zero, customer statement equals AR control, cross-tenant ledger/statement blocked |
+| `TestSecurity` | 5 | scrypt hash/verify, weak-password rejection, session issue/revoke, lockout after 5 failures, RBAC denial, missing-membership denial |
+| `test_web.WebTest` | 9 | login required, bad password 401, dashboard renders without None/NaN, report pages render and balance, invoice creation through the form flows into reports, CSRF 403, customer creation, cross-tenant invoice hidden, customer statement links to invoices |
+
+### 6.2 Defects found and fixed during this run
+
+| ID | Symptom | Root cause | Fix | Regression test |
+|---|---|---|---|---|
+| B-010 | Duplicate `JV-00001`, `UNIQUE constraint failed` on the second posting | `sequence` row inserted with `next_no = 1`, so the next call returned 1 again | Insert with `next_no = 2` | `TestPosting.test_balanced_posts_and_tb_balances` and all invoice tests |
+| B-011 | Customer statement rows did not link to invoices | Journal entry created before the invoice row, so `source_id` stayed `NULL` | Update `journal_entry.source_id` inside the invoice transaction | `test_web.test_09_customer_statement` |
+| B-012 | Demo inventory negative; service revenue posted to Sales | No opening-stock journal; invoices always credited account 4000 | Opening inventory posted; per-item `revenue_code` (4000 goods / 4100 services) | `test_service_item_posts_to_service_revenue` |
+
+### 6.3 Verified by manual browser check
+
+Dashboard, invoices list, invoice detail, trial balance, P&L, balance sheet, customers and
+customer statement were opened in a real browser against the seeded demo books. Observed:
+TB totals equal on both sides (₹11,57,502.32), balance sheet badge `A = L + E`, P&L net
+profit ₹63,169.43 matching the balance sheet's retained-earnings line, customer balances
+summing to the AR control account (₹2,32,282.00).
+
+### 6.4 Explicitly NOT verified
+
+Payments/receipts, purchases/AP, credit notes, GST returns, exports/PDF, backup/restore,
+multi-user invitations, PostgreSQL, concurrency/load, penetration testing, the Next.js UI,
+accessibility audit, and behaviour under real data volumes. These remain open and are not
+claimed anywhere.

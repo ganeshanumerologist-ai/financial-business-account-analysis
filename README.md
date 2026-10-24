@@ -1,121 +1,135 @@
 # ARTHIVIO — Smarter Finance. Stronger Business.
 
-Business finance, accounting and analytics platform. This repository currently contains **audit documentation and design references only** — no application code has been written yet.
+Business finance, accounting and analytics platform for Indian SMEs.
 
-> **Status: NOT RUNNABLE.** There is no app to start. That is a verified fact, not a placeholder.
+**Status: working local prototype (Build 0.1).** Invoices, ledger, trial balance, P&L,
+balance sheet and customer statements are implemented, posted through a real double-entry
+engine, and covered by **42 automated tests that pass on this machine** (see
+`docs/TEST_RESULTS.md`, run `RUN-2026-10-24-02`).
 
----
-
-## What is in this folder right now
-
-```
-D:\financial business account data analysis\
-├── Arthivio Smarter Finance Dashboard.png          design reference (1536×1024)
-├── WhatsApp Image 2026-10-24 at 10.10.22 AM.jpeg   design reference (1536×1024)
-├── README.md                                        this file
-├── .gitignore                                       secrets/db/node excluded
-└── docs\
-    ├── SOFTWARE_AUDIT.md              audit report (evidence-based)
-    ├── FEATURE_INVENTORY.md           142 specified features, all NOT IMPLEMENTED
-    ├── TEST_PLAN.md                   90 test cases
-    ├── TEST_RESULTS.md                results of run RUN-2026-10-24-01
-    ├── BUG_REPORT.md                  9 open defects (B-001 … B-009)
-    ├── REQUIREMENTS.md                30 product + 9 financial + 11 security + 10 NFR requirements
-    ├── ARCHITECTURE.md                decided stack, boundaries, layout
-    ├── DATABASE_DESIGN.md             Phase 1 schema + Phase 2 outline
-    ├── SECURITY_PLAN.md               threat model, RBAC, security gates
-    ├── BACKUP_AND_RECOVERY.md         RPO/RTO, restore drill, honest status
-    ├── ACCOUNTING_RULES.md            money, rounding, posting, report formulas
-    ├── COMPLIANCE_MATRIX.md           30 rows, 0 implemented
-    ├── API_INTEGRATIONS.md            12 planned, 0 connected
-    ├── REPORT_CATALOG.md              66 reports, 0 implemented
-    ├── DEVELOPMENT_ROADMAP.md         phases 0–10 with gates
-    ├── REQUIREMENTS_TRACEABILITY.md   requirement → module → test → status
-    ├── DECISION_LOG.md                decisions (D-001-D: Option A approved)
-    └── PROJECT_SPEC.md                governing specification (copied, hash-verified)
-```
-
-Baseline commit: `9052071` on branch `main`. Nothing pushed to GitHub.
+It is **not production-ready yet**: payments/receipts, purchases/AP, GST returns, exports
+and multi-user administration are not built. Do not put real customer data in it.
 
 ---
 
-## How to run it
+## Quick start
 
-You can't. There is no code.
+Requirements: Python 3.12+ (verified on 3.14.6). No pip packages, no Node, no database
+server needed.
 
 ```powershell
 cd "D:\financial business account data analysis"
-# no package.json, no requirements.txt, no app entry point
+.\dev.ps1                 # runs tests, seeds demo data, starts http://127.0.0.1:8000
 ```
 
-Once Phase 1 exists, this section will contain the exact commands. Until then, any command claiming to start ARTHIVIO would be false.
+Or step by step:
+
+```powershell
+python -m unittest discover -s tests     # 42 tests
+python scripts/seed_demo.py              # demo books (idempotent)
+python -m app.server                     # http://127.0.0.1:8000
+```
+
+Demo logins (synthetic data only — change before any real use):
+
+| Role | Email | Password |
+|---|---|---|
+| Owner | `owner@arthivio.test` | `ArthivioDemo!2026` |
+| Admin | `admin@arthivio.test` | `ArthivioDemo!2026` |
+
+Override the password with `ARTHIVIO_DEMO_PASSWORD`, the database path with
+`ARTHIVIO_DB`, and the port with `PORT`.
 
 ---
 
-## Verified environment
+## What actually works
 
-| Tool | Status |
+| Area | Behaviour | Evidence |
+|---|---|---|
+| Invoices | Multi-line, discounts, per-line GST, CGST/SGST vs IGST by place of supply, optional round-to-rupee, sequential numbering, idempotent creation | `test_accounting.TestInvoice`, `test_web.test_05` |
+| Posting engine | Integer-paise double entry, exact balance enforcement, per-tenant accounts, period locks, immutable entries + reversals | `TestPosting`, `TestReports.test_reversal_nets_to_zero` |
+| Inventory | Perpetual stock, COGS posting at item cost, negative-stock block | `test_cogs_and_stock`, `test_insufficient_stock_blocked` |
+| Receivables | Customer-wise balances and statements, reconciled to the AR control account | `test_customer_statement_matches_receivable_control` |
+| Reports | Trial balance, general ledger with running balance, P&L, balance sheet (A = L + E badge) | `test_04`, `test_balance_sheet_equation` |
+| Security | scrypt password hashing, server sessions with idle/absolute expiry, CSRF on every POST, RBAC matrix, login lockout, audit log | `TestSecurity`, `test_06_csrf_required` |
+| Tenancy | Every query is tenant-scoped; cross-tenant account, ledger, invoice and statement access is blocked and tested | `test_cross_tenant_account_rejected`, `test_08` |
+| UI | Responsive server-rendered UI in the ARTHIVIO palette (ivory/emerald/gold), no stock photos, no invented statistics | manual browser checks |
+
+## What is not built yet (honest gaps)
+
+- Receipts/payments against invoices, credit notes, debit notes
+- Purchases, accounts payable, vendor ledger, expenses beyond simple journals
+- GST returns (GSTR-1/3B), e-invoice/e-way integration, TDS/TCS
+- Bank reconciliation, cash/bank books with payment modes
+- PDF/Excel export, printing, email delivery
+- Multi-user invite/role administration UI (roles exist in the data layer)
+- Fixed-asset depreciation, payroll, budgets, cost centres
+- Backup + restore drill automation (documented, not implemented)
+- PostgreSQL deployment path, Next.js front end, hosting
+- Load, concurrency and penetration testing
+
+## Architecture
+
+Zero-dependency Python 3 + SQLite (WAL). This was a deliberate response to PyPI being
+unreachable on this machine (decision D-007); it removes the supply-chain surface for the
+accounting core and keeps the app runnable offline.
+
+```
+app/
+  money.py        integer paise, half-up rounding, largest-remainder allocation
+  db.py           schema, chart of accounts, per-tenant sequences
+  accounting.py   posting, invoicing, reversals, ledger/TB/P&L/BS, customer statements
+  security.py     scrypt hashing, sessions, RBAC, tenant authorisation
+  server.py       HTTP server + server-rendered UI (stdlib only)
+  demo.py         synthetic demo books
+tests/            42 unittest cases (unit + end-to-end HTTP)
+scripts/          seed_demo.py
+dev.ps1           test → seed → run
+```
+
+Money is always integer paise; binary floats are rejected on every financial path.
+Rounding is half-up at the minor unit. Every report is computed from posted journal lines —
+nothing is cached, estimated or hard-coded.
+
+## Tests
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Last verified: **42 tests, OK, ~3.4 s**, Python 3.14.6, Windows.
+
+## Documentation
+
+| Document | Purpose |
 |---|---|
-| Python 3.14.6 + pip 26.1.2 | ✅ installed |
-| Node.js 20.20.2 + npm 10.8.2 | ✅ **portable** (`C:\Users\vicky\node-portable\…`) — not on `PATH` |
-| git 2.56.0 | ✅ **portable** (`C:\Users\vicky\git-portable`) — not on `PATH` |
-| PostgreSQL | ❌ not installed |
-| Docker | ❌ not installed (not required locally) |
-| Disk free on D: | ✅ ≈ 876 GB |
+| `docs/PROJECT_SPEC.md` | Governing specification (hash-verified copy) |
+| `docs/SOFTWARE_AUDIT.md` | Evidence-based audit of the starting state |
+| `docs/TEST_RESULTS.md` | Executed runs and evidence (`RUN-2026-10-24-02`) |
+| `docs/TEST_PLAN.md` | 90 planned cases |
+| `docs/BUG_REPORT.md` | Defects and known gaps |
+| `docs/ARCHITECTURE.md` | Design and current implementation status |
+| `docs/DATABASE_DESIGN.md` | Schema |
+| `docs/SECURITY_PLAN.md` | Threat model, RBAC, security gates |
+| `docs/ACCOUNTING_RULES.md` | Money, rounding, posting and report formulas |
+| `docs/REQUIREMENTS_TRACEABILITY.md` | Requirement → module → test → status |
+| `docs/DECISION_LOG.md` | Decisions D-000 … D-008 |
+| `docs/REPORT_CATALOG.md` | 66 target reports |
+| `docs/DEVELOPMENT_ROADMAP.md` | Phases and gates |
+| `docs/BACKUP_AND_RECOVERY.md` | RPO/RTO and restore drill (not implemented) |
 
-Full detail: `docs/SOFTWARE_AUDIT.md` §3.
+## Rules this build follows
 
----
+- No Firebase, no paid APIs, no new external services.
+- No real customer or bank data in demo/tests.
+- No unverified claim: every "works" line above maps to a test that ran.
+- Nothing is pushed to GitHub from this machine.
 
-## Current audit conclusion
+## Next slice (recommended order)
 
-- Features implemented: **0**
-- Features verified working: **0**
-- Reports verified against transactions: **0** (none exist)
-- Tests executed against application code: **0**
-- Audit checks executed: **12** → 5 pass, 6 fail, 1 blocked
-- Remote GitHub repository inspected: exists, but contains **only a 144-byte README** — no code
-- Blocking defect: **B-001 — no application source**
-
-The audit did **not** invent results. Everything that could not be checked is marked `BLOCKED`, not `PASS`.
-
----
-
-## Decisions — settled
-
-1. ✅ **Stack: Option A** — Next.js (TypeScript) + FastAPI (Python), approved 2026-10-24 (`D-001-D`). Node 20 and git are already on the machine in portable form; no installs needed.
-2. ✅ **Database** — file-based DB for Phase 1 (SQLite/WAL), PostgreSQL-ready schema, migration path documented (`DATABASE_DESIGN.md`, `DF-01`).
-3. ✅ **Version control** — repository initialised, baseline committed. No push to GitHub.
-
-**Open (non-blocking):** location of the home-page theme (OQ-01) — needed only at Phase 6 (UI), not Phase 1.
-
----
-
-## Where we are
-
-| Phase | Status |
-|---|---|
-| Phase 0 — audit + planning | ✅ **Complete** (this documentation set) |
-| Phase 1 — secure foundation | ⏳ **Awaiting owner go-ahead** |
-| Phases 2–10 | Not started |
-
-Phase 1 = authentication, tenant isolation, roles/permissions, audit log, backup + verified restore. No financial modules until that gate passes.
-
----
-
-## Rules this project follows
-
-No silent failure. No silent financial correction. No unsupported financial claim. No unverified critical output. No cross-tenant data access. No false payment or government-verification status.
-
-Corollary used throughout the audit: **a feature is not "done" until implementation, tests and documentation agree.** Nothing here claims otherwise.
-
----
-
-## ओनर के लिए हिंदी में सार
-
-- अभी इस फोल्डर में **कोई सॉफ्टवेयर नहीं है** — सिर्फ दो डिज़ाइन तस्वीरें और पूरा प्लान/ऑडिट डॉक्यूमेंट है।
-- इसलिए ऑडिट में हर फीचर `BLOCKED` लिखा है, `PASS` नहीं। झूठी रिपोर्ट नहीं बनाई गई।
-- कंप्यूटर में Python है, और Node.js + Git भी हैं (पोर्टेबल फोल्डर में, PATH में नहीं)। PostgreSQL नहीं है — इसलिए Phase 1 में SQLite। 
-- आपने Option A approve किया — अब Git repo बन गया और पहला commit हो गया (कुछ भी GitHub पर push नहीं हुआ)।
-- अगला कदम: आपकी हाँ के बाद **Phase 1** — लॉगिन, अलग-अलग कंपनी का डेटा अलग रखना, roles, ऑडिट लॉग, बैकअप + restore टेस्ट।
-- पूरी रिपोर्ट: `docs/SOFTWARE_AUDIT.md`, और प्लान: `docs/DEVELOPMENT_ROADMAP.md`।
+1. Receipts against invoices → AR ageing → customer statement with payments.
+2. Purchases/AP → vendor ledger → expense categories.
+3. Credit notes and reversals in the UI.
+4. GST summary (GSTR-1 style) and export to CSV/PDF.
+5. Backup + restore drill with a recorded verification.
+6. Then multi-user admin UI, PostgreSQL, and the Next.js front end.

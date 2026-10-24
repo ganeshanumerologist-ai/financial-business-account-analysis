@@ -176,3 +176,27 @@ No code will be written before this answer.
 | DF-06 | Real GST/e-invoice API onboarding | Phase 9, after official access + professional review |
 | DF-07 | Backup off-site destination | Phase 1 backup foundation → hardening in Phase 10 |
 | DF-08 | Brand name/domain/trademark availability | Before public launch |
+
+
+---
+
+## D-007 — Runtime stack: zero-dependency Python + SQLite (deviation from D-001-D)
+
+| | |
+|---|---|
+| Date | 2026-10-24 |
+| Status | Decided, owner acknowledgement pending |
+| Context | Option A (Next.js + FastAPI) was approved. On this machine PyPI is unreachable: `pip install` times out even for SQLAlchemy (`Connection timed out while downloading`, `No matching distribution found`). npm responds (PONG in ~6 s), so npm works, but the Python backend could not be installed at all. |
+| Decision | Build the accounting core and Phase 1 controls with the Python standard library only (`http.server`, `sqlite3`, `hashlib.scrypt`, `unittest`), and defer the Next.js front end until dependency installation is reliable. |
+| Rationale | The release gate is financial correctness and security, not the HTTP framework. A stdlib build is runnable and testable today, has no supply-chain surface, and keeps the same schema and service boundaries so FastAPI/Next.js can wrap it later without rewriting accounting logic. |
+| Consequence | The UI is server-rendered rather than React. `docs/ARCHITECTURE.md` and the Phase 6 plan change. Revisit when PyPI is reachable or a vendored wheel set is approved. |
+
+## D-008 — Build order: accounting slice before the React front end
+
+| | |
+|---|---|
+| Date | 2026-10-24 |
+| Status | Decided |
+| Context | Owner requires invoices, ledger and reports ("pura account"), not a foundation-only deliverable. |
+| Decision | Deliver a vertical slice — posting engine → invoices → ledger/TB/P&L/BS → customer statements → UI — with tests at each step, then continue with receipts, purchases, credit notes and GST. |
+| Consequence | The foundation controls (tenancy, RBAC, CSRF, audit, sessions) ship inside the same slice rather than as a separate phase, so no accounting feature exists without tenant isolation and an audit trail. |

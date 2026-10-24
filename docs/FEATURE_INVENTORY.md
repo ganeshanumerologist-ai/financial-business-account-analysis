@@ -260,3 +260,36 @@ Recorded so scope cannot drift silently:
 | `docs/*.md` (18 files) | Audit + planning documentation | Created by this audit and Rule 1 planning |
 
 That is the entire feature inventory of the running product: **nothing.**
+
+
+---
+
+## Implemented features — Build 0.1 (2026-10-24)
+
+Status vocabulary: **VERIFIED** means a test in `docs/TEST_RESULTS.md` run
+`RUN-2026-10-24-02` exercised it and passed.
+
+| # | Feature | Evidence | Status |
+|---|---|---|---|
+| 1 | Create a multi-line tax invoice with discounts | `TestInvoice`, `test_web.test_05` | VERIFIED |
+| 2 | CGST/SGST vs IGST by place of supply | `test_totals_and_tax_intra_state`, `test_inter_state_uses_igst` | VERIFIED |
+| 3 | Optional round-to-rupee with rounding account | `test_round_to_rupee_posts_rounding` | VERIFIED |
+| 4 | Sequential invoice and journal numbering | `test_totals_and_tax_intra_state` (`INV-00001`) | VERIFIED |
+| 5 | Idempotent invoice creation | `test_invoice_idempotency` | VERIFIED |
+| 6 | Balanced double-entry posting, immutability, reversals | `TestPosting`, `test_reversal_nets_to_zero` | VERIFIED |
+| 7 | Period locks | `test_period_lock_blocks` | VERIFIED |
+| 8 | Perpetual inventory, COGS, negative-stock block | `test_cogs_and_stock`, `test_insufficient_stock_blocked` | VERIFIED |
+| 9 | Goods vs services revenue classification | `test_service_item_posts_to_service_revenue` | VERIFIED |
+| 10 | General ledger with opening/closing and running balance | `test_general_ledger_running_balance` | VERIFIED |
+| 11 | Trial balance with equality check | `TestPosting`, `test_web.test_04` | VERIFIED |
+| 12 | Profit & loss | `test_profit_and_loss_matches_ledger` | VERIFIED |
+| 13 | Balance sheet with A = L + E check | `test_balance_sheet_equation`, `test_04` | VERIFIED |
+| 14 | Customer balances and statements | `test_customer_statement_matches_receivable_control`, `test_09` | VERIFIED |
+| 15 | Customer and item masters | `test_web.test_07` | VERIFIED |
+| 16 | Login, sessions, lockout | `TestSecurity`, `test_02`, `test_03` | VERIFIED |
+| 17 | CSRF protection | `test_06_csrf_required` | VERIFIED |
+| 18 | RBAC and tenant isolation | `TestSecurity`, `test_08`, cross-tenant tests | VERIFIED |
+| 19 | Audit log (logins, postings, master data) | audit rows asserted in postings; UI page | PARTIAL (no tamper-evidence chain) |
+| 20 | Responsive branded UI | manual browser check | VERIFIED (visual only) |
+
+Everything else in the 142-item inventory above remains **NOT IMPLEMENTED**.
