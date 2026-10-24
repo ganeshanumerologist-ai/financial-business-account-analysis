@@ -2,15 +2,16 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.2).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.3).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, day book,
-manual journals, GST summary, ageing reports, CSV exports and verified backups are implemented
-through a real double-entry engine and covered by **75 automated tests that pass on this
-machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-10-24-03`).
+manual journals, GST summary, ageing reports, CSV exports, a print-ready tax invoice and a
+GSTR-1 style working export are implemented through a real double-entry engine and covered by
+**87 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`, run
+`RUN-2026-10-24-04`).
 
-It is **not production-ready yet**: PDF/e-invoice, GSTR-1 JSON, debit notes, bank
-reconciliation, multi-user admin UI and the Next.js front end are not built. Do not put real
-customer data in it.
+It is **not production-ready yet**: GST portal upload / GSTR-3B, e-invoice/IRN, debit notes,
+bank reconciliation, multi-user admin UI and the Next.js front end are not built. Do not put
+real customer data in it.
 
 ---
 
@@ -27,7 +28,7 @@ cd "D:\financial business account data analysis"
 Or step by step:
 
 ```powershell
-python -m unittest discover -s tests     # 75 tests
+python -m unittest discover -s tests     # 87 tests
 python scripts/seed_demo.py              # demo books (idempotent)
 python -m app.server                     # http://127.0.0.1:8000
 ```
@@ -56,7 +57,9 @@ the backup folder with `ARTHIVIO_BACKUP_DIR`, and the port with `PORT`.
 | Inventory | Perpetual stock, weighted-average cost, COGS at cost, negative-stock block, service items never touch stock | `test_cogs_and_stock`, `test_purchase_at_current_cost_keeps_average`, `test_service_invoice_does_not_touch_stock` |
 | Receivables / payables | Customer and vendor balances + statements, open-invoice and open-bill ageing (current / 31-60 / 61-90 / 90+), reconciled to control accounts | `TestReceipts`, `TestAgeingAndGST`, `test_customer_statement_matches_receivable_control` |
 | Reports | Trial balance, general ledger with running balance, P&L, balance sheet (A = L + E), day book, GST summary with sales/purchase registers | `test_04`, `test_balance_sheet_equation`, `TestAgeingAndGST` |
-| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, ageing and GST registers (UTF-8 with BOM for Excel) | `test_13_csv_exports` |
+| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, ageing and GST registers (UTF-8 with BOM for Excel); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections | `test_13_csv_exports`, `test_17`, `test_18` |
+| Tax invoice | A4 print view with seller/buyer GSTIN, HSN/SAC, CGST/SGST vs IGST, amount in words, bank details and terms; browser Print / Save as PDF | `test_16_settings_and_print_invoice` |
+| Business settings | Owner-editable legal name, GSTIN, GST state, address, contact, bank details and invoice terms; validated and audited | `test_16_settings_and_print_invoice`, `MigrationTest` |
 | Backups | Consistent online backup, SHA-256, integrity + foreign-key + balanced-journal + row-count verification, recorded runs, CLI restore drill | `TestBackup`, `test_15_backup_over_http`, `scripts/backup.py` |
 | Security | scrypt password hashing, server sessions with idle/absolute expiry, CSRF on every POST, RBAC matrix, login lockout, audit log | `TestSecurity`, `test_06_csrf_required` |
 | Tenancy | Every query is tenant-scoped; cross-tenant account, ledger, invoice, statement, receipt and export access is blocked and tested | `test_cross_tenant_account_rejected`, `test_08`, `test_foreign_invoice_rejected` |
@@ -65,9 +68,9 @@ the backup folder with `ARTHIVIO_BACKUP_DIR`, and the port with `PORT`.
 ## What is not built yet (honest gaps)
 
 - Debit notes, purchase returns, expense categories beyond simple journals
-- GSTR-1/3B returns, e-invoice/IRN, e-way bills, TDS/TCS
+- GST portal upload, GSTR-3B, e-invoice/IRN, e-way bills, TDS/TCS
 - Bank reconciliation, cheque printing, payment reminders
-- PDF invoices, Excel (xlsx) export, printing, email delivery
+- Excel (xlsx) export, email delivery, e-invoice QR
 - Multi-user invite/role administration UI (roles exist in the data layer)
 - Fixed-asset depreciation, payroll, budgets, cost centres, multi-currency
 - One-click destructive restore (restore is verified but deliberately manual)
@@ -89,7 +92,7 @@ app/
   backup.py       online backup + verification (integrity, FKs, balance, row counts)
   server.py       HTTP server + server-rendered UI (stdlib only)
   demo.py         synthetic demo books
-tests/            75 unittest cases (unit + end-to-end HTTP)
+tests/            87 unittest cases (unit + end-to-end HTTP)
 scripts/          seed_demo.py, backup.py, restore_verify.py
 dev.ps1           test → seed → run
 ```
@@ -106,7 +109,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **75 tests, OK, ~9 s**, Python 3.14.6, Windows.
+Last verified: **87 tests, OK, ~9 s**, Python 3.14.6, Windows.
 
 Backup drill:
 
@@ -143,9 +146,9 @@ python scripts/restore_verify.py --backup backups\<file>.db
 
 ## Next slice (recommended order)
 
-1. PDF invoice printing and a shareable customer statement.
-2. GSTR-1 style JSON/CSV export and purchase register reconciliation.
-3. Debit notes, expense categories and a simple cash/bank book.
+1. Debit notes (purchase returns) with input-GST reversal.
+2. Bank reconciliation: CSV import, suggested matches, manual match/unmatch.
+3. Shareable customer/vendor statement print views.
 4. Multi-user invitation and role administration UI.
-5. Bank reconciliation import (CSV) with a matching workflow.
+5. GSTR-3B working summary and GSTR-1 reconciliation checks.
 6. Then PostgreSQL, concurrency hardening and the Next.js front end.

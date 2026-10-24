@@ -243,3 +243,61 @@ vendor ?? bill ??? AP ?? vendor payment ??? cash/bank
 Known architectural limits: single-process HTTP server, SQLite single-writer, no background
 jobs, no PDF renderer, no bank-feed integration. These are deployment decisions, not
 accounting shortcuts.
+
+
+## 13. Implementation status (2026-10-24, Build 0.3)
+
+### 13.1 Business profile and additive migration
+
+`tenant` now stores the details a GST invoice needs: legal name, GSTIN, GST state code and
+state name, address, city, PIN, phone, email, bank name/account/IFSC and invoice terms.
+`customer` stores a billing address. `db.init_db` runs an idempotent `_ensure_columns`
+migration (`ALTER TABLE ... ADD COLUMN` only); no table is dropped or rewritten and existing
+rows are preserved. Fresh databases get the same columns from the base schema.
+
+Settings are edited at `/settings` and require the `tenant.manage` permission (owner role).
+Every change is audited as `tenant.settings_updated`. Validation covers GSTIN, GST state,
+PIN code, email and IFSC.
+
+### 13.2 Print-ready tax invoice
+
+`GET /invoices/<id>/print` renders a standalone A4 HTML document (no application shell) with
+its own `PRINT_CSS`:
+
+- seller identity/GSTIN/address/contact, buyer identity/GSTIN/state, invoice number/date,
+  place of supply, reverse charge
+- per-line HSN/SAC, quantity, rate, discount, taxable value, GST rate and CGST/SGST or IGST
+- rate-wise totals, round-off, invoice total, amount in words (Indian numbering)
+- bank details, terms and signature block
+- a `window.print()` button; users choose "Save as PDF" in the browser
+
+Per-line CGST/SGST allocation is derived from the invoice tax total with a largest-remainder
+style correction, so `sum(line CGST) + sum(line SGST) == invoice tax` exactly, including
+odd-paise invoices. Inter-state invoices put the whole line tax in IGST.
+
+The print view uses the same tenant-scoped invoice query as the detail page, so a foreign
+invoice id returns 404.
+
+### 13.3 GSTR-1 style working export
+
+`accounting.gstr1_data(conn, tenant_id, from, to)` prepares:
+
+- **B2B** - registered buyers, one row per invoice per rate; invoice value appears once per
+  invoice (first rate row) to avoid double counting
+- **B2CS** - unregistered buyers aggregated by place of supply and rate
+- **HSN** - item HSN/SAC + rate, quantity, taxable value, CGST/SGST/IGST and total value
+- **Credit notes** - `CDNR` (registered) / `CDNUR` (unregistered), with GST split by the note's
+  place of supply
+- document counts and warnings (missing supplier GSTIN, B2C invoices, missing HSN)
+
+`/export/gstr1.csv` writes one UTF-8-BOM CSV with a `Section` column and `TOTAL` / `CN TOTAL`
+rows. `/export/gstr1.json` writes `arthivio-gstr1-working-v1` with amounts as exact INR
+decimal **strings** (no binary floats) plus `amount_unit`, `note` and `warnings`. Neither file
+claims to be an uploaded or filed return.
+
+### 13.4 Deliberate limits
+
+- No PDF library, no GST portal integration, no official GSTR-1 schema claim.
+- Settings are owner-only; admin/manager roles can view but not change them.
+- Credit notes are reported at document level in GSTR-1 (rate-wise credit-note rows are a
+  later refinement).

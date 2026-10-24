@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import html
 import io
+import json
 import os
 import re
 import secrets
@@ -76,8 +77,8 @@ tfoot td{font-weight:650;background:#FBFAF6}
 .btn.ghost{background:#fff;color:var(--emerald);border:1px solid #C9D8CE}
 .btn.ghost:hover{background:var(--sage-soft);color:var(--emerald-700)}
 .btn.small{padding:7px 12px;font-size:13.5px}
-input,select{font:inherit;color:var(--ink);background:#fff;border:1px solid #D8D3C6;border-radius:9px;padding:9px 11px;width:100%}
-input:focus,select:focus{outline:2px solid #BBD6C6;outline-offset:0;border-color:var(--emerald)}
+input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid #D8D3C6;border-radius:9px;padding:9px 11px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid #BBD6C6;outline-offset:0;border-color:var(--emerald)}
 label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;letter-spacing:.01em}
 .field{margin-bottom:13px}
 .row{display:grid;gap:12px}
@@ -113,6 +114,40 @@ label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margi
 @media print{.side,.top .who{display:none}.shell{grid-template-columns:1fr}}
 """
 
+PRINT_CSS = """
+@page{size:A4;margin:12mm}
+*{box-sizing:border-box}
+body{margin:0;background:#EEECE5;color:#1B2B26;font-family:"Segoe UI",system-ui,Arial,sans-serif;font-size:12px;line-height:1.45}
+.toolbar{max-width:190mm;margin:14px auto;display:flex;gap:10px;justify-content:flex-end}
+.toolbar a,.toolbar button{font:inherit;font-size:13px;padding:8px 14px;border-radius:8px;border:1px solid #C9D3CD;background:#fff;color:#176B4D;cursor:pointer;text-decoration:none}
+.toolbar button{background:#176B4D;color:#fff;border-color:#176B4D}
+.sheet{width:190mm;min-height:270mm;margin:0 auto 20px;background:#fff;padding:14mm 14mm 12mm;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+.head{display:flex;justify-content:space-between;gap:18px;border-bottom:2px solid #176B4D;padding-bottom:10px}
+.head .brand{font-size:21px;font-weight:700;letter-spacing:.03em;color:#123F2E}
+.head .meta{text-align:right;min-width:58mm}
+.head .meta .doc{font-size:15px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#123F2E}
+.addr{font-size:11px;color:#44564F;margin-top:3px}
+.parties{display:flex;gap:16px;margin:12px 0}
+.parties>div{flex:1;border:1px solid #DDE3DF;border-radius:6px;padding:8px 10px;min-height:24mm}
+.parties h4{margin:0 0 4px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#68766E}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th,td{border:1px solid #DDE3DF;padding:5px 6px;vertical-align:top}
+th{background:#F4F7F4;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#44564F;text-align:left}
+.num{text-align:right;white-space:nowrap}
+.totals{margin-left:auto;width:62mm;margin-top:8px}
+.totals td{border:none;padding:3px 0}
+.totals .amt{text-align:right;white-space:nowrap}
+.totals .grand td{border-top:1px solid #176B4D;font-weight:700;font-size:13px;padding-top:5px}
+.words{margin-top:10px;font-size:11px;background:#F7F9F7;border:1px solid #E3E9E4;border-radius:5px;padding:7px 9px}
+.foot{display:flex;justify-content:space-between;gap:18px;margin-top:14px;font-size:10.5px;color:#44564F}
+.foot .box{flex:1}
+.sign .line{margin-top:26px;border-top:1px solid #9FB0A8;display:block;padding-top:4px;text-align:center}
+.foot .sign{flex:0 0 58mm;text-align:center;margin:0}
+.note{margin-top:10px;font-size:10px;color:#68766E}
+.warn{max-width:190mm;margin:12px auto 0;background:#F7E7E3;border:1px solid #E7C4BC;color:#A6402F;padding:8px 12px;border-radius:8px;font-size:12px}
+@media print{body{background:#fff}.toolbar,.warn{display:none}.sheet{box-shadow:none;margin:0;width:auto;min-height:0;padding:0}}
+"""
+
 LOGO = """<svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
 <path d="M4 26 L13 6 L20 20 L24 13 L28 26 Z" fill="#C6A15B" opacity=".95"/>
 <path d="M4 26 L13 6 L20 20 Z" fill="#EAF2EC" opacity=".9"/>
@@ -127,6 +162,7 @@ ICONS = {
     "cust": '<path d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6"/>',
     "item": '<path d="M4 7l8-4 8 4v10l-8 4-8-4V7zm8 4v10"/>',
     "audit": '<path d="M5 3h14v18H5zM9 8h6M9 12h6M9 16h3"/>',
+    "gear": '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="18" r="2"/>',
 }
 
 NAV = [
@@ -156,10 +192,42 @@ NAV = [
     ("Masters", [
         ("customers", "cust", "Customers"),
         ("items", "item", "Items"),
+        ("settings", "gear", "Settings"),
         ("backup", "audit", "Backups"),
         ("audit", "audit", "Audit Log"),
     ]),
 ]
+
+
+
+STATES = {
+    "01": "Jammu and Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+    "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan",
+    "09": "Uttar Pradesh", "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh",
+    "13": "Nagaland", "14": "Manipur", "15": "Mizoram", "16": "Tripura",
+    "17": "Meghalaya", "18": "Assam", "19": "West Bengal", "20": "Jharkhand",
+    "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
+    "26": "Dadra and Nagar Haveli and Daman and Diu", "27": "Maharashtra",
+    "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
+    "33": "Tamil Nadu", "34": "Puducherry", "35": "Andaman and Nicobar Islands",
+    "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
+    "97": "Other Territory", "99": "Centre Jurisdiction",
+}
+
+
+def state_name(code: str, fallback: str = "") -> str:
+    return STATES.get((code or "").strip(), fallback)
+
+
+def state_options(selected: str) -> str:
+    return "".join(
+        f'<option value="{esc(code)}"{" selected" if code == selected else ""}>{esc(code)} &middot; {esc(name)}</option>'
+        for code, name in STATES.items())
+
+
+def fiscal_start(today: date, start_month: int = 4) -> str:
+    year = today.year if today.month >= start_month else today.year - 1
+    return date(year, start_month, 1).isoformat()
 
 
 def esc(v) -> str:
@@ -302,6 +370,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_invoices(conn, user, tenant, sess))
             if path == "/invoices/new":
                 return self._send(self.page_invoice_new(conn, user, tenant, sess))
+            if re.fullmatch(r"/invoices/[0-9a-f]{32}/print", path):
+                return self._send(self.page_invoice_print(conn, user, tenant,
+                                                          path.split("/")[2]))
             if re.fullmatch(r"/invoices/[0-9a-f]{32}", path):
                 return self._send(self.page_invoice_detail(conn, user, tenant, sess,
                                                            path.rsplit("/", 1)[1]))
@@ -344,12 +415,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_ageing(conn, user, tenant, q, "ap"))
             if path == "/reports/gst":
                 return self._send(self.page_gst(conn, user, tenant, q))
+            if path == "/export/gstr1.json":
+                return self.export_gstr1_json(conn, user, tenant, q)
             if path.startswith("/export/"):
                 return self.export_csv(conn, user, tenant, path, q)
             if path == "/items":
                 return self._send(self.page_items(conn, user, tenant, sess))
             if path == "/audit":
                 return self._send(self.page_audit(conn, user, tenant))
+            if path == "/settings":
+                return self._send(self.page_settings(conn, user, tenant, sess, q))
             if path == "/backup":
                 return self._send(self.page_backups(conn, user, tenant, sess, q))
             return self._send(layout("Not found", '<div class="card pad">Page not found.</div>', user=user, tenant=tenant), 404)
@@ -392,6 +467,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/logout":
                 security.revoke_session(conn, self._cookies().get("sid"))
                 return self._redirect("/login", {"Set-Cookie": "sid=; Max-Age=0; Path=/"})
+
+            if path == "/settings":
+                return self._save_settings(conn, user, tenant, form)
 
             if path == "/backup":
                 security.require(conn, user["id"], tenant["id"], "backup.run")
@@ -641,6 +719,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <div class="sect-head"><div><h2>{esc(inv["invoice_no"])}</h2>
 <div class="small muted">{esc(inv["invoice_date"])} · {esc(inv["name"])} · place of supply {esc(inv["place_of_supply_state"])}</div></div>
 <div><span class="badge {badge}">Outstanding {money.fmt(out)}</span>
+<a class="btn" href="/invoices/{esc(invoice_id)}/print" style="margin-left:8px">Print / PDF</a>
 <a class="btn ghost" href="/invoices" style="margin-left:8px">Back</a></div></div>
 <div class="card sect"><table>
 <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Disc</th><th class="num">Taxable</th><th class="num">Rate</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
@@ -655,6 +734,128 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 {credit_form}
 <div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted on {esc(je["posted_at"][:10])}. Posted entries are immutable; corrections use a credit note or reversal.</div>"""
         return layout(f'Invoice {inv["invoice_no"]}', body, "invoices", user, tenant)
+
+    def page_invoice_print(self, conn, user, tenant, invoice_id: str) -> str:
+        try:
+            br = acct.invoice_tax_breakup(conn, tenant["id"], invoice_id)
+        except acct.AccountingError:
+            return self._send(layout("Not found", '<div class="card pad">Invoice not found.</div>',
+                                     "invoices", user, tenant), 404)
+        inv, t, intra = br["invoice"], br["tenant"], br["intra"]
+        hsn = {r["id"]: r["hsn"] for r in conn.execute(
+            "SELECT id, hsn FROM item WHERE tenant_id=?", (tenant["id"],))}
+
+        rows = []
+        for idx, l in enumerate(br["lines"], 1):
+            qty = f'{l["qty_milli"] / 1000:.3f}'.rstrip("0").rstrip(".")
+            disc = money.fmt(l["discount_paise"]) if l["discount_paise"] else "&mdash;"
+            if intra:
+                tax_cells = (f'<td class="num">{money.fmt(l["cgst"])}</td>'
+                             f'<td class="num">{money.fmt(l["sgst"])}</td>')
+            else:
+                tax_cells = f'<td class="num">{money.fmt(l["igst"])}</td>'
+            rows.append(
+                f'<tr><td class="num">{idx}</td><td>{esc(l["description"])}</td>'
+                f'<td>{esc(hsn.get(l["item_id"]) or "&mdash;")}</td>'
+                f'<td class="num">{qty}</td><td class="num">{money.fmt(l["unit_price_paise"])}</td>'
+                f'<td class="num">{disc}</td><td class="num">{money.fmt(l["taxable_paise"])}</td>'
+                f'<td class="num">{l["tax_rate_bp"] / 100:.2f}%</td>{tax_cells}'
+                f'<td class="num">{money.fmt(l["line_total_paise"])}</td></tr>')
+
+        tax_heads = ('<th class="num">CGST</th><th class="num">SGST</th>' if intra
+                     else '<th class="num">IGST</th>')
+        if intra:
+            tax_total_rows = (f'<tr><td>CGST</td><td class="amt">{money.fmt(br["cgst"])}</td></tr>'
+                              f'<tr><td>SGST</td><td class="amt">{money.fmt(br["sgst"])}</td></tr>')
+        else:
+            tax_total_rows = f'<tr><td>IGST</td><td class="amt">{money.fmt(br["igst"])}</td></tr>'
+
+        pos = (f'{esc(inv["place_of_supply_state"])} &ndash; '
+               f'{esc(state_name(inv["place_of_supply_state"]))}')
+        seller_addr = ", ".join(x for x in [
+            (t["address"] or "").strip(), (t["city"] or "").strip(),
+            (f'{state_name(t["state_code"], t["state_name"])} {t["pincode"] or ""}').strip(),
+        ] if x)
+        buyer_addr = (inv["customer_address"] or "").strip()
+        warn = ""
+        if not (t["gstin"] or "").strip():
+            warn = ('<div class="warn no-print">Supplier GSTIN is not set. Add it in '
+                    '<a href="/settings">Settings</a> before sharing this as a tax invoice.</div>')
+        bank = ""
+        if (t["bank_name"] or "").strip() or (t["bank_account"] or "").strip():
+            bank = (f'<div class="box"><b>Bank details</b><br>{esc(t["bank_name"])}<br>'
+                    f'A/c {esc(t["bank_account"])}'
+                    + (f'<br>IFSC {esc(t["bank_ifsc"])}' if t["bank_ifsc"] else "")
+                    + '</div>')
+        terms = ""
+        if (t["invoice_terms"] or "").strip():
+            terms = f'<div class="box"><b>Terms</b><br>{esc(t["invoice_terms"])}</div>'
+        contact = " &nbsp;|&nbsp; ".join(x for x in [
+            f'GSTIN: <b>{esc(t["gstin"])}</b>' if t["gstin"] else "",
+            esc(t["phone"]) if t["phone"] else "",
+            esc(t["email"]) if t["email"] else "",
+        ] if x)
+
+        return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tax Invoice {esc(inv["invoice_no"])} &middot; {esc(t["name"])}</title>
+<style>{PRINT_CSS}</style></head><body>
+<div class="toolbar no-print">
+  <a href="/invoices/{esc(inv["id"])}">Back to invoice</a>
+  <button onclick="window.print()">Print / Save as PDF</button>
+</div>
+{warn}
+<div class="sheet">
+  <div class="head">
+    <div>
+      <div class="brand">{esc(t["name"])}</div>
+      <div class="addr">{esc(seller_addr)}</div>
+      <div class="addr">{contact}</div>
+    </div>
+    <div class="meta">
+      <div class="doc">Tax Invoice</div>
+      <div><b>{esc(inv["invoice_no"])}</b></div>
+      <div>Date: {esc(inv["invoice_date"])}</div>
+      <div>Place of supply: {pos}</div>
+      <div>Reverse charge: N</div>
+    </div>
+  </div>
+  <div class="parties">
+    <div>
+      <h4>Billed to</h4>
+      <b>{esc(inv["customer_name"])}</b>
+      {f'<div class="addr">{esc(buyer_addr)}</div>' if buyer_addr else ''}
+      <div class="addr">GSTIN: {esc(inv["customer_gstin"]) if inv["customer_gstin"] else 'Unregistered'}</div>
+      <div class="addr">State: {esc(inv["customer_state"])} &ndash; {esc(state_name(inv["customer_state"]))}</div>
+    </div>
+    <div>
+      <h4>Supply &amp; tax</h4>
+      <div class="addr">Type: {'Intra-state (CGST + SGST)' if intra else 'Inter-state (IGST)'}</div>
+      <div class="addr">Taxable value: {money.fmt(inv["sub_total_paise"])}</div>
+      <div class="addr">GST: {money.fmt(inv["tax_paise"])}</div>
+      <div class="addr">Invoice total: <b>{money.fmt(inv["total_paise"])}</b></div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th class="num">#</th><th>Description</th><th>HSN/SAC</th><th class="num">Qty</th>
+      <th class="num">Rate</th><th class="num">Discount</th><th class="num">Taxable</th>
+      <th class="num">GST %</th>{tax_heads}<th class="num">Amount</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+  <div class="totals"><table>
+    <tr><td>Taxable value</td><td class="amt">{money.fmt(inv["sub_total_paise"])}</td></tr>
+    {tax_total_rows}
+    <tr><td>Round off</td><td class="amt">{money.fmt(inv["round_off_paise"])}</td></tr>
+    <tr class="grand"><td>Invoice total</td><td class="amt">{money.fmt(inv["total_paise"])}</td></tr>
+  </table></div>
+  <div class="words"><b>Amount in words:</b> {esc(money.amount_in_words(inv["total_paise"]))}</div>
+  <div class="foot">
+    {bank}{terms}
+    <div class="sign"><div>For {esc(t["name"])}</div><div class="line">Authorised signatory</div></div>
+  </div>
+  <div class="note">Computer-generated tax invoice. Posted entries are immutable; corrections are made by credit note.</div>
+</div>
+</body></html>"""
 
     def page_receipts(self, conn, user, tenant, sess) -> str:
         rows = conn.execute(
@@ -990,7 +1191,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 
     def page_gst(self, conn, user, tenant, q) -> str:
         today = date.today()
-        dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
+        dfrom = (q.get("from") or [fiscal_start(today, tenant["fiscal_year_start_month"])])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
         g = acct.gst_summary(conn, tenant["id"], dfrom, dto)
         sales = "".join(
@@ -1012,7 +1213,13 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <div class="field"><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
 <div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
 <div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/export/gst-sales.csv">Sales CSV</a></div>
-</div></form>
+</div>
+<div class="row c4" style="margin-top:2px">
+<div class="field" style="grid-column:span 4;display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
+<a class="btn ghost" href="/export/gstr1.csv?from={esc(dfrom)}&amp;to={esc(dto)}">GSTR-1 CSV</a>
+<a class="btn ghost" href="/export/gstr1.json?from={esc(dfrom)}&amp;to={esc(dto)}">GSTR-1 JSON</a>
+<span class="small muted">B2B + B2C small + HSN summary for this period</span>
+</div></div></form>
 <div class="grid2">
 <div class="card"><div class="pad"><h2>Output tax (sales)</h2></div><table><tbody>{out_rows}</tbody>
 <tfoot><tr><td>Total output</td><td class="num">{money.fmt(g["output_total"])}</td></tr></tfoot></table></div>
@@ -1027,7 +1234,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <div class="card"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{sales}</tbody></table></div></div>
 <div class="sect"><h2 style="margin-bottom:10px">Purchase register</h2>
 <div class="card"><table><thead><tr><th>Bill</th><th>Date</th><th>Vendor</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{purchases}</tbody></table></div></div>
-<p class="small muted">Working summary, not a filed return. Verify with your tax professional before filing.</p>"""
+<p class="small muted">Working summary, not a filed return. GSTR-1 export lists invoices (B2B + B2C small) and credit notes separately, while this page shows net GST after credit notes. Verify with your tax professional before filing.</p>"""
         return layout("GST summary", body, "reports/gst", user, tenant)
 
     def page_ledger(self, conn, user, tenant, q) -> str:
@@ -1222,6 +1429,111 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <div class="field"><label>Track stock</label><select name="track"><option value="1">Yes (goods)</option><option value="0">No (service)</option></select></div></div>
 <button class="btn" type="submit">Save item</button></form></div></div>"""
         return layout("Items", body, "items", user, tenant)
+
+    def page_settings(self, conn, user, tenant, sess, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "tenant.manage")
+            can_edit = True
+        except security.AuthError:
+            can_edit = False
+        if not can_edit:
+            body = f"""
+<div class="card pad sect"><div class="err">Only the business owner can change these details.</div>
+<p class="small muted" style="margin:0">GSTIN, address and bank details are used on tax invoices and in
+GST exports. Ask the owner to update them.</p></div>
+<div class="card pad"><table>
+<tr><td>Business name</td><td><b>{esc(tenant["name"])}</b></td></tr>
+<tr><td>GSTIN</td><td>{esc(tenant["gstin"]) or '<span class="muted">Not set</span>'}</td></tr>
+<tr><td>GST state</td><td>{esc(tenant["state_code"])} &ndash; {esc(state_name(tenant["state_code"]))}</td></tr>
+<tr><td>Address</td><td>{esc(tenant["address"])}</td></tr>
+<tr><td>City / PIN</td><td>{esc(tenant["city"])} {esc(tenant["pincode"])}</td></tr>
+<tr><td>Phone / email</td><td>{esc(tenant["phone"])} {esc(tenant["email"])}</td></tr>
+<tr><td>Bank</td><td>{esc(tenant["bank_name"])} {esc(tenant["bank_account"])} {esc(tenant["bank_ifsc"])}</td></tr>
+</table></div>"""
+            return layout("Settings", body, "settings", user, tenant)
+
+        saved = ('<div class="badge ok" style="margin-bottom:12px">Settings saved</div>'
+                 if q.get("saved") else "")
+        gstin_note = ("" if (tenant["gstin"] or "").strip() else
+                      '<div class="err" style="margin-bottom:14px">GSTIN is not set. Invoices will print '
+                      'a warning and GSTR-1 exports will flag it until you add it.</div>')
+        body = f"""
+{saved}{gstin_note}
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Business identity</h2>
+<p class="small muted" style="margin:0 0 14px">These details appear on tax invoices and GST exports.
+Changing them never alters posted entries.</p>
+<form method="post" action="/settings">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="row c3">
+  <div class="field"><label>Legal / trade name</label><input name="name" required maxlength="120" value="{esc(tenant['name'])}"></div>
+  <div class="field"><label>GSTIN</label><input name="gstin" maxlength="15" placeholder="27ABCDE1234F1Z5" value="{esc(tenant['gstin'])}"></div>
+  <div class="field"><label>GST state</label><select name="state_code">{state_options(tenant['state_code'])}</select></div>
+</div>
+<div class="field"><label>Address</label><textarea name="address" rows="2" maxlength="240" placeholder="Shop / building, street, area">{esc(tenant['address'])}</textarea></div>
+<div class="row c3">
+  <div class="field"><label>City</label><input name="city" maxlength="60" value="{esc(tenant['city'])}"></div>
+  <div class="field"><label>PIN code</label><input name="pincode" maxlength="6" inputmode="numeric" value="{esc(tenant['pincode'])}"></div>
+  <div class="field"><label>Phone</label><input name="phone" maxlength="24" value="{esc(tenant['phone'])}"></div>
+</div>
+<div class="field"><label>Email</label><input name="email" type="email" maxlength="120" value="{esc(tenant['email'])}"></div>
+<h3 style="margin:18px 0 10px">Bank details (printed on invoices)</h3>
+<div class="row c3">
+  <div class="field"><label>Bank</label><input name="bank_name" maxlength="80" value="{esc(tenant['bank_name'])}"></div>
+  <div class="field"><label>Account number</label><input name="bank_account" maxlength="34" value="{esc(tenant['bank_account'])}"></div>
+  <div class="field"><label>IFSC</label><input name="bank_ifsc" maxlength="11" placeholder="HDFC0001234" value="{esc(tenant['bank_ifsc'])}"></div>
+</div>
+<div class="field"><label>Invoice terms / notes</label><textarea name="invoice_terms" rows="2" maxlength="300" placeholder="Payment due within 15 days.">{esc(tenant['invoice_terms'])}</textarea></div>
+<button class="btn" type="submit">Save settings</button>
+</form></div>
+<div class="card pad small muted">Fiscal year starts in month {tenant['fiscal_year_start_month']:02d}.
+Currency {esc(tenant['currency'])}. GSTIN, PIN code and IFSC are validated on save.</div>"""
+        return layout("Settings", body, "settings", user, tenant)
+
+    def _settings_error(self, user, tenant, message: str):
+        body = (f'<div class="card pad"><div class="err">{esc(message)}</div>'
+                '<a class="btn ghost" href="/settings">Back to settings</a></div>')
+        return self._send(layout("Settings", body, "settings", user, tenant), 400)
+
+    def _save_settings(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "tenant.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<a class="btn ghost" href="/settings">Back</a></div>')
+            return self._send(layout("Forbidden", body, "settings", user, tenant), 403)
+
+        name = first(form, "name").strip()
+        if not name:
+            return self._settings_error(user, tenant, "Business name is required.")
+        gstin = first(form, "gstin").strip().upper()
+        if gstin and not re.fullmatch(r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]", gstin):
+            return self._settings_error(
+                user, tenant, "GSTIN must be 15 characters, e.g. 27ABCDE1234F1Z5.")
+        state_code = first(form, "state_code") or tenant["state_code"]
+        if state_code not in STATES:
+            return self._settings_error(user, tenant, "Choose a valid GST state.")
+        pincode = first(form, "pincode").strip()
+        if pincode and not re.fullmatch(r"[1-9][0-9]{5}", pincode):
+            return self._settings_error(user, tenant, "PIN code must be 6 digits.")
+        email = first(form, "email").strip()
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return self._settings_error(user, tenant, "Enter a valid email address.")
+        ifsc = first(form, "bank_ifsc").strip().upper()
+        if ifsc and not re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", ifsc):
+            return self._settings_error(user, tenant, "IFSC must be 11 characters, e.g. HDFC0001234.")
+
+        conn.execute(
+            "UPDATE tenant SET name=?, gstin=?, state_code=?, state_name=?, address=?, city=?,"
+            " pincode=?, phone=?, email=?, bank_name=?, bank_account=?, bank_ifsc=?, invoice_terms=?"
+            " WHERE id=?",
+            (name[:120], gstin, state_code, state_name(state_code),
+             first(form, "address").strip()[:240], first(form, "city").strip()[:60], pincode,
+             first(form, "phone").strip()[:24], email[:120], first(form, "bank_name").strip()[:80],
+             first(form, "bank_account").strip()[:34], ifsc,
+             first(form, "invoice_terms").strip()[:300], tenant["id"]))
+        acct.audit(conn, tenant["id"], user["id"], "tenant.settings_updated", "tenant", tenant["id"])
+        return self._redirect("/settings?saved=1")
 
     def page_backups(self, conn, user, tenant, sess, q) -> str:
         runs = backup_mod.recent_runs(conn)
@@ -1583,6 +1895,50 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                 rows = [["Bill", "Date", "Vendor", "Taxable", "GST", "Total"]]
                 rows += [[r["bill_no"], r["bill_date"], r["party"], money.to_str(r["sub_total_paise"]),
                           money.to_str(r["tax_paise"]), money.to_str(r["total_paise"])] for r in g["purchases"]]
+        elif key == "gstr1":
+            dfrom = (q.get("from") or [fiscal_start(date.today(), tenant["fiscal_year_start_month"])])[0]
+            dto = (q.get("to") or [today])[0]
+            g = acct.gstr1_data(conn, tid, dfrom, dto)
+            rows = [["Section", "GSTIN/UIN", "Receiver", "Invoice No", "Invoice Date",
+                     "Invoice Value", "Place of Supply", "Reverse Charge", "Rate %", "Taxable",
+                     "CGST", "SGST", "IGST", "Cess", "Description", "UQC", "Qty"]]
+            for r in g["b2b"]:
+                rows.append(["B2B", r["gstin"], r["receiver"], r["invoice_no"], r["invoice_date"],
+                             money.to_str(r["invoice_value"]) if r["invoice_value"] is not None else "",
+                             r["place_of_supply"], r["reverse_charge"], f'{r["rate_bp"] / 100:.2f}',
+                             money.to_str(r["taxable"]), money.to_str(r["cgst"]),
+                             money.to_str(r["sgst"]), money.to_str(r["igst"]),
+                             money.to_str(r["cess"]), "", "", ""])
+            for r in g["b2cs"]:
+                rows.append(["B2CS", "", "", "B2CS", "", "", r["place_of_supply"], "N",
+                             f'{r["rate_bp"] / 100:.2f}', money.to_str(r["taxable"]),
+                             money.to_str(r["cgst"]), money.to_str(r["sgst"]),
+                             money.to_str(r["igst"]), "0.00", "", "", ""])
+            for r in g["hsn"]:
+                rows.append(["HSN", "", "", "", "", "", "", "", f'{r["rate_bp"] / 100:.2f}',
+                             money.to_str(r["taxable"]), money.to_str(r["cgst"]),
+                             money.to_str(r["sgst"]), money.to_str(r["igst"]), "0.00",
+                             r["description"], r["uqc"], f'{r["qty_milli"] / 1000:.3f}'])
+            for r in g["credit_notes"]:
+                rows.append([r["section"], r["gstin"], r["receiver"], r["note_no"],
+                             r["note_date"], money.to_str(r["note_value"]), r["place_of_supply"],
+                             "N", "", money.to_str(r["taxable"]), money.to_str(r["cgst"]),
+                             money.to_str(r["sgst"]), money.to_str(r["igst"]),
+                             money.to_str(r["cess"]), "Credit note", "", ""])
+            rows.append(["CN TOTAL", "", "", "", "", "", "", "", "",
+                         money.to_str(g["credit_note_totals"]["taxable"]),
+                         money.to_str(g["credit_note_totals"]["cgst"]),
+                         money.to_str(g["credit_note_totals"]["sgst"]),
+                         money.to_str(g["credit_note_totals"]["igst"]), "0.00", "", "", ""])
+            rows.append(["TOTAL", "", "", "", "", "", "", "", "",
+                         money.to_str(g["totals"]["taxable"]), money.to_str(g["totals"]["cgst"]),
+                         money.to_str(g["totals"]["sgst"]), money.to_str(g["totals"]["igst"]),
+                         "0.00", "", "", ""])
+            rows.append([])
+            rows.append(["Note", "Working export, not a filed return. Amounts are INR decimals. "
+                         "Invoice Value appears once per invoice (first rate row)."])
+            for w in g["warnings"]:
+                rows.append(["Warning", w])
         elif key == "invoices":
             data = conn.execute(
                 "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
@@ -1626,6 +1982,71 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         writer.writerows(rows)
         data = buf.getvalue().encode("utf-8-sig")
         self._send_bytes(data, "text/csv; charset=utf-8", f"arthivio-{key}-{today}.csv")
+
+
+    def export_gstr1_json(self, conn, user, tenant, q):
+        security.require(conn, user["id"], tenant["id"], "report.export")
+        today = date.today()
+        dfrom = (q.get("from") or [fiscal_start(today, tenant["fiscal_year_start_month"])])[0]
+        dto = (q.get("to") or [today.isoformat()])[0]
+        g = acct.gstr1_data(conn, tenant["id"], dfrom, dto)
+        amount_keys = ("taxable", "cgst", "sgst", "igst", "cess")
+
+        def amounts(row, keys=amount_keys):
+            return {k: money.to_str(row[k]) for k in keys}
+
+        b2b = []
+        for r in g["b2b"]:
+            item = {k: r[k] for k in ("gstin", "receiver", "invoice_no", "invoice_date",
+                                      "place_of_supply", "reverse_charge")}
+            item["invoice_value"] = (money.to_str(r["invoice_value"])
+                                     if r["invoice_value"] is not None else None)
+            item["rate_pct"] = f'{r["rate_bp"] / 100:.2f}'
+            item.update(amounts(r))
+            b2b.append(item)
+        b2cs = []
+        for r in g["b2cs"]:
+            item = {k: r[k] for k in ("place_of_supply", "invoices")}
+            item["rate_pct"] = f'{r["rate_bp"] / 100:.2f}'
+            item.update(amounts(r, ("taxable", "cgst", "sgst", "igst")))
+            b2cs.append(item)
+        hsn = []
+        for r in g["hsn"]:
+            item = {k: r[k] for k in ("hsn", "description", "uqc")}
+            item["qty"] = f'{r["qty_milli"] / 1000:.3f}'
+            item["rate_pct"] = f'{r["rate_bp"] / 100:.2f}'
+            item.update(amounts(r, ("taxable", "cgst", "sgst", "igst", "total_value")))
+            hsn.append(item)
+        credit_notes = []
+        for r in g["credit_notes"]:
+            item = {k: r[k] for k in ("section", "gstin", "receiver", "note_no",
+                                      "note_date", "place_of_supply")}
+            item["note_value"] = money.to_str(r["note_value"])
+            item.update(amounts(r))
+            credit_notes.append(item)
+
+        payload = {
+            "format": "arthivio-gstr1-working-v1",
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "amount_unit": "INR decimal string",
+            "period": g["period"],
+            "supplier": g["supplier"],
+            "b2b": b2b,
+            "b2cs": b2cs,
+            "hsn": hsn,
+            "credit_notes": credit_notes,
+            "credit_note_totals": {k: money.to_str(v)
+                                   for k, v in g["credit_note_totals"].items()},
+            "docs": {**g["docs"],
+                     "credit_note_value": money.to_str(g["docs"]["credit_note_value"])},
+            "totals": {k: money.to_str(v) for k, v in g["totals"].items()},
+            "warnings": g["warnings"],
+            "note": "Preparation aid only; not an uploaded or filed GST return. "
+                    "Verify with your tax professional before filing.",
+        }
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        self._send_bytes(data, "application/json; charset=utf-8",
+                         f"arthivio-gstr1-{today.isoformat()}.json")
 
 
 def main(port: int = 8000):

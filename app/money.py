@@ -117,3 +117,50 @@ def to_str(paise: int) -> str:
     sign = "-" if paise < 0 else ""
     paise = abs(paise)
     return f"{sign}{paise // 100}.{paise % 100:02d}"
+
+
+_ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+         "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+         "Seventeen", "Eighteen", "Nineteen"]
+_TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+
+def _two(n: int) -> str:
+    if n < 20:
+        return _ONES[n]
+    tens, ones = divmod(n, 10)
+    return _TENS[tens] + (f" {_ONES[ones]}" if ones else "")
+
+
+def _indian(n: int) -> str:
+    crore, rest = divmod(n, 10_000_000)
+    lakh, rest = divmod(rest, 100_000)
+    thousand, rest = divmod(rest, 1_000)
+    hundred, rest = divmod(rest, 100)
+    parts: list[str] = []
+    if crore:
+        parts.append(f"{_indian(crore)} Crore")
+    if lakh:
+        parts.append(f"{_two(lakh)} Lakh")
+    if thousand:
+        parts.append(f"{_two(thousand)} Thousand")
+    if hundred:
+        parts.append(f"{_ONES[hundred]} Hundred")
+    if rest:
+        parts.append(_two(rest))
+    return " ".join(parts)
+
+
+def amount_in_words(paise: int) -> str:
+    """Indian-system words for an invoice amount, e.g. 12345678 -> 'One Lakh Twenty Three Thousand...'."""
+    if paise < 0:
+        return "Minus " + amount_in_words(-paise)
+    rupees, paise_part = divmod(paise, 100)
+    if rupees == 0 and paise_part == 0:
+        return "Zero Rupees Only"
+    parts: list[str] = []
+    if rupees:
+        parts.append(f"{_indian(rupees)} {'Rupee' if rupees == 1 else 'Rupees'}")
+    if paise_part:
+        parts.append(f"{_two(paise_part)} Paise")
+    return " and ".join(parts) + " Only"

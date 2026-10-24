@@ -320,3 +320,26 @@ and documentation agree.
 | Onboarding wizard | NOT IMPLEMENTED | **NOT IMPLEMENTED** | demo seed only |
 | Offline & sync | NOT IMPLEMENTED | **NOT IMPLEMENTED** | local server only |
 | AI insights | NOT IMPLEMENTED | **NOT IMPLEMENTED** | not started |
+
+
+## 10. Status after Build 0.3 (2026-10-24)
+
+### Implemented and verified
+
+| Feature | Where | Notes |
+|---|---|---|
+| Business settings | `/settings` | legal name, GSTIN, GST state, address, city, PIN, phone, email, bank details, invoice terms; owner-only; validated and audited |
+| Print-ready tax invoice | `/invoices/<id>/print` | A4 HTML, GSTIN/HSN/SAC, CGST/SGST vs IGST, amount in words, bank/terms, Print / Save as PDF |
+| GSTR-1 working CSV | `/export/gstr1.csv` | B2B, B2CS, HSN, CDNR/CDNUR, TOTAL and CN TOTAL rows, warnings |
+| GSTR-1 working JSON | `/export/gstr1.json` | `arthivio-gstr1-working-v1`, exact INR decimal strings, warnings and note |
+| Additive schema migration | `db.init_db` | `ALTER TABLE ADD COLUMN` only; existing data preserved; idempotent |
+| GST page links | `/reports/gst` | period-aware GSTR-1 CSV/JSON buttons; net-vs-gross explanation |
+
+### Still not implemented
+
+- Debit notes / purchase returns
+- Bank reconciliation (CSV import and matching)
+- GSTR-3B, official GSTR-1 JSON schema, GST portal upload
+- e-invoice/IRN, e-way bill, TDS/TCS
+- PDF binary generation (browser print is used), Excel export, email delivery
+- Multi-user invite/role admin UI, PostgreSQL, Next.js UI

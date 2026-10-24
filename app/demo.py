@@ -22,6 +22,13 @@ def seed_demo(conn: sqlite3.Connection) -> dict | None:
         return None
 
     tenant_id = db.create_tenant(conn, "Arthivio Demo Trading", "arthivio-demo", state_code="27")
+    conn.execute(
+        "UPDATE tenant SET gstin=?, address=?, city=?, state_name=?, pincode=?, phone=?, email=?,"
+        " bank_name=?, bank_account=?, bank_ifsc=?, invoice_terms=? WHERE id=?",
+        ("27AABCS1429B1Z1", "12, Laxmi Industrial Estate, Andheri West", "Mumbai", "Maharashtra",
+         "400053", "+91 22 4890 1200", "accounts@arthivio.test", "HDFC Bank",
+         "50200012345678", "HDFC0001234",
+         "Payment due within 15 days. Interest @18% p.a. on overdue amounts.", tenant_id))
 
     owner = security.create_user(conn, DEMO_EMAIL, DEMO_PASSWORD, "Demo Owner")
     security.add_membership(conn, tenant_id, owner, "owner")
@@ -29,34 +36,39 @@ def seed_demo(conn: sqlite3.Connection) -> dict | None:
     security.add_membership(conn, tenant_id, admin, "admin")
 
     customers = {}
-    for name, phone, gstin, state in [
-        ("Sundaram Traders", "+91 98200 11001", "27AABCS1429B1Z1", "27"),
-        ("Kaveri Enterprises", "+91 98200 11002", "27AACCK8765M1Z4", "27"),
-        ("Northern Lights LLP", "+91 98110 22003", "07AAFCN4321P1Z9", "07"),
-        ("Blue Harbour Co.", "+91 90040 33004", "", "29"),
+    for name, phone, gstin, state, address in [
+        ("Sundaram Traders", "+91 98200 11001", "27AABCS1429B1Z1", "27",
+         "14, Bhuleshwar Road, Mumbai 400002"),
+        ("Kaveri Enterprises", "+91 98200 11002", "27AACCK8765M1Z4", "27",
+         "88, MIDC Phase II, Pune 411019"),
+        ("Northern Lights LLP", "+91 98110 22003", "07AAFCN4321P1Z9", "07",
+         "B-42, Okhla Industrial Area, New Delhi 110020"),
+        ("Blue Harbour Co.", "+91 90040 33004", "", "29",
+         "5, Residency Road, Bengaluru 560025"),
     ]:
         cid = db.new_id()
         conn.execute(
-            "INSERT INTO customer (id, tenant_id, name, phone, gstin, state_code, created_at)"
-            " VALUES (?,?,?,?,?,?,?)",
-            (cid, tenant_id, name, phone, gstin, state, db.now()),
+            "INSERT INTO customer (id, tenant_id, name, phone, gstin, address, state_code, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (cid, tenant_id, name, phone, gstin, address, state, db.now()),
         )
         customers[name] = cid
 
     items = {}
-    for sku, name, price, cost, rate, stock, track in [
-        ("TRD-001", "Cotton Kurta (Premium)", 149900, 92000, 500, 120000, 1),
-        ("TRD-002", "Handloom Stole", 64900, 38000, 500, 150000, 1),
-        ("TRD-003", "Brass Diya Set", 24900, 14500, 1200, 200000, 1),
-        ("TRD-004", "Gift Hamper", 349900, 210000, 1800, 40000, 1),
-        ("SRV-001", "Interior Consulting (hour)", 250000, 0, 1800, 0, 0),
+    for sku, name, price, cost, rate, stock, track, hsn in [
+        ("TRD-001", "Cotton Kurta (Premium)", 149900, 92000, 500, 120000, 1, "6205"),
+        ("TRD-002", "Handloom Stole", 64900, 38000, 500, 150000, 1, "6214"),
+        ("TRD-003", "Brass Diya Set", 24900, 14500, 1200, 200000, 1, "7418"),
+        ("TRD-004", "Gift Hamper", 349900, 210000, 1800, 40000, 1, "9403"),
+        ("SRV-001", "Interior Consulting (hour)", 250000, 0, 1800, 0, 0, "998391"),
     ]:
         iid = db.new_id()
         conn.execute(
             "INSERT INTO item (id, tenant_id, sku, name, unit, sale_price_paise, cost_paise,"
-            " tax_rate_bp, stock_milli, track_stock, revenue_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " tax_rate_bp, stock_milli, track_stock, revenue_code, hsn)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (iid, tenant_id, sku, name, "pcs" if track else "hour", price, cost, rate, stock,
-             track, "4000" if track else "4100"),
+             track, "4000" if track else "4100", hsn),
         )
         items[sku] = iid
 

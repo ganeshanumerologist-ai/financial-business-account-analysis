@@ -5,6 +5,7 @@ Runs the real server against a temporary database — no mocks.
 from __future__ import annotations
 
 import http.cookiejar
+import json
 import os
 import re
 import sqlite3
@@ -192,7 +193,7 @@ class WebTest(unittest.TestCase):
     def test_10_receipt_posts_and_reduces_outstanding(self):
         self.login()
         conn = db.connect(self.db_path)
-        inv = conn.execute("SELECT id FROM invoice WHERE tenant_id=? ORDER BY created_at DESC LIMIT 1",
+        inv = conn.execute("SELECT id FROM invoice WHERE tenant_id=? ORDER BY invoice_no DESC LIMIT 1",
                            (self.tenant_id,)).fetchone()
         before = acct.invoice_outstanding(conn, self.tenant_id, inv["id"])
         conn.close()
@@ -244,7 +245,7 @@ class WebTest(unittest.TestCase):
     def test_12_credit_note_from_invoice(self):
         self.login()
         conn = db.connect(self.db_path)
-        inv = conn.execute("SELECT id FROM invoice WHERE tenant_id=? ORDER BY created_at DESC LIMIT 1",
+        inv = conn.execute("SELECT id FROM invoice WHERE tenant_id=? ORDER BY invoice_no DESC LIMIT 1",
                            (self.tenant_id,)).fetchone()
         line = conn.execute("SELECT id FROM invoice_line WHERE invoice_id=? LIMIT 1",
                             (inv["id"],)).fetchone()
@@ -305,6 +306,64 @@ class WebTest(unittest.TestCase):
         backup_dir = os.path.join(self.tmp, "backups")
         self.assertTrue(os.path.isdir(backup_dir))
         self.assertTrue([f for f in os.listdir(backup_dir) if f.endswith(".db")])
+
+
+    def test_16_settings_and_print_invoice(self):
+        self.login()
+        page = self.get("/settings")[1]
+        self.assertIn("Business identity", page)
+        token = self.csrf(page)
+
+        bad_status, bad_body, _ = self.post("/settings", {
+            "_csrf": token, "name": "Arthivio Demo Trading", "gstin": "BAD",
+            "state_code": "27"})
+        self.assertEqual(bad_status, 400)
+        self.assertIn("GSTIN must be 15 characters", bad_body)
+
+        status, body, _ = self.post("/settings", {
+            "_csrf": token, "name": "Arthivio Demo Trading",
+            "gstin": "27AABCS1429B1Z1", "state_code": "27",
+            "address": "12, Laxmi Industrial Estate", "city": "Mumbai",
+            "pincode": "400053", "phone": "+91 22 4890 1200",
+            "email": "accounts@arthivio.test", "bank_name": "HDFC Bank",
+            "bank_account": "50200012345678", "bank_ifsc": "HDFC0001234",
+            "invoice_terms": "Payment due within 15 days."})
+        self.assertEqual(status, 200)
+        self.assertIn("Settings saved", body)
+        self.assertIn("27AABCS1429B1Z1", body)
+
+        conn = db.connect(self.db_path)
+        inv = conn.execute(
+            "SELECT id, invoice_no FROM invoice WHERE tenant_id=? ORDER BY invoice_no LIMIT 1",
+            (self.tenant_id,)).fetchone()
+        conn.close()
+        status, page = self.get(f"/invoices/{inv['id']}/print")
+        self.assertEqual(status, 200)
+        self.assertIn("Tax Invoice", page)
+        self.assertIn(inv["invoice_no"], page)
+        self.assertIn("27AABCS1429B1Z1", page)
+        self.assertIn("Amount in words", page)
+        self.assertIn("HDFC Bank", page)
+        self.assertIn("Print / Save as PDF", page)
+
+    def test_17_gstr1_csv_export(self):
+        self.login()
+        status, body = self.get("/export/gstr1.csv?from=2026-04-01&to=2026-10-24")
+        self.assertEqual(status, 200)
+        for needle in ("B2B", "B2CS", "HSN", "CN TOTAL", "TOTAL", "Working export"):
+            self.assertIn(needle, body)
+        self.assertIn("Rate %", body)
+
+    def test_18_gstr1_json_export(self):
+        self.login()
+        status, body = self.get("/export/gstr1.json?from=2026-04-01&to=2026-10-24")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data["format"], "arthivio-gstr1-working-v1")
+        self.assertTrue(data["b2b"])
+        self.assertTrue(data["hsn"])
+        self.assertIsInstance(data["totals"]["taxable"], str)
+        self.assertIn("not an uploaded or filed", data["note"])
 
 
 if __name__ == "__main__":

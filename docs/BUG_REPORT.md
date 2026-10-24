@@ -320,7 +320,7 @@ Rule: no "fixed" status without a failing-then-passing test recorded in `docs/TE
 
 ---
 
-## Status update ? 2026-10-24 (Build 0.2)
+## Status update - 2026-10-24 (Build 0.2)
 
 | ID | Previous state | Current state | Evidence |
 |---|---|---|---|
@@ -349,15 +349,50 @@ Rule unchanged: no "fixed" status without a failing-then-passing test recorded i
 `docs/TEST_RESULTS.md`.
 
 
-### Design assets ? 2026-10-24 (owner update)
+### Design assets - 2026-10-24 (owner update)
 
 The owner replaced the original mockups in the workspace. Current state, verified by file listing:
 
 | File | Format | Size | Status |
 |---|---|---|---|
-| `Arthivio Business Dashboard Hero.png` | PNG 1536?1024 | 2,011,950 B | **Canonical design reference**, tracked in git |
-| `WhatsApp Image 2026-10-24 at 10.10.22 AM.jpeg` | JPEG 1536?1024 | 189,820 B | Retained as received; not tracked (historical attachment) |
-| `Arthivio Smarter Finance Dashboard.png` | PNG | ? | Removed by owner; deletion committed |
+| `Arthivio Business Dashboard Hero.png` | PNG 1536x1024 | 2,011,950 B | **Canonical design reference**, tracked in git |
+| `WhatsApp Image 2026-10-24 at 10.10.22 AM.jpeg` | JPEG 1536x1024 | 189,820 B | Retained as received; not tracked (historical attachment) |
+| `Arthivio Smarter Finance Dashboard.png` | PNG | - | Removed by owner; deletion committed |
 
 The spec still governs on conflicts (D-003). The single PNG remains a visual reference only; it is
 not shipped as a UI asset. B-009 stays open for the missing theme source and repository contents.
+
+
+## Build 0.3 status - 2026-10-24
+
+### B-017 - Flaky web test selected a paid invoice (fixed)
+
+`test_10_receipt_posts_and_reduces_outstanding` and `test_12_credit_note_from_invoice` chose
+the newest invoice with `ORDER BY created_at DESC`. `db.now()` stores whole seconds, so demo
+and test invoices created in the same second tied and SQLite could return a fully paid demo
+invoice. Tests now select by `invoice_no DESC` (fixed-width sequential numbers). No product
+code change was needed.
+
+### B-018 - GSTR-1 HSN summary KeyError (fixed)
+
+The HSN aggregation did not store `rate_bp`, so sorting the summary raised `KeyError`. Added
+the field and a regression test that also proves HSN taxable/tax totals equal the B2B+B2CS
+totals.
+
+### Gap status after Build 0.3
+
+| ID | Gap | Status | Notes |
+|---|---|---|---|
+| G-01 | No receipts/payments against invoices | **CLOSED** | unchanged from Build 0.2 |
+| G-02 | No purchases/AP/vendor ledger | **CLOSED** | unchanged from Build 0.2 |
+| G-03 | No credit notes / debit notes | **PARTIAL** | credit notes built; debit notes still open |
+| G-04 | No GST returns or exports | **PARTIAL** | GST summary + registers + **GSTR-1 working CSV/JSON** (B2B, B2CS, HSN, credit notes); GSTR-3B / portal upload / official schema still open |
+| G-05 | Backup/restore documented but not automated | **CLOSED** | unchanged from Build 0.2 |
+| G-06 | Single-user session UI; no invite/role admin screens | **OPEN** | roles exist in the data layer only; settings are owner-only |
+| G-07 | No PostgreSQL deployment; SQLite only | **OPEN** | single-node, local |
+| G-08 | No PDF invoice / print view | **CLOSED (print view)** | A4 tax invoice at `/invoices/<id>/print`, browser Print / Save as PDF; no server-side PDF binary |
+| G-09 | No bank reconciliation or cheque workflow | **OPEN** | payment modes exist, matching does not |
+| G-10 | No multi-currency, TDS/TCS, payroll, depreciation | **OPEN** | out of current scope |
+
+New refinement gap (no ID assigned): rate-wise credit-note rows in GSTR-1 (document-level
+rows exist today), and a settings history screen (the audit log already records changes).

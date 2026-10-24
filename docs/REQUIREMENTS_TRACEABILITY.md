@@ -196,3 +196,20 @@ truth and supersedes their status column only; the requirement text and test IDs
 Gate 9 (backup created) and gate 10 (restore verified with matching counts) from ?7 can now
 be marked PASS with evidence in `docs/TEST_RESULTS.md` ?7.4. Gate 6 (export permission) is
 enforced by `security.require(..., "report.export")` and covered by the HTTP export test.
+
+
+## 11. Status after Build 0.3 (2026-10-24)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| GST-compliant invoice output | **Verified (print view)** | `test_16_settings_and_print_invoice`, browser check of INV-00011 |
+| GSTR-1 preparation data | **Verified (working export)** | `tests/test_gstr1.py`, CSV/JSON fetched in browser |
+| Supplier/buyer master data for GST | **Verified** | settings validation + migration test |
+| Schema evolution without data loss | **Verified** | `MigrationTest`, in-place demo DB migration |
+| GST portal upload / official return | **Not implemented** | out of scope for this slice; export is labelled a working aid |
+| Debit notes / bank reconciliation | **Not implemented** | next slice |
+| PDF binary / e-invoice | **Not implemented** | browser Print / Save as PDF only |
+
+Financial invariants remain unchanged: integer paise, balanced postings, immutable entries,
+tenant-scoped queries. The new print/export code reads posted documents and never writes
+accounting data.

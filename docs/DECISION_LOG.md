@@ -221,3 +221,34 @@ No code will be written before this answer.
 | Context | A backup that has never been opened is not a backup. The audit rules require evidence, not claims. |
 | Decision | `app/backup.py` uses SQLite's online backup API, then opens the copy read-only and checks: (1) `PRAGMA integrity_check`, (2) `PRAGMA foreign_key_check`, (3) every tenant's journal debits equal credits, (4) row counts match the live source. Only then is the run stored as `verified` with its SHA-256. Restores stay manual and are re-verified with `scripts/restore_verify.py`. |
 | Consequence | Failed or tampered backups are recorded as `failed` and never presented as safe. There is no one-click destructive restore in this build. |
+
+
+## D-011 - GSTR-1 export is a labelled working aid, not a filing
+
+**Date:** 2026-10-24. **Status:** accepted for Build 0.3.
+
+The GST portal's GSTR-1 JSON schema changes and requires supplier credentials. Building an
+"upload" claim without portal verification would violate the no-unverified-claims rule.
+Therefore the product produces a sectioned CSV and a documented JSON
+(`arthivio-gstr1-working-v1`) with B2B, B2C small, HSN and credit-note data, exact INR decimal
+strings, warnings and an explicit note that it is not a filed return. Portal upload, GSTR-3B
+and the official schema remain future work.
+
+## D-012 - Invoice PDF is produced by the browser, not a PDF library
+
+**Date:** 2026-10-24. **Status:** accepted for Build 0.3.
+
+The print view is a standalone A4 HTML document with print CSS and a `window.print()` action;
+the user chooses "Save as PDF". This avoids adding an unverified PDF dependency and keeps the
+zero-dependency runtime. A server-side PDF renderer can be added later without changing the
+invoice data model.
+
+## D-013 - Settings are owner-only; schema changes are additive
+
+**Date:** 2026-10-24. **Status:** accepted for Build 0.3.
+
+GSTIN, bank details and invoice terms affect legal documents, so only the owner
+(`tenant.manage`) can change them; other roles can view. New columns are added with
+`ALTER TABLE ... ADD COLUMN` and defaults, never by dropping or rebuilding tables, so existing
+books survive upgrades. There is still no general migration framework; destructive schema
+changes remain prohibited.

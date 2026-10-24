@@ -878,6 +878,199 @@ def gst_summary(conn: sqlite3.Connection, tenant_id: str, date_from: str, date_t
             "sales": [dict(r) for r in sales], "purchases": [dict(r) for r in purchases]}
 
 
+def invoice_tax_breakup(conn: sqlite3.Connection, tenant_id: str, invoice_id: str) -> dict:
+    """Per-line and rate-wise GST split that always sums to the invoice tax total."""
+    inv = conn.execute(
+        "SELECT i.*, c.name AS customer_name, c.gstin AS customer_gstin,"
+        " c.address AS customer_address, c.state_code AS customer_state"
+        " FROM invoice i JOIN customer c ON c.id=i.customer_id"
+        " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant_id),
+    ).fetchone()
+    if not inv:
+        raise AccountingError("DOC_NOT_FOUND", "Invoice not found in this business")
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    lines = conn.execute("SELECT * FROM invoice_line WHERE invoice_id=? ORDER BY rowid",
+                         (invoice_id,)).fetchall()
+    intra = inv["place_of_supply_state"] == tenant["state_code"]
+    total_tax = sum(l["tax_paise"] for l in lines)
+
+    splits: list[dict] = []
+    if intra:
+        target_cgst = total_tax // 2
+        base = [l["tax_paise"] // 2 for l in lines]
+        diff = target_cgst - sum(base)
+        for i, l in enumerate(lines):
+            cgst = base[i] + (1 if i < diff else 0)
+            splits.append({"cgst": cgst, "sgst": l["tax_paise"] - cgst, "igst": 0})
+    else:
+        splits = [{"cgst": 0, "sgst": 0, "igst": l["tax_paise"]} for l in lines]
+
+    groups: dict[int, dict] = {}
+    out_lines = []
+    for l, sp in zip(lines, splits):
+        g = groups.setdefault(l["tax_rate_bp"], {"rate_bp": l["tax_rate_bp"], "taxable": 0,
+                                                 "cgst": 0, "sgst": 0, "igst": 0})
+        g["taxable"] += l["taxable_paise"]
+        g["cgst"] += sp["cgst"]
+        g["sgst"] += sp["sgst"]
+        g["igst"] += sp["igst"]
+        out_lines.append({**dict(l), **sp})
+
+    return {"invoice": dict(inv), "tenant": dict(tenant), "lines": out_lines,
+            "groups": sorted(groups.values(), key=lambda g: g["rate_bp"]),
+            "intra": intra, "total_tax": total_tax,
+            "cgst": sum(s["cgst"] for s in splits), "sgst": sum(s["sgst"] for s in splits),
+            "igst": sum(s["igst"] for s in splits)}
+
+
+def gstr1_data(conn: sqlite3.Connection, tenant_id: str, date_from: str, date_to: str) -> dict:
+    """GSTR-1 style working data: B2B, B2C small, HSN summary and document counts.
+
+    This is a preparation aid, not an uploaded/filed return. Amounts are integer paise.
+    """
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    if not tenant:
+        raise AccountingError("TENANT_NOT_FOUND", "Tenant not found")
+
+    invoices = conn.execute(
+        "SELECT i.*, c.name AS customer_name, c.gstin AS customer_gstin,"
+        " c.state_code AS customer_state FROM invoice i JOIN customer c ON c.id=i.customer_id"
+        " WHERE i.tenant_id=? AND i.status='posted' AND i.invoice_date BETWEEN ? AND ?"
+        " ORDER BY i.invoice_date, i.invoice_no", (tenant_id, date_from, date_to),
+    ).fetchall()
+
+    b2b: list[dict] = []
+    b2cs: dict[tuple[str, int], dict] = {}
+    line_splits: dict[str, dict] = {}
+    b2c_count = 0
+
+    for inv in invoices:
+        br = invoice_tax_breakup(conn, tenant_id, inv["id"])
+        for ln in br["lines"]:
+            line_splits[ln["id"]] = ln
+        registered = bool((inv["customer_gstin"] or "").strip())
+        if not registered:
+            b2c_count += 1
+        for idx, g in enumerate(br["groups"]):
+            if registered:
+                b2b.append({
+                    "gstin": inv["customer_gstin"].strip().upper(),
+                    "receiver": inv["customer_name"],
+                    "invoice_no": inv["invoice_no"],
+                    "invoice_date": inv["invoice_date"],
+                    "invoice_value": inv["total_paise"] if idx == 0 else None,
+                    "place_of_supply": inv["place_of_supply_state"],
+                    "reverse_charge": "N",
+                    "rate_bp": g["rate_bp"], "taxable": g["taxable"],
+                    "cgst": g["cgst"], "sgst": g["sgst"], "igst": g["igst"], "cess": 0,
+                })
+            else:
+                key = (inv["place_of_supply_state"], g["rate_bp"])
+                agg = b2cs.setdefault(key, {"place_of_supply": key[0], "rate_bp": key[1],
+                                            "taxable": 0, "cgst": 0, "sgst": 0, "igst": 0,
+                                            "invoice_ids": set()})
+                agg["taxable"] += g["taxable"]
+                agg["cgst"] += g["cgst"]
+                agg["sgst"] += g["sgst"]
+                agg["igst"] += g["igst"]
+                agg["invoice_ids"].add(inv["id"])
+
+    hsn_rows = conn.execute(
+        "SELECT l.*, i.invoice_date, i.place_of_supply_state, it.hsn, it.name AS item_name,"
+        " it.unit FROM invoice_line l JOIN invoice i ON i.id=l.invoice_id"
+        " JOIN item it ON it.id=l.item_id"
+        " WHERE i.tenant_id=? AND i.status='posted' AND i.invoice_date BETWEEN ? AND ?",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+
+    hsn: dict[tuple[str, int], dict] = {}
+    for row in hsn_rows:
+        sp = line_splits.get(row["id"])
+        if not sp:
+            continue
+        code = (row["hsn"] or "").strip().upper()
+        key = (code, row["tax_rate_bp"])
+        agg = hsn.setdefault(key, {"hsn": code or "NOT SET", "description": row["item_name"],
+                                   "uqc": row["unit"], "rate_bp": row["tax_rate_bp"],
+                                   "qty_milli": 0, "taxable": 0,
+                                   "cgst": 0, "sgst": 0, "igst": 0, "total_value": 0})
+        agg["qty_milli"] += row["qty_milli"]
+        agg["taxable"] += row["taxable_paise"]
+        agg["cgst"] += sp["cgst"]
+        agg["sgst"] += sp["sgst"]
+        agg["igst"] += sp["igst"]
+        agg["total_value"] += row["line_total_paise"]
+
+    credit_notes = conn.execute(
+        "SELECT COUNT(*) c, COALESCE(SUM(total_paise),0) t FROM credit_note"
+        " WHERE tenant_id=? AND note_date BETWEEN ? AND ?",
+        (tenant_id, date_from, date_to),
+    ).fetchone()
+
+    credit_rows = conn.execute(
+        "SELECT n.*, c.name AS customer_name, c.gstin AS customer_gstin"
+        " FROM credit_note n JOIN customer c ON c.id=n.customer_id"
+        " WHERE n.tenant_id=? AND n.note_date BETWEEN ? AND ?"
+        " ORDER BY n.note_date, n.note_no", (tenant_id, date_from, date_to),
+    ).fetchall()
+    credit_detail: list[dict] = []
+    for n in credit_rows:
+        intra = n["place_of_supply_state"] == tenant["state_code"]
+        cgst = n["tax_paise"] // 2 if intra else 0
+        sgst = n["tax_paise"] - cgst if intra else 0
+        credit_detail.append({
+            "section": "CDNR" if (n["customer_gstin"] or "").strip() else "CDNUR",
+            "gstin": (n["customer_gstin"] or "").strip().upper(),
+            "receiver": n["customer_name"], "note_no": n["note_no"],
+            "note_date": n["note_date"], "note_value": n["total_paise"],
+            "place_of_supply": n["place_of_supply_state"],
+            "taxable": n["sub_total_paise"], "cgst": cgst, "sgst": sgst,
+            "igst": 0 if intra else n["tax_paise"], "cess": 0,
+        })
+    credit_totals = {
+        "taxable": sum(r["taxable"] for r in credit_detail),
+        "cgst": sum(r["cgst"] for r in credit_detail),
+        "sgst": sum(r["sgst"] for r in credit_detail),
+        "igst": sum(r["igst"] for r in credit_detail),
+    }
+
+    warnings: list[str] = []
+    if not (tenant["gstin"] or "").strip():
+        warnings.append("Supplier GSTIN is not set. Add it in Settings before using this export for filing.")
+    if b2c_count:
+        warnings.append(f"{b2c_count} invoice(s) have no buyer GSTIN and are grouped as B2C small.")
+    missing_hsn = sum(1 for h in hsn.values() if h["hsn"] == "NOT SET")
+    if missing_hsn:
+        warnings.append(f"{missing_hsn} HSN/SAC group(s) have no code. Add HSN/SAC on the item master.")
+
+    totals = {
+        "taxable": sum(r["taxable"] for r in b2b) + sum(r["taxable"] for r in b2cs.values()),
+        "cgst": sum(r["cgst"] for r in b2b) + sum(r["cgst"] for r in b2cs.values()),
+        "sgst": sum(r["sgst"] for r in b2b) + sum(r["sgst"] for r in b2cs.values()),
+        "igst": sum(r["igst"] for r in b2b) + sum(r["igst"] for r in b2cs.values()),
+    }
+    b2cs_rows = []
+    for r in b2cs.values():
+        row = dict(r)
+        row["invoices"] = len(row.pop("invoice_ids"))
+        b2cs_rows.append(row)
+    return {
+        "period": {"from": date_from, "to": date_to},
+        "supplier": {"gstin": (tenant["gstin"] or "").strip().upper(),
+                     "name": tenant["name"], "state_code": tenant["state_code"]},
+        "b2b": b2b,
+        "b2cs": sorted(b2cs_rows, key=lambda r: (r["place_of_supply"], r["rate_bp"])),
+        "hsn": sorted(hsn.values(), key=lambda r: (r["hsn"], r["rate_bp"])),
+        "credit_notes": credit_detail,
+        "credit_note_totals": credit_totals,
+        "docs": {"invoices": len(invoices), "b2c_invoices": b2c_count,
+                 "credit_notes": credit_notes["c"], "credit_note_value": credit_notes["t"],
+                 "debit_notes": 0, "cancelled": 0},
+        "totals": totals,
+        "warnings": warnings,
+    }
+
+
 def vendor_balances(conn: sqlite3.Connection, tenant_id: str, as_of: str | None = None) -> list[dict]:
     as_of = as_of or _today_iso()
     rows = conn.execute(

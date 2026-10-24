@@ -21,6 +21,17 @@ CREATE TABLE IF NOT EXISTS tenant (
     currency TEXT NOT NULL DEFAULT 'INR',
     fiscal_year_start_month INTEGER NOT NULL DEFAULT 4,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','closed')),
+    gstin TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    state_name TEXT NOT NULL DEFAULT '',
+    pincode TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    bank_name TEXT NOT NULL DEFAULT '',
+    bank_account TEXT NOT NULL DEFAULT '',
+    bank_ifsc TEXT NOT NULL DEFAULT '',
+    invoice_terms TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 
@@ -112,6 +123,7 @@ CREATE TABLE IF NOT EXISTS customer (
     name TEXT NOT NULL,
     phone TEXT,
     gstin TEXT,
+    address TEXT NOT NULL DEFAULT '',
     state_code TEXT NOT NULL DEFAULT '27',
     created_at TEXT NOT NULL
 );
@@ -365,6 +377,38 @@ def connect(path: str) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _ensure_columns(conn)
+
+
+COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
+    "tenant": [
+        ("gstin", "TEXT NOT NULL DEFAULT ''"),
+        ("address", "TEXT NOT NULL DEFAULT ''"),
+        ("city", "TEXT NOT NULL DEFAULT ''"),
+        ("state_name", "TEXT NOT NULL DEFAULT ''"),
+        ("pincode", "TEXT NOT NULL DEFAULT ''"),
+        ("phone", "TEXT NOT NULL DEFAULT ''"),
+        ("email", "TEXT NOT NULL DEFAULT ''"),
+        ("bank_name", "TEXT NOT NULL DEFAULT ''"),
+        ("bank_account", "TEXT NOT NULL DEFAULT ''"),
+        ("bank_ifsc", "TEXT NOT NULL DEFAULT ''"),
+        ("invoice_terms", "TEXT NOT NULL DEFAULT ''"),
+    ],
+    "customer": [("address", "TEXT NOT NULL DEFAULT ''")],
+    "item": [("hsn", "TEXT")],
+}
+
+
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """Additive, idempotent schema migration. Never drops or rewrites data."""
+    for table, columns in COLUMN_MIGRATIONS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if not existing:
+            continue
+        for name, ddl in columns:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+    conn.commit()
 
 
 def next_number(conn: sqlite3.Connection, tenant_id: str, doc_type: str, prefix: str) -> str:

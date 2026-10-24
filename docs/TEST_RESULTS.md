@@ -291,3 +291,88 @@ localisation, and behaviour under real data volumes. These remain open and are n
 
 Restores are verified but not automated as a one-click destructive operation; restoring is a
 deliberate manual step.
+
+
+## 8. Application run `RUN-2026-10-24-04` - settings, tax invoice print, GSTR-1 working export
+
+### 8.1 What was actually executed
+
+| Command | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **87 tests, OK**, 8.5 s, Python 3.14.6, Windows |
+| `python -m app.server` + browser checks | settings, print invoice, GST page, GSTR-1 CSV and JSON |
+| In-place migration of `data/arthivio.db` | new tenant/customer columns added, existing rows preserved |
+
+New tests added in this run:
+
+- `tests/test_gstr1.py` - per-invoice tax split reconciliation, GSTR-1 totals vs posted
+  invoices, B2B/B2C split, HSN summary reconciliation, credit-note section, missing-GSTIN
+  warning, additive migration (legacy table + data preserved, idempotent re-run), amount in
+  words.
+- `tests/test_web.py` - settings validation and save, print invoice HTML, GSTR-1 CSV, GSTR-1
+  JSON.
+
+### 8.2 Verified demo figures (GSTR-1 working export, 2026-04-01 to 2026-10-24)
+
+| Section | Taxable | CGST | SGST | IGST |
+|---|---|---|---|---|
+| B2B + B2C small (11 invoices) | 207,988.00 | 6,426.86 | 6,426.86 | 11,438.85 |
+| Credit note CN-00001 | 448.20 | 26.89 | 26.89 | 0.00 |
+
+- 12 B2B rate rows (9 registered invoices, two of them multi-rate), 1 B2C-small aggregate row.
+- 5 HSN/SAC groups (6205, 6214, 7418, 9403, 998391).
+- 2 invoices without buyer GSTIN are grouped as B2C small and flagged in warnings.
+- The GST summary page shows **net** output tax after credit notes (CGST 6,399.97 +
+  SGST 6,399.97 + IGST 11,438.85 = 24,238.79); the GSTR-1 export lists gross invoices and
+  the credit note separately. Both reconcile: 6,426.86 - 26.89 = 6,399.97.
+
+### 8.3 Print invoice verified in the browser
+
+`INV-00011` (Northern Lights LLP, inter-state):
+
+- seller GSTIN `27AABCS1429B1Z1`, buyer GSTIN `07AAFCN4321P1Z9`, place of supply `07 - Delhi`
+- line: Interior Consulting 8.000 hour @ 2,500.00, HSN/SAC 998391, IGST 18% = 3,600.00
+- taxable 20,000.00, invoice total 23,600.00, round off 0.00
+- amount in words: "Twenty Three Thousand Six Hundred Rupees Only"
+- bank details and terms printed; browser Print / Save as PDF button present
+
+### 8.4 In-place schema migration (no data loss)
+
+`db.init_db` now runs additive `ALTER TABLE ... ADD COLUMN` migrations for tenant profile
+fields and customer address. Verified against a legacy-shaped tenant table and against the
+existing demo database: existing rows and balances were unchanged, new fields defaulted to
+empty, and a second `init_db` run made no further changes.
+
+### 8.5 Defects found and fixed during this run
+
+- `B-017` - web test selected the "latest" invoice by `created_at`, which is stored to the
+  second; seeded and newly created invoices could tie and the test intermittently picked a
+  fully paid invoice. Test now selects by document number (deterministic).
+- `B-018` - GSTR-1 HSN aggregation omitted `rate_bp`, causing a `KeyError` in sorting. Fixed
+  and covered by `test_hsn_summary_matches_totals`.
+
+### 8.6 Explicitly NOT verified
+
+- Upload to the GST portal or the official GSTR-1 JSON schema (this is a working CSV/JSON
+  preparation aid, labelled as such in the file).
+- Binary PDF generation (the browser's Print / Save as PDF is used; no PDF library).
+- GSTR-3B, e-invoice/IRN, e-way bill, debit notes, bank reconciliation.
+- Multi-user invitation UI, PostgreSQL, Next.js, load/penetration testing.
+
+
+### 8.7 Backup / restore drill after the migration (executed)
+
+| Item | Value |
+|---|---|
+| Backup file | `backups/arthivio-20261024-201058.db` |
+| SHA-256 | `f6b563522547b774c28805b884ea317ea9b8d838169130ec3294d91ffc4ba7a4` |
+| Size | 372,736 bytes |
+| Integrity check | ok |
+| Foreign-key check | ok |
+| Journals balanced | 1 tenant |
+| Tables present | 20 |
+| Row counts vs source | match |
+| Restore verification | **PASS** |
+
+The backup was taken from the migrated demo database, proving the additive schema changes did
+not break online backup or restore verification.
