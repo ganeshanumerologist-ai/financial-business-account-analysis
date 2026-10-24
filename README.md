@@ -1,0 +1,93 @@
+# ARTHIVIO — Smarter Finance. Stronger Business.
+
+Business finance, accounting and analytics platform. This repository currently contains **audit documentation and design references only** — no application code has been written yet.
+
+> **Status: NOT RUNNABLE.** There is no app to start. That is a verified fact, not a placeholder.
+
+---
+
+## What is in this folder right now
+
+```
+D:\financial business account data analysis\
+├── Arthivio Smarter Finance Dashboard.png          design reference (1536×1024)
+├── WhatsApp Image 2026-10-24 at 10.10.22 AM.jpeg   design reference (1536×1024)
+├── README.md                                        this file
+└── docs\
+    ├── SOFTWARE_AUDIT.md            full audit report
+    ├── FEATURE_INVENTORY.md         every specified feature, status NOT IMPLEMENTED
+    ├── TEST_PLAN.md                 90 test cases, ready to run
+    ├── TEST_RESULTS.md              results of run RUN-2026-10-24-01
+    ├── BUG_REPORT.md                9 open defects (B-001 … B-009)
+    ├── DECISION_LOG.md              decisions + the one blocking decision
+    └── PROJECT_SPEC.md              governing specification (copied, hash-verified)
+```
+
+---
+
+## How to run it
+
+You can't. There is no code.
+
+```powershell
+cd "D:\financial business account data analysis"
+# no package.json, no requirements.txt, no app entry point
+```
+
+Once Phase 1 exists, this section will contain the exact commands. Until then, any command claiming to start ARTHIVIO would be false.
+
+---
+
+## Verified environment
+
+| Tool | Status |
+|---|---|
+| Python 3.14.6 + pip 26.1.2 | ✅ installed |
+| Node.js 20.20.2 + npm 10.8.2 | ✅ **portable** (`C:\Users\vicky\node-portable\…`) — not on `PATH` |
+| git 2.56.0 | ✅ **portable** (`C:\Users\vicky\git-portable`) — not on `PATH` |
+| PostgreSQL | ❌ not installed |
+| Docker | ❌ not installed (not required locally) |
+| Disk free on D: | ✅ ≈ 876 GB |
+
+Full detail: `docs/SOFTWARE_AUDIT.md` §3.
+
+---
+
+## Current audit conclusion
+
+- Features implemented: **0**
+- Features verified working: **0**
+- Reports verified against transactions: **0** (none exist)
+- Tests executed against application code: **0**
+- Audit checks executed: **12** → 5 pass, 6 fail, 1 blocked
+- Remote GitHub repository inspected: exists, but contains **only a 144-byte README** — no code
+- Blocking defect: **B-001 — no application source**
+
+The audit did **not** invent results. Everything that could not be checked is marked `BLOCKED`, not `PASS`.
+
+---
+
+## Two decisions the owner must make
+
+1. **Stack + database** — Next.js (Node 20 is already on the machine in portable form) + FastAPI, or Python-only first. In both cases PostgreSQL is missing, so Phase 1 needs a file-based database with a documented PostgreSQL path. This also covers approval to download dependencies (`npm install` / `pip install`, both free). See `docs/DECISION_LOG.md`.
+2. **Version control** — git 2.56 is already available in portable form; only a `git init` + first commit is needed. No installation, and no automatic push to GitHub.
+
+These are the only blockers. Everything else is ready.
+
+---
+
+## Rules this project follows
+
+No silent failure. No silent financial correction. No unsupported financial claim. No unverified critical output. No cross-tenant data access. No false payment or government-verification status.
+
+Corollary used throughout the audit: **a feature is not "done" until implementation, tests and documentation agree.** Nothing here claims otherwise.
+
+---
+
+## ओनर के लिए हिंदी में सार
+
+- अभी इस फोल्डर में **कोई सॉफ्टवेयर नहीं है** — सिर्फ दो डिज़ाइन तस्वीरें और ऑडिट डॉक्यूमेंट हैं।
+- इसलिए ऑडिट में हर फीचर `BLOCKED` लिखा है, `PASS` नहीं। झूठी रिपोर्ट नहीं बनाई गई।
+- कंप्यूटर में Python है, लेकिन Node.js, Git और PostgreSQL नहीं हैं।
+- अगला कदम: आप दो फैसले लें — (1) कौन सी टेक्नोलॉजी से बनाएं, (2) Git इंस्टॉल करने की अनुमति। उसके बाद Phase 1 (सुरक्षित फाउंडेशन) शुरू होगा।
+- पूरी रिपोर्ट: `docs/SOFTWARE_AUDIT.md` पढ़ें।
