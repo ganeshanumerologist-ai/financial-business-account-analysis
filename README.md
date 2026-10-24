@@ -2,16 +2,17 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.4).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.5).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
-(purchase returns), day book, manual journals, bank reconciliation, GST summary, ageing reports,
-CSV exports, a print-ready tax invoice and a GSTR-1 style working export are implemented through
-a real double-entry engine and covered by **120 automated tests that pass on this machine**
-(see `docs/TEST_RESULTS.md`, run `RUN-2026-10-24-05`).
+(purchase returns), day book, manual journals, bank reconciliation, GST summary, GSTR-1 working
+export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation checks**, ageing reports,
+CSV exports, a print-ready tax invoice are implemented through a real double-entry engine and
+covered by **129 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`, run
+`RUN-2026-10-24-06`).
 
-It is **not production-ready yet**: GST portal upload / GSTR-3B, e-invoice/IRN, TDS/TCS,
-multi-user admin UI, PostgreSQL and the Next.js front end are not built. Do not put real
-customer data in it.
+It is **not production-ready yet**: GST portal upload, GSTR-2B reconciliation, e-invoice/IRN,
+TDS/TCS, multi-user admin UI, PostgreSQL and the Next.js front end are not built. GSTR-3B is a
+preparation aid, not a filed return. Do not put real customer data in it.
 
 ---
 
@@ -28,7 +29,7 @@ cd "D:\financial business account data analysis"
 Or step by step:
 
 ```powershell
-python -m unittest discover -s tests     # 120 tests
+python -m unittest discover -s tests     # 129 tests
 python scripts/seed_demo.py              # demo books (idempotent)
 python -m app.server                     # http://127.0.0.1:8000
 ```
@@ -59,7 +60,8 @@ the backup folder with `ARTHIVIO_BACKUP_DIR`, and the port with `PORT`.
 | Inventory | Perpetual stock, weighted-average cost, COGS at cost, negative-stock block, service items never touch stock | `test_cogs_and_stock`, `test_purchase_at_current_cost_keeps_average`, `test_service_invoice_does_not_touch_stock` |
 | Receivables / payables | Customer and vendor balances + statements, open-invoice and open-bill ageing (current / 31-60 / 61-90 / 90+), reconciled to control accounts | `TestReceipts`, `TestAgeingAndGST`, `test_customer_statement_matches_receivable_control` |
 | Reports | Trial balance, general ledger with running balance, P&L, balance sheet (A = L + E), day book, GST summary with sales/purchase registers | `test_04`, `test_balance_sheet_equation`, `TestAgeingAndGST` |
-| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, debit notes, bank statement, ageing and GST registers (UTF-8 with BOM for Excel); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections | `test_13_csv_exports`, `test_17`, `test_18`, `test_19`, `test_20` |
+| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, debit notes, bank statement, ageing and GST registers (UTF-8 with BOM for Excel); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections; GSTR-3B working CSV | `test_13_csv_exports`, `test_17`, `test_18`, `test_19`, `test_20`, `test_21` |
+| GSTR-3B working | Month-wise 3.1 outward supplies, 4 eligible ITC and head-wise payment view; output net of credit notes, ITC net of debit notes; six reconciliation checks against GSTR-1 and the tax ledger; negative-head carry-forward shown explicitly | `tests/test_gstr3b.py` (8), `test_21_gstr3b_page_and_csv`, browser check `RUN-2026-10-24-06` |
 | Tax invoice | A4 print view with seller/buyer GSTIN, HSN/SAC, CGST/SGST vs IGST, amount in words, bank details and terms; browser Print / Save as PDF | `test_16_settings_and_print_invoice` |
 | Business settings | Owner-editable legal name, GSTIN, GST state, address, contact, bank details and invoice terms; validated and audited | `test_16_settings_and_print_invoice`, `MigrationTest` |
 | Backups | Consistent online backup, SHA-256, integrity + foreign-key + balanced-journal + row-count verification, recorded runs, CLI restore drill | `TestBackup`, `test_15_backup_over_http`, `scripts/backup.py` |
@@ -69,7 +71,7 @@ the backup folder with `ARTHIVIO_BACKUP_DIR`, and the port with `PORT`.
 
 ## What is not built yet (honest gaps)
 
-- GST portal upload, GSTR-3B, GSTR-2B reconciliation, e-invoice/IRN, e-way bills, TDS/TCS
+- GST portal upload, GSTR-2B reconciliation, e-invoice/IRN, e-way bills, TDS/TCS; GSTR-3B is a working preparation aid only
 - Auto-posting journal entries from unmatched bank lines (bank charges/interest), cheque printing, payment reminders
 - Excel (xlsx) export, email delivery, e-invoice QR
 - Multi-user invite/role administration UI (roles exist in the data layer)
@@ -94,7 +96,7 @@ app/
   backup.py       online backup + verification (integrity, FKs, balance, row counts)
   server.py       HTTP server + server-rendered UI (stdlib only)
   demo.py         synthetic demo books
-tests/            120 unittest cases (unit + end-to-end HTTP)
+tests/            129 unittest cases (unit + end-to-end HTTP)
 scripts/          seed_demo.py, backup.py, restore_verify.py
 dev.ps1           test → seed → run
 ```
@@ -111,7 +113,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **120 tests, OK, ~8 s**, Python 3.14.6, Windows.
+Last verified: **129 tests, OK, ~9 s**, Python 3.14.6, Windows.
 
 Backup drill:
 
@@ -148,9 +150,8 @@ python scripts/restore_verify.py --backup backups\<file>.db
 
 ## Next slice (recommended order)
 
-1. Debit notes (purchase returns) with input-GST reversal.
-2. Bank reconciliation: CSV import, suggested matches, manual match/unmatch.
-3. Shareable customer/vendor statement print views.
-4. Multi-user invitation and role administration UI.
-5. GSTR-3B working summary and GSTR-1 reconciliation checks.
-6. Then PostgreSQL, concurrency hardening and the Next.js front end.
+1. Shareable customer/vendor statement print views.
+2. Multi-user invitation and role administration UI.
+3. GSTR-2B purchase reconciliation and GSTR-3B cross-utilisation/portal workflow.
+4. Partial/one-to-many bank matching; auto-post bank charges and interest.
+5. Then PostgreSQL, concurrency hardening and the Next.js front end.

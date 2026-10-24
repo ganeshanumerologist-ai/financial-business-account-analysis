@@ -191,6 +191,7 @@ NAV = [
         ("reports/ar-ageing", "rep", "Receivables Ageing"),
         ("reports/ap-ageing", "rep", "Payables Ageing"),
         ("reports/gst", "rep", "GST Summary"),
+        ("reports/gstr3b", "rep", "GSTR-3B"),
     ]),
     ("Masters", [
         ("customers", "cust", "Customers"),
@@ -272,7 +273,7 @@ def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> s
 <main class="main">
   <div class="top"><h1>{esc(title)}</h1>{who}</div>
   {body}
-  <p class="footer-note">{APP_NAME} · amounts in INR · all figures derived from posted journal entries.</p>
+  <p class="footer-note">{APP_NAME} · amounts in INR · all figures derived from posted documents and journal entries.</p>
 </main></div></body></html>"""
 
 
@@ -422,6 +423,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_ageing(conn, user, tenant, q, "ap"))
             if path == "/reports/gst":
                 return self._send(self.page_gst(conn, user, tenant, q))
+            if path == "/reports/gstr3b":
+                return self._send(self.page_gstr3b(conn, user, tenant, q))
             if path == "/export/gstr1.json":
                 return self.export_gstr1_json(conn, user, tenant, q)
             if path.startswith("/export/"):
@@ -1476,6 +1479,7 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <div class="field" style="grid-column:span 4;display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
 <a class="btn ghost" href="/export/gstr1.csv?from={esc(dfrom)}&amp;to={esc(dto)}">GSTR-1 CSV</a>
 <a class="btn ghost" href="/export/gstr1.json?from={esc(dfrom)}&amp;to={esc(dto)}">GSTR-1 JSON</a>
+<a class="btn ghost" href="/reports/gstr3b?month={esc(dto[:7])}">GSTR-3B working</a>
 <span class="small muted">B2B + B2C small + HSN summary for this period</span>
 </div></div></form>
 <div class="grid2">
@@ -1494,6 +1498,130 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <div class="card"><table><thead><tr><th>Bill</th><th>Date</th><th>Vendor</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{purchases}</tbody></table></div></div>
 <p class="small muted">Working summary, not a filed return. Input tax is net of debit notes; GSTR-1 export lists invoices (B2B + B2C small) and credit notes separately, while this page shows net GST after credit notes. Verify with your tax professional before filing.</p>"""
         return layout("GST summary", body, "reports/gst", user, tenant)
+
+    def page_gstr3b(self, conn, user, tenant, q) -> str:
+        today = date.today()
+        month = (q.get("month") or [today.strftime("%Y-%m")])[0]
+        try:
+            g = acct.gstr3b_data(conn, tenant["id"], month)
+        except acct.AccountingError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    f'<p class="small muted" style="margin:12px 0 0">Use a month in YYYY-MM format.</p>'
+                    f'<p><a class="btn" href="/reports/gstr3b">Current month</a></p></div>')
+            return layout("GSTR-3B", body, "reports/gstr3b", user, tenant)
+
+        out = g["outward"]
+        itc = g["itc"]
+        pay = g["payment"]
+        checks = g["reconciliation"]["checks"]
+        check_rows = "".join(
+            f'<tr><td>{esc(c["label"])}</td>'
+            f'<td class="num">{money.fmt(c["expected"])}</td>'
+            f'<td class="num">{money.fmt(c["actual"])}</td>'
+            f'<td class="num">{money.fmt(c["difference"])}</td>'
+            f'<td><span class="badge {"ok" if c["status"] == "ok" else "bad"}">'
+            f'{"OK" if c["status"] == "ok" else "CHECK"}</span></td></tr>'
+            for c in checks)
+        warnings = "".join(f"<li>{esc(w)}</li>" for w in g["warnings"])
+        warning_card = ""
+        if warnings:
+            warning_card = (f'<div class="card pad sect"><h2>Checks and warnings</h2>'
+                            f'<ul class="small" style="margin:8px 0 0 18px;line-height:1.7">{warnings}</ul></div>')
+
+        outward_rows = f"""
+<tr><td>3.1(a)</td><td>Outward taxable supplies (other than zero-rated, nil-rated and exempted) &mdash; net of credit notes</td>
+<td class="num">{money.fmt(out["taxable_net"])}</td><td class="num">{money.fmt(out["output_net"]["IGST"])}</td>
+<td class="num">{money.fmt(out["output_net"]["CGST"])}</td><td class="num">{money.fmt(out["output_net"]["SGST"])}</td></tr>
+<tr><td>3.1(b)</td><td>Outward taxable supplies (zero-rated)</td>
+<td class="num">{money.fmt(out["zero_rated"])}</td><td class="num">{money.fmt(0)}</td>
+<td class="num">{money.fmt(0)}</td><td class="num">{money.fmt(0)}</td></tr>
+<tr><td>3.1(c)</td><td>Other outward supplies (nil-rated, exempted)</td>
+<td class="num">{money.fmt(out["nil_exempt"])}</td><td class="num">{money.fmt(0)}</td>
+<td class="num">{money.fmt(0)}</td><td class="num">{money.fmt(0)}</td></tr>
+<tr><td>3.1(d)</td><td>Inward supplies liable to reverse charge</td>
+<td class="num">{money.fmt(out["rcm_inward"])}</td><td class="num">{money.fmt(0)}</td>
+<td class="num">{money.fmt(0)}</td><td class="num">{money.fmt(0)}</td></tr>
+<tr><td>3.1(e)</td><td>Non-GST outward supplies</td>
+<td class="num">{money.fmt(out["non_gst"])}</td><td class="num">{money.fmt(0)}</td>
+<td class="num">{money.fmt(0)}</td><td class="num">{money.fmt(0)}</td></tr>
+"""
+
+        itc_rows = f"""
+<tr><td>4(A)(5)</td><td>All other ITC &mdash; purchase bills</td>
+<td class="num">{money.fmt(itc["gross"]["IGST"])}</td><td class="num">{money.fmt(itc["gross"]["CGST"])}</td>
+<td class="num">{money.fmt(itc["gross"]["SGST"])}</td><td class="num">{money.fmt(itc["gross_total"])}</td></tr>
+<tr><td>4(B)(2)</td><td>ITC reversal &mdash; debit notes / purchase returns</td>
+<td class="num">{money.fmt(itc["reversal"]["IGST"])}</td><td class="num">{money.fmt(itc["reversal"]["CGST"])}</td>
+<td class="num">{money.fmt(itc["reversal"]["SGST"])}</td><td class="num">{money.fmt(itc["reversal_total"])}</td></tr>
+<tr><td></td><td><b>Net eligible ITC</b></td>
+<td class="num"><b>{money.fmt(itc["net"]["IGST"])}</b></td><td class="num"><b>{money.fmt(itc["net"]["CGST"])}</b></td>
+<td class="num"><b>{money.fmt(itc["net"]["SGST"])}</b></td><td class="num"><b>{money.fmt(itc["net_total"])}</b></td></tr>
+<tr><td>4(A)(1)</td><td>Import of goods</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">{money.fmt(0)}</td></tr>
+<tr><td>4(A)(2)</td><td>Import of services</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">{money.fmt(0)}</td></tr>
+<tr><td>4(A)(3)</td><td>Inward supplies liable to reverse charge</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">{money.fmt(0)}</td></tr>
+"""
+
+        pay_rows = "".join(
+            f'<tr><td>{esc(h["head"])}</td>'
+            f'<td class="num">{money.fmt(h["output"])}</td>'
+            f'<td class="num">{money.fmt(h["itc_available"])}</td>'
+            f'<td class="num">{money.fmt(h["itc_used"])}</td>'
+            f'<td class="num"><b>{money.fmt(h["cash_payable"])}</b></td>'
+            f'<td class="num">{money.fmt(h["itc_balance"])}</td></tr>'
+            for h in pay["heads"])
+        carry_note = ""
+        if pay["output_carry_total"]:
+            carry_note = (f'<p class="small muted" style="padding:0 20px 12px">Output tax carried '
+                          f'forward (credit notes exceed invoices): '
+                          f'{money.fmt(pay["output_carry_total"])}</p>')
+        excess_note = ""
+        if pay["excess_reversal_total"]:
+            excess_note = (f'<p class="small muted" style="padding:0 20px 12px">ITC reversal in '
+                           f'excess of available ITC, shown as payable: '
+                           f'{money.fmt(pay["excess_reversal_total"])}</p>')
+
+        body = f"""
+<form method="get" class="card pad sect">
+<div class="row c4">
+<div class="field"><label>Month</label><input type="month" name="month" value="{esc(month)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/export/gstr3b.csv?month={esc(month)}">Export CSV</a></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/reports/gst?from={esc(g["period"]["from"])}&amp;to={esc(g["period"]["to"])}">GST summary</a></div>
+</div></form>
+<div class="kpis">
+  {kpi("Net taxable", money.fmt(out["taxable_net"]), f'{g["docs"]["invoices"]} invoice(s) less credit notes')}
+  {kpi("Output tax", money.fmt(out["output_total"]), "net of credit notes")}
+  {kpi("Eligible ITC", money.fmt(itc["net_total"]), "purchase bills less debit notes")}
+  {kpi("Cash payable", money.fmt(pay["cash_payable_total"]), "head-wise, no cross-utilisation")}
+</div>
+<div class="sect-head"><h2>3.1 Outward supplies</h2>
+<span class="badge neutral">{esc(g["period"]["from"])} → {esc(g["period"]["to"])}</span></div>
+<div class="card"><table>
+<thead><tr><th>#</th><th>Description</th><th class="num">Taxable value</th><th class="num">IGST</th><th class="num">CGST</th><th class="num">SGST</th></tr></thead>
+<tbody>{outward_rows}</tbody></table></div>
+<div class="sect-head"><h2>4. Eligible ITC</h2><span class="small muted">Input tax credit, net of purchase returns</span></div>
+<div class="card"><table>
+<thead><tr><th>#</th><th>Description</th><th class="num">IGST</th><th class="num">CGST</th><th class="num">SGST</th><th class="num">Total</th></tr></thead>
+<tbody>{itc_rows}</tbody></table></div>
+<div class="sect-head"><h2>5. Payment of tax</h2><span class="small muted">Working set-off, not a challan</span></div>
+<div class="card"><table>
+<thead><tr><th>Head</th><th class="num">Output tax</th><th class="num">ITC available</th><th class="num">ITC utilised</th><th class="num">Cash payable</th><th class="num">ITC balance</th></tr></thead>
+<tbody>{pay_rows}</tbody>
+<tfoot><tr><td><b>Total</b></td><td class="num"><b>{money.fmt(pay["output_total"])}</b></td>
+<td class="num"><b>{money.fmt(pay["itc_available_total"])}</b></td>
+<td class="num"><b>{money.fmt(pay["itc_used_total"])}</b></td>
+<td class="num"><b>{money.fmt(pay["cash_payable_total"])}</b></td>
+<td class="num"><b>{money.fmt(pay["itc_balance_total"])}</b></td></tr></tfoot></table>
+{carry_note}{excess_note}</div>
+<div class="sect-head"><h2>Reconciliation checks</h2>
+<span class="badge {"ok" if g["reconciliation"]["failed"] == 0 else "bad"}">{len(checks) - g["reconciliation"]["failed"]}/{len(checks)} OK</span></div>
+<div class="card"><table>
+<thead><tr><th>Check</th><th class="num">Expected</th><th class="num">Actual</th><th class="num">Difference</th><th>Status</th></tr></thead>
+<tbody>{check_rows}</tbody></table></div>
+{warning_card}
+<div class="card pad small muted" style="margin-top:16px">{esc(g["note"])}</div>
+"""
+        return layout("GSTR-3B", body, "reports/gstr3b", user, tenant)
 
     def page_ledger(self, conn, user, tenant, q) -> str:
         accounts = conn.execute("SELECT * FROM account WHERE tenant_id=? ORDER BY code", (tenant["id"],)).fetchall()
@@ -2327,6 +2455,63 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                       money.to_str(r["credit_paise"]) if r["credit_paise"] else "",
                       money.to_str(r["balance_paise"]) if r["balance_paise"] is not None else "",
                       r["status"], r["entry_no"] or ""] for r in lines]
+        elif key == "gstr3b":
+            month = (q.get("month") or [date.today().strftime("%Y-%m")])[0]
+            try:
+                g = acct.gstr3b_data(conn, tid, month)
+            except acct.AccountingError:
+                return self._send("Invalid month; use YYYY-MM", 400)
+            out = g["outward"]
+            itc = g["itc"]
+            pay = g["payment"]
+            rows = [
+                ["Section", "Description", "Taxable Value", "IGST", "CGST", "SGST", "Cess"],
+                ["3.1(a)", "Outward taxable supplies net of credit notes",
+                 money.to_str(out["taxable_net"]), money.to_str(out["output_net"]["IGST"]),
+                 money.to_str(out["output_net"]["CGST"]), money.to_str(out["output_net"]["SGST"]),
+                 money.to_str(0)],
+                ["3.1(b)", "Outward taxable supplies zero-rated", money.to_str(0),
+                 money.to_str(0), money.to_str(0), money.to_str(0), money.to_str(0)],
+                ["3.1(c)", "Other outward supplies nil-rated/exempted", money.to_str(0),
+                 money.to_str(0), money.to_str(0), money.to_str(0), money.to_str(0)],
+                ["3.1(d)", "Inward supplies liable to reverse charge (outward side)",
+                 money.to_str(0), money.to_str(0), money.to_str(0), money.to_str(0), money.to_str(0)],
+                ["3.1(e)", "Non-GST outward supplies", money.to_str(0), money.to_str(0),
+                 money.to_str(0), money.to_str(0), money.to_str(0)],
+                [],
+                ["Section", "Description", "IGST", "CGST", "SGST", "Total", "Cess"],
+                ["4(A)(5)", "All other ITC - purchase bills",
+                 money.to_str(itc["gross"]["IGST"]), money.to_str(itc["gross"]["CGST"]),
+                 money.to_str(itc["gross"]["SGST"]), money.to_str(itc["gross_total"]), money.to_str(0)],
+                ["4(B)(2)", "ITC reversal - debit notes / purchase returns",
+                 money.to_str(itc["reversal"]["IGST"]), money.to_str(itc["reversal"]["CGST"]),
+                 money.to_str(itc["reversal"]["SGST"]), money.to_str(itc["reversal_total"]),
+                 money.to_str(0)],
+                ["", "Net eligible ITC", money.to_str(itc["net"]["IGST"]),
+                 money.to_str(itc["net"]["CGST"]), money.to_str(itc["net"]["SGST"]),
+                 money.to_str(itc["net_total"]), money.to_str(0)],
+                [],
+                ["Section", "Head", "Output tax", "ITC available", "ITC utilised",
+                 "Cash payable", "ITC balance"],
+            ]
+            rows += [[ "5", h["head"], money.to_str(h["output"]), money.to_str(h["itc_available"]),
+                       money.to_str(h["itc_used"]), money.to_str(h["cash_payable"]),
+                       money.to_str(h["itc_balance"])] for h in pay["heads"]]
+            rows += [
+                ["", "Total", money.to_str(pay["output_total"]),
+                 money.to_str(pay["itc_available_total"]), money.to_str(pay["itc_used_total"]),
+                 money.to_str(pay["cash_payable_total"]), money.to_str(pay["itc_balance_total"])],
+                [],
+                ["Reconciliation", "Check", "Expected", "Actual", "Difference", "Status", ""],
+            ]
+            rows += [[ "Check", c["label"], money.to_str(c["expected"]), money.to_str(c["actual"]),
+                       money.to_str(c["difference"]), c["status"], ""]
+                     for c in g["reconciliation"]["checks"]]
+            rows += [
+                [],
+                ["Period", g["period"]["from"], g["period"]["to"], "", "", "", ""],
+                ["Note", g["note"], "", "", "", "", ""],
+            ]
         else:
             return self._send("Unknown export", 404)
 

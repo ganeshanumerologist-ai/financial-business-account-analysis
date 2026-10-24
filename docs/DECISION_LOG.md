@@ -277,3 +277,16 @@ description/reference and amounts. Manual match/unmatch is audited. Unmatched st
 that need a journal (bank charges, interest) are surfaced with a note; auto-posting them is
 deliberately left for a later slice.
 
+## D-016 - GSTR-3B is a working, head-wise preparation aid
+
+**Date:** 2026-10-24. **Status:** accepted for Build 0.5.
+
+GSTR-3B figures are computed from posted documents: outward taxable value and output tax from
+invoices less credit notes; ITC from purchase bills less debit notes. The tax control accounts
+are used as an independent reconciliation check, not as the source of the return. Set-off is
+head-wise only, so IGST credit is not cross-utilised against CGST/SGST; a negative output head is
+carried forward and an ITC reversal above available ITC is shown as payable. RCM, zero-rated,
+nil/exempt and import ITC are not modelled. The page and CSV state clearly that this is a
+preparation aid, not a filed return, and every reconciliation check exposes its difference rather
+than hiding or auto-correcting it.
+

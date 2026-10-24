@@ -132,11 +132,11 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-801 | GST Output Summary | invoice lines | Σ tax by rate/HSN | 3 | Not implemented |
-| R-802 | GST Input Summary | purchase lines | Σ tax by rate/HSN | 3 | Not implemented |
-| R-803 | GSTR-1 Working Paper | invoices | Period-wise outward supplies | 9 | Not implemented |
-| R-804 | GSTR-3B Working Paper | tax ledgers | Output − eligible ITC | 9 | Not implemented |
-| R-805 | HSN/SAC Summary | invoice/purchase lines | Qty + value + tax per code | 3 | Not implemented |
+| R-801 | GST Output Summary | invoice lines | Σ tax by rate/HSN | 3 | Working (Build 0.3) |
+| R-802 | GST Input Summary | purchase lines | Σ tax by rate/HSN | 3 | Working (Build 0.3) |
+| R-803 | GSTR-1 Working Paper | invoices | Period-wise outward supplies | 9 | Working CSV/JSON (Build 0.3) |
+| R-804 | GSTR-3B Working Paper | invoices, credit notes, bills, debit notes | Output − eligible ITC, head-wise | 9 | Working (Build 0.5) |
+| R-805 | HSN/SAC Summary | invoice/purchase lines | Qty + value + tax per code | 3 | Working (GSTR-1 HSN section, Build 0.3) |
 | R-806 | ITC Reconciliation (2B) | imported 2B + purchase | Matched / mismatched / missing | 9 | Not implemented |
 | R-807 | Tax Ledger | journal_line (tax accounts) | Opening + payable − paid = closing | 3 | Not implemented |
 

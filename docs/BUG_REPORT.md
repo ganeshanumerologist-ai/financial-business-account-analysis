@@ -426,3 +426,17 @@ balance is unchanged. The vendor page shows a "Debit notes (period)" KPI. Covere
 `test_vendor_statement_and_gst_summary_include_return` and the browser check in
 `RUN-2026-10-24-05`.
 
+### Gap status after Build 0.5
+
+| ID | Gap | Status | Notes |
+|---|---|---|---|
+| G-04 | No GST returns or exports | **PARTIAL** | GST summary/registers, GSTR-1 working CSV/JSON and GSTR-3B working summary exist; GSTR-2/2B, portal upload, official schemas and cross-utilisation remain open |
+| G-09 | No bank reconciliation or cheque workflow | **PARTIAL** | unchanged from Build 0.4 |
+| G-11 | No GST portal filing or official GSTR-3B JSON | **OPEN** | the page and CSV are labelled preparation aids; nothing is filed |
+| G-12 | GSTR-3B set-off is head-wise only | **OPEN (deliberate)** | IGST credit is not cross-utilised; negative heads are carried forward and surfaced |
+
+GSTR-3B verification did not reveal a new defect. The two review signals found in the demo data -
+negative CGST/SGST in June after an intra-state credit note against inter-state invoices, and a
+negative October ITC after a purchase return - are shown as warnings with explicit carry-forward
+and payable treatment, not silently netted.
+

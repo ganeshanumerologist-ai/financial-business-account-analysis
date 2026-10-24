@@ -346,6 +346,34 @@ the single source of truth.
 ### 14.3 Deliberate limits
 
 - No partial-amount or one-to-many bank matching; no auto-posting of bank charges/interest.
-- No GSTR-2/2B purchase reconciliation or GSTR-3B.
+- No GSTR-2/2B purchase reconciliation; GSTR-3B was added in §15.
 - CSV only; bank API feeds, Excel import and cheque printing are future work.
 
+## 15. Implementation status (2026-10-24, Build 0.5)
+
+### 15.1 GSTR-3B working summary
+
+`accounting.gstr3b_data(conn, tenant_id, month)` returns a month-scoped preparation view:
+
+- **3.1 outward supplies** - taxable value and IGST/CGST/SGST from posted invoices, less posted
+  credit notes. Gross invoice and credit-note figures are retained separately for reconciliation.
+- **4. Eligible ITC** - purchase-bill GST as ITC gross, debit-note GST as ITC reversal, and the
+  net. CGST/SGST vs IGST follows the bill's place of supply.
+- **5. Payment of tax** - head-wise output tax, ITC available, ITC utilised, cash payable and
+  ITC balance. Set-off is head-wise only; a negative head is carried forward, not cross-utilised.
+- **Reconciliation checks** - GSTR-1 net taxable/output tax/credit-note tax, document output tax
+  vs the output-tax ledger, document ITC vs the input-tax ledger, and bill GST minus debit-note
+  GST vs ITC. Every check exposes expected, actual and difference so a mismatch is visible.
+- **Warnings** - missing buyer GSTIN/B2C grouping, missing HSN, negative output heads, ITC
+  reversal in excess of available ITC, and any failed reconciliation check.
+
+The route is `/reports/gstr3b?month=YYYY-MM`; CSV is `/export/gstr3b.csv?month=YYYY-MM`
+(permission `report.export`). The page is explicitly labelled a working aid, not a filed return.
+
+### 15.2 Deliberate limits
+
+- No GST portal upload, official GSTR-3B JSON, challan or acknowledgment.
+- No cross-utilisation of IGST credit against CGST/SGST; no RCM, zero-rated, nil/exempt or
+  import-ITC modelling; no GSTR-2B reconciliation.
+- Ledger checks compare document tax with the tax control accounts. A manual GST payment or
+  adjustment posted to those accounts will show as a difference for review, not be auto-corrected.

@@ -226,6 +226,19 @@ accounting data.
 | Bank/debit-note permissions and audit | **Verified** | `bank.reconcile`, `debit_note.create`; audit events written in unit/HTTP tests |
 | Partial / one-to-many matching | **Not implemented** | exact full-amount matching only |
 | Auto-post bank charges/interest | **Not implemented** | unmatched lines are surfaced, not posted |
-| GSTR-2/2B, GSTR-3B, portal upload | **Not implemented** | GSTR-1 working export only |
+| GSTR-2/2B, portal upload | **Not implemented** | GSTR-1 working export and GSTR-3B working summary exist; neither is a filed return |
+| Multi-user admin UI, PostgreSQL, Next.js | **Not implemented** | future phases |
+
+## 13. Status after Build 0.5 (2026-10-24)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| GSTR-3B working summary | **Verified (working aid)** | `tests/test_gstr3b.py` (8), `/reports/gstr3b` browser check |
+| GSTR-1 net taxable/output vs GSTR-3B | **Verified** | 6/6 reconciliation checks OK for June and October 2026 |
+| Output/ITC vs tax ledger | **Verified** | document output tax and ITC compared with `gst_summary`; manual-journal mismatch test flags CHECK |
+| Month-scoped reporting | **Verified** | month bounds, leap February, month filter, empty month and cross-tenant tests |
+| GSTR-3B CSV export | **Verified** | `/export/gstr3b.csv?month=2026-10` HTTP 200, `test_21_gstr3b_page_and_csv` |
+| GST portal upload / official GSTR-3B JSON | **Not implemented** | working CSV only; no filing claim |
+| Cross-utilisation, RCM, zero-rated/exempt, GSTR-2B | **Not implemented** | head-wise set-off only; disclosed on page and in docs |
 | Multi-user admin UI, PostgreSQL, Next.js | **Not implemented** | future phases |
 

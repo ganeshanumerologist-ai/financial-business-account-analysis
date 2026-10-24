@@ -465,6 +465,27 @@ class WebTest(unittest.TestCase):
         conn.close()
         return row["id"]
 
+    def test_21_gstr3b_page_and_csv(self):
+        self.login()
+        status, page = self.get("/reports/gstr3b?month=2026-06")
+        self.assertEqual(status, 200)
+        self.assertIn("GSTR-3B", page)
+        self.assertIn("3.1 Outward supplies", page)
+        self.assertIn("Reconciliation checks", page)
+        self.assertIn("6/6 OK", page)
+        self.assertIn("Cash payable", page)
+
+        status, csv_body = self.get("/export/gstr3b.csv?month=2026-06")
+        self.assertEqual(status, 200)
+        self.assertIn("3.1(a)", csv_body)
+        self.assertIn("Net eligible ITC", csv_body)
+        self.assertIn("Cash payable", csv_body)
+        self.assertIn("Reconciliation", csv_body)
+
+        status, bad = self.get("/reports/gstr3b?month=2026-13")
+        self.assertEqual(status, 200)
+        self.assertIn("YYYY-MM", bad)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

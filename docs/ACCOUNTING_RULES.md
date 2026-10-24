@@ -169,6 +169,7 @@ All reports are derived views over posted journal lines — never independently 
 | General Ledger | Chronological lines per account with running balance | Last running balance == closing balance |
 | AR/AP Ageing | Open items bucketed by due date (0-30/31-60/61-90/90+) | `Σ buckets == control account balance` |
 | Bank Reconciliation | Statement lines vs ledger lines | Unexplained difference must be visible, never hidden |
+| GSTR-3B working | Posted invoices − credit notes for outward supplies; posted bills − debit notes for ITC; head-wise set-off | GSTR-1/ledger differences shown, never hidden; preparation aid only, not a filed return |
 
 Every report row must drill down to the source lines that produced it, and the report must display: period, filters, currency, rule version, data freshness.
 

@@ -448,3 +448,64 @@ posted bank journal line, so the ledger remains the source of truth.
 - GSTR-2 / GSTR-2B purchase reconciliation, GSTR-3B, GST portal upload, e-invoice/IRN.
 - Multi-user invitation UI, PostgreSQL, Next.js, load/penetration testing.
 
+---
+
+## 10. Application run `RUN-2026-10-24-06` - GSTR-3B working summary and reconciliation
+
+### 10.1 What was actually executed
+
+| Command | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **129 tests, OK**, ~8.3 s, Python 3.14.6, Windows |
+| `python -m app.server` + browser checks | GSTR-3B page for October 2026 and June 2026; CSV fetch returned HTTP 200 |
+| In-place schema check | no schema change was needed for this slice |
+
+New tests added in this run:
+
+- `tests/test_gstr3b.py` (8) - month boundary validation (including leap February), June output
+  net of a credit note, October ITC reversal from a debit note, month filtering and document
+  counts, empty-month safety, cross-tenant isolation, clean-book reconciliation, and a manual
+  output-tax journal that is correctly flagged as a ledger mismatch.
+- `tests/test_web.py` (+1) - GSTR-3B page renders the 3.1/4/5 sections and 6/6 checks, CSV export
+  contains the working sections, and an invalid month shows the YYYY-MM error instead of crashing.
+
+### 10.2 GSTR-3B verified in the browser
+
+October 2026 (two invoices and the demo purchase return `DBN-00001`):
+
+| Figure | Value |
+|---|---|
+| Net taxable value | 37,382.00 |
+| Output tax (IGST + CGST + SGST) | 5,378.84 |
+| Eligible ITC (purchase bills less debit notes) | -378.00 |
+| ITC reversal in excess of available ITC | 378.00 |
+| Cash payable in this working view | 5,756.84 |
+| Reconciliation checks | 6 / 6 OK |
+
+June 2026 (two invoices and credit note `CN-00001`):
+
+| Figure | Value |
+|---|---|
+| Net taxable value | 32,876.80 |
+| Output tax | 4,341.69 |
+| CGST / SGST | -26.89 each |
+| Cash payable in this working view | 4,395.47 |
+| Output tax carried forward | 53.78 |
+| Reconciliation checks | 6 / 6 OK |
+
+The negative CGST/SGST in June is shown with an explicit warning: the credit note was intra-state
+while June invoices were inter-state, so those heads are carried forward and are not set off
+against IGST. The October negative ITC is shown as an excess reversal payable, with a warning.
+The CSV download returned HTTP 200 with `text/csv` and the expected 3.1(a), ITC and reconciliation
+rows.
+
+### 10.3 Explicitly NOT verified
+
+- GSTR-3B is a **preparation aid, not a filed return**. No GST portal upload, no official JSON
+  schema, no challan or acknowledgment.
+- Set-off is head-wise only: IGST credit is not cross-utilised against CGST/SGST.
+- RCM, zero-rated, nil-rated/exempt, import ITC and GSTR-2B reconciliation are not modelled.
+- The ledger reconciliation check is expected to flag any manual journal or GST payment posted
+  to the tax control accounts; that is a review signal, not automatic correction.
+- Multi-user invitation UI, PostgreSQL, Next.js, load/penetration testing.
+

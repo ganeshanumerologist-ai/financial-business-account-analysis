@@ -360,8 +360,27 @@ and documentation agree.
 ### Still not implemented
 
 - Partial-amount / one-to-many bank matching; auto-posting bank charges or interest
-- GSTR-2 / GSTR-2B, GSTR-3B, official GSTR-1 schema, GST portal upload
+- GSTR-2 / GSTR-2B, official GSTR-1 schema, GST portal upload (GSTR-3B working summary added in §12)
 - e-invoice/IRN, e-way bill, TDS/TCS
 - Cheque printing, payment reminders, Excel export, email delivery
 - Multi-user invite/role admin UI, PostgreSQL, Next.js UI
 
+## 12. Status after Build 0.5 (2026-10-24)
+
+### Implemented and verified
+
+| Feature | Where | Notes |
+|---|---|---|
+| GSTR-3B working summary | `/reports/gstr3b?month=YYYY-MM` | 3.1 outward supplies net of credit notes, 4 eligible ITC net of debit notes, 5 head-wise payment, month selector |
+| GSTR-1/ledger reconciliation | `/reports/gstr3b` | six checks with expected, actual, difference and OK/CHECK status; warnings for B2C, HSN, negative heads and ITC reversal |
+| GSTR-3B working CSV | `/export/gstr3b.csv?month=YYYY-MM` | 3.1, 4, 5 and reconciliation sections; requires `report.export` |
+| GSTR-3B safety labels | page and CSV | explicitly a preparation aid, head-wise set-off only, no portal upload or official schema claim |
+
+### Still not implemented
+
+- GST portal upload, official GSTR-3B JSON, challan/acknowledgment, cross-utilisation of IGST credit
+- RCM, zero-rated/nil/exempt supplies, import ITC, GSTR-2B reconciliation
+- Partial/one-to-many bank matching, auto-posting bank charges/interest
+- e-invoice/IRN, e-way bill, TDS/TCS
+- Cheque printing, payment reminders, Excel export, email delivery
+- Multi-user invite/role admin UI, PostgreSQL, Next.js UI

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from calendar import monthrange
 from datetime import date
 
 from . import db
@@ -1245,6 +1246,221 @@ def gstr1_data(conn: sqlite3.Connection, tenant_id: str, date_from: str, date_to
                  "debit_notes": 0, "cancelled": 0},
         "totals": totals,
         "warnings": warnings,
+    }
+
+
+def month_bounds(month: str) -> tuple[str, str]:
+    """Return (first_day, last_day) for a YYYY-MM month."""
+    text = (month or "").strip()
+    parts = text.split("-")
+    if len(parts) != 2:
+        raise AccountingError("BAD_MONTH", "Month must be YYYY-MM")
+    try:
+        year, mon = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise AccountingError("BAD_MONTH", "Month must be YYYY-MM") from None
+    if year < 2000 or year > 2100 or not 1 <= mon <= 12:
+        raise AccountingError("BAD_MONTH", "Month must be YYYY-MM")
+    last = monthrange(year, mon)[1]
+    return f"{year:04d}-{mon:02d}-01", f"{year:04d}-{mon:02d}-{last:02d}"
+
+
+def gstr3b_data(conn: sqlite3.Connection, tenant_id: str, month: str) -> dict:
+    """GSTR-3B style working summary for one month.
+
+    Output tax and ITC come from posted documents (invoices, credit notes, bills,
+    debit notes). The ledger tax accounts are used only as an independent
+    reconciliation check. This is a preparation aid, not a filed return.
+    """
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    if not tenant:
+        raise AccountingError("TENANT_NOT_FOUND", "Tenant not found")
+    date_from, date_to = month_bounds(month)
+    g1 = gstr1_data(conn, tenant_id, date_from, date_to)
+    books = gst_summary(conn, tenant_id, date_from, date_to)
+    heads = ("IGST", "CGST", "SGST")
+
+    def head_key(head: str) -> str:
+        return head.lower()
+
+    # ---- outward supplies: gross invoices less credit notes ----
+    taxable_gross = g1["totals"]["taxable"]
+    cn_taxable = g1["credit_note_totals"]["taxable"]
+    output_gross = {h: g1["totals"][head_key(h)] for h in heads}
+    output_cn = {h: g1["credit_note_totals"][head_key(h)] for h in heads}
+    output_net = {h: output_gross[h] - output_cn[h] for h in heads}
+    outward = {
+        "taxable_gross": taxable_gross,
+        "credit_note_taxable": cn_taxable,
+        "taxable_net": taxable_gross - cn_taxable,
+        "output_gross": output_gross,
+        "credit_note_tax": output_cn,
+        "output_net": output_net,
+        "output_total": sum(output_net.values()),
+        "zero_rated": 0,
+        "nil_exempt": 0,
+        "rcm_inward": 0,
+        "non_gst": 0,
+    }
+
+    # ---- eligible ITC: purchase bills less debit notes ----
+    bills = conn.execute(
+        "SELECT sub_total_paise, tax_paise, place_of_supply_state FROM bill"
+        " WHERE tenant_id=? AND status='posted' AND bill_date BETWEEN ? AND ?",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    debit_notes = conn.execute(
+        "SELECT sub_total_paise, tax_paise, place_of_supply_state FROM debit_note"
+        " WHERE tenant_id=? AND note_date BETWEEN ? AND ?",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    bill_tot = conn.execute(
+        "SELECT COUNT(*) n, COALESCE(SUM(sub_total_paise),0) taxable,"
+        " COALESCE(SUM(tax_paise),0) tax FROM bill"
+        " WHERE tenant_id=? AND status='posted' AND bill_date BETWEEN ? AND ?",
+        (tenant_id, date_from, date_to),
+    ).fetchone()
+    dn_tot = conn.execute(
+        "SELECT COUNT(*) n, COALESCE(SUM(sub_total_paise),0) taxable,"
+        " COALESCE(SUM(tax_paise),0) tax FROM debit_note"
+        " WHERE tenant_id=? AND note_date BETWEEN ? AND ?",
+        (tenant_id, date_from, date_to),
+    ).fetchone()
+
+    itc_gross = {h: 0 for h in heads}
+    itc_reversal = {h: 0 for h in heads}
+
+    def add_tax(target: dict, tax: int, place_of_supply: str) -> None:
+        if place_of_supply == tenant["state_code"]:
+            cgst, sgst = split_tax(tax)
+            target["CGST"] += cgst
+            target["SGST"] += sgst
+        else:
+            target["IGST"] += tax
+
+    for row in bills:
+        add_tax(itc_gross, row["tax_paise"], row["place_of_supply_state"])
+    for row in debit_notes:
+        add_tax(itc_reversal, row["tax_paise"], row["place_of_supply_state"])
+
+    itc_net = {h: itc_gross[h] - itc_reversal[h] for h in heads}
+    itc_available = {h: max(0, itc_net[h]) for h in heads}
+    itc_excess = {h: max(0, -itc_net[h]) for h in heads}
+    itc = {
+        "gross": itc_gross,
+        "reversal": itc_reversal,
+        "net": itc_net,
+        "gross_total": sum(itc_gross.values()),
+        "reversal_total": sum(itc_reversal.values()),
+        "net_total": sum(itc_net.values()),
+        "available": itc_available,
+        "available_total": sum(itc_available.values()),
+        "excess_reversal": itc_excess,
+        "excess_reversal_total": sum(itc_excess.values()),
+        "import_goods": 0,
+        "import_services": 0,
+        "rcm": 0,
+    }
+
+    # ---- payment: head-wise set-off, no cross-utilisation ----
+    payment_heads = []
+    for head in heads:
+        output = output_net[head]
+        output_for_payment = max(0, output)
+        output_carry = max(0, -output)
+        available = itc_available[head]
+        used = min(output_for_payment, available)
+        cash = output_for_payment - used + itc_excess[head]
+        payment_heads.append({
+            "head": head,
+            "output": output,
+            "output_for_payment": output_for_payment,
+            "output_carry": output_carry,
+            "itc_available": available,
+            "itc_used": used,
+            "cash_payable": cash,
+            "itc_balance": available - used,
+        })
+    payment = {
+        "heads": payment_heads,
+        "output_total": sum(h["output"] for h in payment_heads),
+        "output_for_payment_total": sum(h["output_for_payment"] for h in payment_heads),
+        "output_carry_total": sum(h["output_carry"] for h in payment_heads),
+        "itc_available_total": sum(h["itc_available"] for h in payment_heads),
+        "itc_used_total": sum(h["itc_used"] for h in payment_heads),
+        "cash_payable_total": sum(h["cash_payable"] for h in payment_heads),
+        "itc_balance_total": sum(h["itc_balance"] for h in payment_heads),
+        "excess_reversal_total": itc["excess_reversal_total"],
+    }
+
+    # ---- reconciliation: GSTR-1 documents vs GSTR-3B vs ledger ----
+    def check(key: str, label: str, expected: int, actual: int) -> dict:
+        difference = actual - expected
+        return {"key": key, "label": label, "expected": expected, "actual": actual,
+                "difference": difference, "status": "ok" if difference == 0 else "check"}
+
+    g1_taxable_net = g1["totals"]["taxable"] - g1["credit_note_totals"]["taxable"]
+    g1_output_net = sum(g1["totals"][head_key(h)] - g1["credit_note_totals"][head_key(h)]
+                        for h in heads)
+    g1_cn_tax = sum(g1["credit_note_totals"][head_key(h)] for h in heads)
+    checks = [
+        check("gstr1_taxable", "GSTR-1 net taxable = GSTR-3B net taxable",
+              g1_taxable_net, outward["taxable_net"]),
+        check("gstr1_output", "GSTR-1 net output tax = GSTR-3B output tax",
+              g1_output_net, outward["output_total"]),
+        check("gstr1_cn", "GSTR-1 credit-note tax = GSTR-3B credit-note adjustment",
+              g1_cn_tax, sum(output_cn.values())),
+        check("ledger_output", "Document output tax = output tax ledger",
+              outward["output_total"], books["output_total"]),
+        check("ledger_itc", "Document ITC = input tax ledger",
+              itc["net_total"], books["input_total"]),
+        check("itc_docs", "Bill GST minus debit-note GST = ITC net",
+              bill_tot["tax"] - dn_tot["tax"], itc["net_total"]),
+    ]
+
+    warnings = list(g1["warnings"])
+    failed = [c for c in checks if c["status"] != "ok"]
+    if failed:
+        warnings.append(f"{len(failed)} reconciliation check(s) need review before filing.")
+    if itc["net_total"] < 0:
+        warnings.append("ITC reversal exceeds ITC available this month; the excess is shown as "
+                        "payable in this working view. Review the debit notes and ITC claim.")
+    if outward["output_total"] < 0:
+        warnings.append("Credit notes exceed invoices this month; net output tax is negative "
+                        "and is carried forward in this working view.")
+    negative_heads = [h for h in heads if output_net[h] < 0]
+    if negative_heads:
+        warnings.append("Negative output tax in " + ", ".join(negative_heads) +
+                        "; it is carried forward head-wise and is not set off against other heads.")
+    if g1["docs"]["invoices"] == 0:
+        warnings.append("No posted invoices in this month.")
+
+    return {
+        "period": {"month": month, "from": date_from, "to": date_to},
+        "supplier": {"gstin": (tenant["gstin"] or "").strip().upper(),
+                     "name": tenant["name"], "state_code": tenant["state_code"]},
+        "outward": outward,
+        "itc": itc,
+        "payment": payment,
+        "reconciliation": {
+            "checks": checks,
+            "failed": len(failed),
+            "gstr1": {"totals": g1["totals"],
+                      "credit_note_totals": g1["credit_note_totals"],
+                      "docs": g1["docs"]},
+        },
+        "docs": {
+            "invoices": g1["docs"]["invoices"],
+            "b2c_invoices": g1["docs"]["b2c_invoices"],
+            "credit_notes": g1["docs"]["credit_notes"],
+            "bills": bill_tot["n"],
+            "debit_notes": dn_tot["n"],
+        },
+        "warnings": warnings,
+        "note": ("Working GSTR-3B preparation aid, not a filed return. Output tax is net of "
+                 "credit notes; ITC is net of debit notes. Set-off is head-wise only: IGST "
+                 "credit is not cross-utilised against CGST/SGST, and RCM/zero-rated/exempt "
+                 "supplies are not modelled yet. Verify with your tax professional."),
     }
 
 
