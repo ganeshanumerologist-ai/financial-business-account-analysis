@@ -506,7 +506,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <tr><td colspan="6">Invoice total</td><td colspan="2" class="num">{money.fmt(inv["total_paise"])}</td></tr>
 </tfoot></table></div>
 <div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted on {esc(je["posted_at"][:10])}. Posted entries are immutable; corrections use a reversal.</div>"""
-        return layout("Invoice", body, "invoices", user, tenant)
+        return layout(f'Invoice {inv["invoice_no"]}', body, "invoices", user, tenant)
 
     def page_ledger(self, conn, user, tenant, q) -> str:
         accounts = conn.execute("SELECT * FROM account WHERE tenant_id=? ORDER BY code", (tenant["id"],)).fetchall()
