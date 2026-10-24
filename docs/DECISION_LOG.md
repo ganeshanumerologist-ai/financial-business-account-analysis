@@ -252,3 +252,28 @@ GSTIN, bank details and invoice terms affect legal documents, so only the owner
 `ALTER TABLE ... ADD COLUMN` and defaults, never by dropping or rebuilding tables, so existing
 books survive upgrades. There is still no general migration framework; destructive schema
 changes remain prohibited.
+
+## D-014 - Purchase returns reverse the original bill value, not the current average cost
+
+**Date:** 2026-10-24. **Status:** accepted for Build 0.4.
+
+A debit note against a bill reverses the bill line's taxable value and input GST, reduces the
+vendor payable, and takes stock out at the original purchase value. The item's weighted-average
+cost is then restated from the remaining inventory value, so the balance sheet does not invent a
+gain or loss. Quantity is capped at the unreturned quantity on that bill line; stock cannot go
+negative; a paid bill can still be returned, producing a vendor credit (negative payable).
+Returns of non-stock purchases credit the Purchases account instead of inventory. The original
+bill is never edited.
+
+## D-015 - Bank reconciliation links statement lines to existing journal lines only
+
+**Date:** 2026-10-24. **Status:** accepted for Build 0.4.
+
+A bank statement line never creates a journal entry by itself. Imported lines are matched to
+posted journal lines on the bank account (`1010`) with the exact same signed amount. Suggestions
+use a ±7-day window; auto-match only takes candidates with a unique best score and leaves ties
+for manual review. CSV imports are deduplicated by a SHA-256 hash of account, date, normalized
+description/reference and amounts. Manual match/unmatch is audited. Unmatched statement lines
+that need a journal (bank charges, interest) are surfaced with a note; auto-posting them is
+deliberately left for a later slice.
+

@@ -213,3 +213,19 @@ enforced by `security.require(..., "report.export")` and covered by the HTTP exp
 Financial invariants remain unchanged: integer paise, balanced postings, immutable entries,
 tenant-scoped queries. The new print/export code reads posted documents and never writes
 accounting data.
+
+## 12. Status after Build 0.4 (2026-10-24)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Purchase returns / debit notes | **Verified** | `tests/test_debit_notes.py` (13), browser check on BILL-00003 |
+| Debit note ↔ payable / GST / stock | **Verified** | bill outstanding reduced; input GST reversed; average cost restated; vendor statement split |
+| Bank CSV import and dedup | **Verified** | `tests/test_bank.py` (18), browser import 2 new / 0 duplicate |
+| Bank matching (auto + manual + unmatch) | **Verified** | browser auto-match 2/2, unmatch; `test_manual_match_and_unmatch`, `test_auto_match_unambiguous` |
+| Bank reconciliation difference | **Verified** | statement net 7,818.00 vs ledger -182.00, difference -8,000.00 explained by unmatched rent |
+| Bank/debit-note permissions and audit | **Verified** | `bank.reconcile`, `debit_note.create`; audit events written in unit/HTTP tests |
+| Partial / one-to-many matching | **Not implemented** | exact full-amount matching only |
+| Auto-post bank charges/interest | **Not implemented** | unmatched lines are surfaced, not posted |
+| GSTR-2/2B, GSTR-3B, portal upload | **Not implemented** | GSTR-1 working export only |
+| Multi-user admin UI, PostgreSQL, Next.js | **Not implemented** | future phases |
+

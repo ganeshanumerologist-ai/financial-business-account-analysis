@@ -270,7 +270,8 @@ class WebTest(unittest.TestCase):
         for path, needle in [("/export/trial-balance.csv", "TOTAL"),
                              ("/export/gst-sales.csv", "Taxable"),
                              ("/export/invoices.csv", "Outstanding"),
-                             ("/export/daybook.csv", "Voucher")]:
+                             ("/export/daybook.csv", "Voucher"),
+                             ("/export/bank-statement.csv?from=2026-04-01&to=2026-10-24", "Status")]:
             status, body = self.get(path)
             self.assertEqual(status, 200, path)
             self.assertIn(needle, body, path)
@@ -364,6 +365,105 @@ class WebTest(unittest.TestCase):
         self.assertTrue(data["hsn"])
         self.assertIsInstance(data["totals"]["taxable"], str)
         self.assertIn("not an uploaded or filed", data["note"])
+
+
+    def test_19_debit_note_from_bill(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        bill = conn.execute(
+            "SELECT b.id, b.total_paise, bl.id AS line_id FROM bill b"
+            " JOIN bill_line bl ON bl.bill_id=b.id"
+            " WHERE b.tenant_id=? ORDER BY b.bill_date DESC, b.bill_no DESC LIMIT 1",
+            (self.tenant_id,)).fetchone()
+        before = acct.bill_outstanding(conn, self.tenant_id, bill["id"])
+        conn.close()
+
+        page = self.get(f"/bills/{bill['id']}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/debit-notes", {
+            "_csrf": token, "bill_id": bill["id"], "bill_line_id": bill["line_id"],
+            "qty": "1", "note_date": "2026-10-24", "reason": "Web test debit return"})
+        self.assertEqual(status, 200)
+        self.assertIn("Debit note", body)
+        self.assertIn("Outstanding", body)
+        self.assertRegex(final, rf"/bills/{bill['id']}$")
+
+        conn = db.connect(self.db_path)
+        note = conn.execute(
+            "SELECT * FROM debit_note WHERE tenant_id=? AND reason='Web test debit return'",
+            (self.tenant_id,)).fetchone()
+        after = acct.bill_outstanding(conn, self.tenant_id, bill["id"])
+        conn.close()
+        self.assertIsNotNone(note)
+        self.assertEqual(after, before - note["total_paise"])
+
+        s, notes_page = self.get("/debit-notes")
+        self.assertIn("Web test debit return", notes_page)
+        s, csv_body = self.get("/export/debit-notes.csv")
+        self.assertIn("DBN-", csv_body)
+        self.assertIn("Web test debit return", csv_body)
+
+    def test_20_bank_recon_import_match_unmatch(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        bank_line = conn.execute(
+            "SELECT l.id AS line_id, l.debit_paise, e.entry_date, e.narration, p.reference"
+            " FROM journal_line l JOIN journal_entry e ON e.id=l.entry_id"
+            " LEFT JOIN payment p ON p.journal_entry_id=e.id"
+            " JOIN account a ON a.id=l.account_id"
+            " WHERE l.tenant_id=? AND a.code='1010' AND l.debit_paise>0"
+            " AND p.reference IS NOT NULL AND p.reference<>''"
+            " ORDER BY e.entry_date DESC LIMIT 1", (self.tenant_id,)).fetchone()
+        conn.close()
+        self.assertIsNotNone(bank_line, "demo bank receipt not found")
+
+        amount = f'{bank_line["debit_paise"] // 100}.{bank_line["debit_paise"] % 100:02d}'
+        csv_text = ("Date,Description,Reference,Debit,Credit\n"
+                    f'{bank_line["entry_date"]},NEFT CR DEMO,{bank_line["reference"]},,{amount}\n')
+        page = self.get(f"/bank-recon?from={bank_line['entry_date']}&to={bank_line['entry_date']}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/bank-recon/import", {
+            "_csrf": token, "account_id": self._bank_account_id(),
+            "csv_text": csv_text, "filename": "web-test.csv"})
+        self.assertEqual(status, 200)
+        self.assertIn("Imported 1 new line", body)
+        self.assertIn("bank-recon", final)
+
+        status, body, _ = self.post("/bank-recon/import", {
+            "_csrf": token, "account_id": self._bank_account_id(),
+            "csv_text": csv_text, "filename": "web-test.csv"})
+        self.assertEqual(status, 200)
+        self.assertIn("0 new line", body)
+        self.assertIn("1 duplicate", body)
+
+        conn = db.connect(self.db_path)
+        stmt = conn.execute(
+            "SELECT id FROM bank_statement_line WHERE tenant_id=? AND credit_paise=?",
+            (self.tenant_id, bank_line["debit_paise"])).fetchone()
+        conn.close()
+        self.assertIsNotNone(stmt)
+
+        status, body, _ = self.post("/bank-recon/match", {
+            "_csrf": token, "statement_id": stmt["id"],
+            "journal_line_id": bank_line["line_id"], "account_id": self._bank_account_id(),
+            "from": bank_line["entry_date"], "to": bank_line["entry_date"]})
+        self.assertEqual(status, 200)
+        self.assertIn("Matched", body)
+        self.assertIn(bank_line["reference"], body)
+
+        status, body, _ = self.post("/bank-recon/unmatch", {
+            "_csrf": token, "statement_id": stmt["id"],
+            "account_id": self._bank_account_id(),
+            "from": bank_line["entry_date"], "to": bank_line["entry_date"]})
+        self.assertEqual(status, 200)
+        self.assertIn("Match removed", body)
+
+    def _bank_account_id(self) -> str:
+        conn = db.connect(self.db_path)
+        row = conn.execute("SELECT id FROM account WHERE tenant_id=? AND code='1010'",
+                           (self.tenant_id,)).fetchone()
+        conn.close()
+        return row["id"]
 
 
 if __name__ == "__main__":

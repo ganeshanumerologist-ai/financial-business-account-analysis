@@ -376,3 +376,75 @@ empty, and a second `init_db` run made no further changes.
 
 The backup was taken from the migrated demo database, proving the additive schema changes did
 not break online backup or restore verification.
+
+
+## 9. Application run `RUN-2026-10-24-05` - debit notes and bank reconciliation
+
+### 9.1 What was actually executed
+
+| Command | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **120 tests, OK**, 7.6 s, Python 3.14.6, Windows |
+| `python -m app.server` + browser checks | debit note on BILL-00003, debit-note list/CSV, bank CSV import, auto-match, unmatch, trial balance |
+| In-place schema upgrade of `data/arthivio.db` | `debit_note`, `debit_note_line`, `bank_import`, `bank_statement_line` created; existing rows preserved |
+
+New tests added in this run:
+
+- `tests/test_debit_notes.py` (13) - partial/full purchase return, CGST/SGST vs IGST reversal,
+  proportional discount reversal, non-stock return to purchases, over-return and second-return
+  guards, reason required, insufficient stock, idempotency, vendor statement, GST summary net
+  input, cross-tenant rejection, and a return after the bill was already paid (vendor credit).
+- `tests/test_bank.py` (18) - CSV layouts (Debit/Credit, Amount+Dr/Cr, Withdrawal/Deposit),
+  ISO and DD/MM/YYYY dates, preamble/blank lines, blank balance, bad date/header/empty errors,
+  import dedup by SHA-256, reconciliation totals, exact-amount suggestions, manual
+  match/unmatch, unambiguous auto-match, amount mismatch, wrong account, double match, period
+  filter, and one ledger line matched to only one statement line.
+- `tests/test_web.py` (+2) - debit note created from the bill page, list and CSV export; bank
+  statement import, duplicate import, match and unmatch through the real HTTP server.
+
+### 9.2 Debit note verified in the browser
+
+`BILL-00003` (Loom House Pvt Ltd, 2026-08-10):
+
+- returned 1 Gift Hamper at the bill's purchase value 2,100.00 + 18% GST = **2,478.00**
+- bill outstanding reduced from **49,560.00 to 47,082.00**
+- debit-note list shows `DBN-00001` with the reason; CSV export contains the note
+- vendor statement now separates the movements:
+
+| Movement | Amount |
+|---|---|
+| Billed (period) | 1,08,150.00 |
+| Paid (period) | 58,590.00 |
+| Debit notes (period) | 2,478.00 |
+| Closing payable | **47,082.00** |
+
+The vendor statement reconciles exactly: 1,08,150.00 - 58,590.00 - 2,478.00 = 47,082.00.
+
+### 9.3 Bank reconciliation verified in the browser
+
+Imported a two-line CSV for 2026-08-01 to 2026-08-30:
+
+| Date | Description | Debit (out) | Credit (in) |
+|---|---|---|---|
+| 2026-08-30 | NEFT CR SUNDARAM TRADERS (NEFT-90114) | - | 15,938.00 |
+| 2026-08-01 | NEFT DR NORTHERN CRAFTS (NEFT-84210) | 8,120.00 | - |
+
+- import result: **2 new, 0 duplicate**
+- auto-match: **2 matched, 0 ambiguous**; unmatched statement lines **0**
+- one ledger line remained unmatched: office rent 8,000.00 on 2026-08-05, correctly shown as
+  not present in the statement
+- statement net 7,818.00; ledger net -182.00; difference -8,000.00, fully explained by the rent
+- unmatch restored the line and the page showed "Match removed"
+
+Matching never creates or edits a journal entry. It only links a statement line to an existing
+posted bank journal line, so the ledger remains the source of truth.
+
+### 9.4 Explicitly NOT verified
+
+- Real bank CSV exports from every Indian bank; only the documented layouts and date formats
+  are supported.
+- Partial-amount matching, one-to-many matching, and auto-posting bank charges/interest as
+  journal entries (unmatched statement lines are surfaced, not posted).
+- GSTR-2 / GSTR-2B purchase reconciliation, GSTR-3B, GST portal upload, e-invoice/IRN.
+- Multi-user invitation UI, PostgreSQL, Next.js, load/penetration testing.
+

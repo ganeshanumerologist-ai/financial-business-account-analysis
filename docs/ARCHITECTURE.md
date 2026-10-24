@@ -301,3 +301,51 @@ claims to be an uploaded or filed return.
 - Settings are owner-only; admin/manager roles can view but not change them.
 - Credit notes are reported at document level in GSTR-1 (rate-wise credit-note rows are a
   later refinement).
+
+## 14. Implementation status (2026-10-24, Build 0.4)
+
+### 14.1 Debit notes / purchase returns
+
+`accounting.create_debit_note` mirrors `create_credit_note` on the purchase side:
+
+- requires a reason and at least one bill line; the bill must be posted
+- reverses the line's taxable value (discount apportioned by quantity) and input GST
+  (CGST/SGST for intra-state, IGST for inter-state, using the bill's place of supply)
+- debits Accounts Payable and credits Inventory (stock items) or Purchases (non-stock items)
+  plus the input GST accounts
+- takes stock out at the original bill value and restates the weighted-average cost from the
+  remaining inventory value; a negative restatement is blocked with `COST_UNDERFLOW`
+- blocks returns above the unreturned quantity (`OVER_DEBIT`) and above available stock
+  (`INSUFFICIENT_STOCK`); a paid bill can still be returned, leaving a vendor credit
+- is idempotent, uses the `DBN-00001` sequence, and writes `debit_note.create` to the audit log
+
+`bill_outstanding` subtracts posted debit notes, so bill status, AP ageing and vendor balances
+agree. The vendor statement reports payments and debit notes separately.
+
+### 14.2 Bank reconciliation
+
+`app/bank.py` adds `bank_import` and `bank_statement_line`. The flow is:
+
+1. parse a CSV (`Date`, `Description`, `Reference`, `Debit`, `Credit`, optional `Balance`;
+   or `Amount` + `Dr/Cr`; or `Withdrawal`/`Deposit`), accepting ISO, `DD/MM/YYYY`,
+   `DD-MM-YYYY`, dotted and month-name dates
+2. import idempotently; the unique key is `(tenant, bank account, SHA-256 row hash)`
+3. suggest matches on the bank account's posted journal lines with the exact signed amount
+   and a date difference of at most 7 days (reference matches rank first)
+4. auto-match only when the best candidate is unique; ties stay for manual review
+5. manual match/unmatch; matching validates tenant, account, posted status, amount equality
+   and one-to-one use of the ledger line
+6. report statement net, ledger net, matched/unmatched amounts, opening/closing ledger
+   balance, latest statement balance and the difference
+
+Permissions: `bank.reconcile` (owner/admin/manager/accountant) and `debit_note.create`
+(owner/admin/manager/accountant). Audit events: `bank.import`, `bank.match`, `bank.unmatch`,
+`bank.auto_match`, `debit_note.create`. Matching never writes a journal entry; the ledger stays
+the single source of truth.
+
+### 14.3 Deliberate limits
+
+- No partial-amount or one-to-many bank matching; no auto-posting of bank charges/interest.
+- No GSTR-2/2B purchase reconciliation or GSTR-3B.
+- CSV only; bank API feeds, Excel import and cheque printing are future work.
+

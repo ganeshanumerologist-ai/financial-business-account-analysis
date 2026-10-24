@@ -18,7 +18,8 @@ PERMISSIONS = {
     "tenant.manage", "user.invite", "role.assign", "ledger.post", "ledger.reverse",
     "invoice.create", "invoice.void", "customer.manage", "item.manage",
     "report.view", "report.export", "backup.run",
-    "payment.record", "bill.create", "credit_note.create", "vendor.manage", "journal.post",
+    "payment.record", "bill.create", "credit_note.create", "debit_note.create",
+    "vendor.manage", "journal.post", "bank.reconcile",
 }
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
@@ -26,10 +27,11 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": PERMISSIONS - {"tenant.manage"},
     "manager": {"ledger.post", "invoice.create", "customer.manage", "item.manage",
                 "report.view", "report.export", "payment.record", "bill.create",
-                "credit_note.create", "vendor.manage"},
+                "credit_note.create", "debit_note.create", "vendor.manage", "bank.reconcile"},
     "accountant": {"ledger.post", "ledger.reverse", "invoice.create", "customer.manage",
                    "report.view", "report.export", "payment.record", "bill.create",
-                   "credit_note.create", "vendor.manage", "journal.post"},
+                   "credit_note.create", "debit_note.create", "vendor.manage",
+                   "journal.post", "bank.reconcile"},
     "cashier": {"invoice.create", "customer.manage", "report.view", "payment.record"},
     "sales": {"invoice.create", "customer.manage", "report.view"},
     "inventory": {"item.manage", "report.view"},

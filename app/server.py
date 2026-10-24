@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import accounting as acct
 from . import backup as backup_mod
+from . import bank as bank_mod
 from . import db, money, security
 
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
@@ -174,11 +175,13 @@ NAV = [
     ]),
     ("Purchases", [
         ("bills", "inv", "Bills"),
+        ("debit-notes", "inv", "Debit Notes"),
         ("vendors", "cust", "Vendors"),
     ]),
     ("Books", [
         ("daybook", "led", "Day Book"),
         ("journal", "led", "Journal"),
+        ("bank-recon", "led", "Bank Recon"),
         ("ledger", "led", "Ledger"),
     ]),
     ("Reports", [
@@ -393,6 +396,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_receipts(conn, user, tenant, sess))
             if path == "/credit-notes":
                 return self._send(self.page_credit_notes(conn, user, tenant))
+            if path == "/debit-notes":
+                return self._send(self.page_debit_notes(conn, user, tenant))
             if path == "/bills":
                 return self._send(self.page_bills(conn, user, tenant, sess))
             if path == "/bills/new":
@@ -409,6 +414,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_daybook(conn, user, tenant, q))
             if path == "/journal":
                 return self._send(self.page_journal(conn, user, tenant, sess))
+            if path == "/bank-recon":
+                return self._send(self.page_bank_recon(conn, user, tenant, sess, q))
             if path == "/reports/ar-ageing":
                 return self._send(self.page_ageing(conn, user, tenant, q, "ar"))
             if path == "/reports/ap-ageing":
@@ -485,6 +492,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._create_payment(conn, user, tenant, sess, form)
             if path == "/credit-notes":
                 return self._create_credit_note(conn, user, tenant, sess, form)
+            if path == "/debit-notes":
+                return self._create_debit_note(conn, user, tenant, sess, form)
+            if path == "/bank-recon/import":
+                return self._bank_import(conn, user, tenant, sess, form)
+            if path == "/bank-recon/auto-match":
+                return self._bank_auto_match(conn, user, tenant, sess, form)
+            if path == "/bank-recon/match":
+                return self._bank_match(conn, user, tenant, sess, form)
+            if path == "/bank-recon/unmatch":
+                return self._bank_unmatch(conn, user, tenant, sess, form)
             if path == "/bills":
                 return self._create_bill(conn, user, tenant, sess, form)
             if path == "/vendors":
@@ -920,6 +937,27 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <p class="small muted" style="margin-top:12px">A credit note reverses revenue and GST, returns stock at cost, and reduces the invoice outstanding. The original invoice is never edited.</p>"""
         return layout("Credit notes", body, "credit-notes", user, tenant)
 
+    def page_debit_notes(self, conn, user, tenant) -> str:
+        rows = conn.execute(
+            "SELECT n.*, v.name, b.bill_no FROM debit_note n"
+            " JOIN vendor v ON v.id=n.vendor_id LEFT JOIN bill b ON b.id=n.bill_id"
+            " WHERE n.tenant_id=? ORDER BY n.note_date DESC, n.note_no DESC", (tenant["id"],)).fetchall()
+        trs = ""
+        for r in rows:
+            bill_ref = (f'<a href="/bills/{esc(r["bill_id"])}">{esc(r["bill_no"])}</a>'
+                        if r["bill_id"] else "—")
+            trs += (f'<tr><td>{esc(r["note_no"])}</td><td>{esc(r["note_date"])}</td>'
+                    f'<td>{esc(r["name"])}</td><td>{bill_ref}</td>'
+                    f'<td>{esc(r["reason"])}</td>'
+                    f'<td class="num">{money.fmt(r["total_paise"])}</td></tr>')
+        trs = trs or '<tr><td colspan="6" class="empty">No debit notes yet. Open a bill to raise one.</td></tr>'
+        body = f"""
+<div class="sect-head"><h2>{len(rows)} debit note(s)</h2><a class="btn ghost" href="/export/debit-notes.csv">Export CSV</a></div>
+<div class="card"><table><thead><tr><th>Note</th><th>Date</th><th>Vendor</th><th>Bill</th><th>Reason</th><th class="num">Total</th></tr></thead>
+<tbody>{trs}</tbody></table></div>
+<p class="small muted" style="margin-top:12px">A debit note reverses purchase value and input GST, takes stock out at the bill's purchase value, and reduces the vendor payable. The original bill is never edited.</p>"""
+        return layout("Debit notes", body, "debit-notes", user, tenant)
+
     def page_bills(self, conn, user, tenant, sess) -> str:
         rows = conn.execute(
             "SELECT b.*, v.name FROM bill b JOIN vendor v ON v.id=b.vendor_id"
@@ -1024,6 +1062,35 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <div class="field"><label>Reference</label><input name="reference" maxlength="60"></div>
 </div>
 <button class="btn" type="submit">Record payment</button></form></div>"""
+        dn_lines = []
+        for l in lines:
+            returned = conn.execute(
+                "SELECT COALESCE(SUM(dnl.qty_milli),0) q FROM debit_note_line dnl"
+                " JOIN debit_note dn ON dn.id=dnl.debit_note_id"
+                " WHERE dn.tenant_id=? AND dn.bill_id=? AND dnl.bill_line_id=?",
+                (tenant["id"], bill_id, l["id"])).fetchone()["q"]
+            remaining = l["qty_milli"] - returned
+            if remaining > 0:
+                dn_lines.append((l, remaining))
+        dn_opts = "".join(
+            f'<option value="{l["id"]}">{esc(l["description"])} — {rem/1000:.3f} returnable</option>'
+            for l, rem in dn_lines)
+        debit_form = ""
+        if dn_opts:
+            debit_form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Debit note / purchase return</h2>
+<form method="post" action="/debit-notes">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="bill_id" value="{esc(bill_id)}">
+<div class="row c4">
+<div class="field"><label>Date</label><input type="date" name="note_date" value="{date.today().isoformat()}"></div>
+<div class="field" style="grid-column:span 2"><label>Bill line</label><select name="bill_line_id">{dn_opts}</select></div>
+<div class="field"><label>Quantity</label><input name="qty" value="1" inputmode="decimal"></div>
+</div>
+<div class="field"><label>Reason</label><input name="reason" required maxlength="200" placeholder="Damaged / short supply / return to vendor"></div>
+<button class="btn ghost" type="submit">Post debit note</button>
+</form></div>"""
+
         body = f"""
 <div class="sect-head"><div><h2>{esc(bill["bill_no"])}</h2>
 <div class="small muted">{esc(bill["bill_date"])} · {esc(bill["name"])} · vendor bill {esc(bill["vendor_bill_no"] or "—")}</div></div>
@@ -1039,6 +1106,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <tr><td colspan="6">Bill total</td><td colspan="2" class="num">{money.fmt(bill["total_paise"])}</td></tr>
 </tfoot></table></div>
 {pay_form}
+{debit_form}
 <div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted. Bills are immutable; corrections use a debit note or reversal.</div>"""
         return layout("Bill", body, "bills", user, tenant)
 
@@ -1076,6 +1144,8 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             ref = esc(r["ref"])
             if r["source_type"] == "bill" and r["source_id"]:
                 ref = f'<a href="/bills/{esc(r["source_id"])}">{esc(r["ref"])}</a>'
+            elif r["source_type"] == "debit_note":
+                ref = f'<a href="/debit-notes">{esc(r["ref"])}</a>'
             rows += (f'<tr><td>{esc(r["date"])}</td><td>{ref}</td><td>{esc(r["narration"])}</td>'
                      f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
@@ -1084,7 +1154,8 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         body = f"""
 <div class="kpis">
   {kpi("Billed (period)", money.fmt(st["billed"]), "credits to payable")}
-  {kpi("Paid (period)", money.fmt(st["paid"]), "debits to payable")}
+  {kpi("Paid (period)", money.fmt(st["paid"]), "payments to vendor")}
+  {kpi("Debit notes (period)", money.fmt(st["debited"]), "purchase returns")}
   {kpi("Closing payable", money.fmt(st["closing"]), "amount we owe")}
 </div>
 <form method="get" class="card pad sect">
@@ -1109,7 +1180,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         dto = (q.get("to") or [today.isoformat()])[0]
         entries = acct.day_book(conn, tenant["id"], dfrom, dto)
         links = {"invoice": "/invoices/", "bill": "/bills/", "credit_note": "/credit-notes",
-                 "receipt": "/receipts", "payment": "/receipts"}
+                 "debit_note": "/debit-notes", "receipt": "/receipts", "payment": "/receipts"}
         trs = ""
         for e in entries:
             ref = esc(e["entry_no"])
@@ -1156,6 +1227,193 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <p class="small muted" style="margin-top:12px">Debits must equal credits exactly. Posting is atomic: an unbalanced entry is rejected and nothing is written.</p>
 </form>"""
         return layout("Journal entry", body, "journal", user, tenant)
+
+    def page_bank_recon(self, conn, user, tenant, sess, q) -> str:
+        today = date.today()
+        dfrom = (q.get("from") or [fiscal_start(today, tenant["fiscal_year_start_month"])])[0]
+        dto = (q.get("to") or [today.isoformat()])[0]
+        accounts = bank_mod.bank_accounts(conn, tenant["id"])
+        if not accounts:
+            body = ('<div class="card pad"><div class="err">No bank account (code 1010) exists in this '
+                    'business chart of accounts.</div></div>')
+            return layout("Bank reconciliation", body, "bank-recon", user, tenant)
+        account_id = (q.get("account") or [accounts[0]["id"]])[0]
+        if account_id not in {a["id"] for a in accounts}:
+            account_id = accounts[0]["id"]
+        try:
+            rec = bank_mod.reconciliation(conn, tenant["id"], account_id, dfrom, dto)
+            all_ledger = bank_mod.ledger_candidates(conn, tenant["id"], account_id)
+        except bank_mod.BankError as e:
+            body = f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>'
+            return layout("Bank reconciliation", body, "bank-recon", user, tenant)
+
+        imported = (q.get("imported") or [""])[0]
+        dupes = (q.get("duplicates") or ["0"])[0]
+        banner = ""
+        if imported:
+            banner = (f'<div class="card pad" style="margin-bottom:14px"><span class="badge ok">'
+                      f'Imported {esc(imported)} new line(s)</span> '
+                      f'<span class="small muted">{esc(dupes)} duplicate(s) skipped</span></div>')
+        matched_msg = (q.get("matched") or [""])[0]
+        ambiguous_msg = (q.get("ambiguous") or [""])[0]
+        if matched_msg:
+            if ambiguous_msg:
+                banner += (f'<div class="card pad" style="margin-bottom:14px"><span class="badge ok">'
+                           f'Auto-match: {esc(matched_msg)} matched</span> '
+                           f'<span class="small muted">{esc(ambiguous_msg)} ambiguous line(s) left for manual review</span></div>')
+            else:
+                banner += (f'<div class="card pad" style="margin-bottom:14px"><span class="badge ok">'
+                           f'{esc(matched_msg)} statement line(s) matched</span></div>')
+        if (q.get("unmatched") or [""])[0]:
+            banner += ('<div class="card pad" style="margin-bottom:14px"><span class="badge neutral">'
+                       'Match removed</span></div>')
+
+        def signed_stmt(r):
+            return r["credit_paise"] - r["debit_paise"]
+
+        def signed_line(r):
+            return r["debit_paise"] - r["credit_paise"]
+
+        stmt_rows = ""
+        for r in rec["statement"]:
+            if r["status"] == "matched":
+                match_info = (f'<span class="badge ok">Matched</span>'
+                              f'<div class="small muted">{esc(r["ledger_date"] or "")} · '
+                              f'{esc(r["entry_no"] or "")} · {esc(r["narration"] or "")}</div>')
+                action = f"""
+<form method="post" action="/bank-recon/unmatch">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="statement_id" value="{esc(r['id'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<input type="hidden" name="from" value="{esc(dfrom)}">
+<input type="hidden" name="to" value="{esc(dto)}">
+<button class="btn ghost small" type="submit">Unmatch</button></form>"""
+            else:
+                match_info = '<span class="badge bad">Unmatched</span>'
+                candidates = [l for l in all_ledger
+                              if signed_line(l) == signed_stmt(r)]
+                candidates.sort(key=lambda l: abs((date.fromisoformat(l["entry_date"])
+                                                    - date.fromisoformat(r["txn_date"])).days))
+                if candidates:
+                    opts = "".join(
+                        f'<option value="{esc(l["line_id"])}">{esc(l["entry_date"])} · '
+                        f'{esc(l["entry_no"])} · {esc((l["narration"] or "")[:52])} · '
+                        f'{money.fmt(abs(signed_line(l)))}</option>' for l in candidates[:25])
+                    action = f"""
+<form method="post" action="/bank-recon/match" style="display:flex;gap:6px;align-items:center;min-width:290px">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="statement_id" value="{esc(r['id'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<input type="hidden" name="from" value="{esc(dfrom)}">
+<input type="hidden" name="to" value="{esc(dto)}">
+<select name="journal_line_id" style="min-width:220px">{opts}</select>
+<button class="btn small" type="submit">Match</button></form>"""
+                else:
+                    action = '<span class="small muted">No ledger line with this amount</span>'
+            stmt_rows += (f'<tr><td>{esc(r["txn_date"])}</td><td>{esc(r["description"])}'
+                          f'<div class="small muted">{esc(r["reference"] or "")}</div></td>'
+                          f'<td class="num">{money.fmt(r["debit_paise"]) if r["debit_paise"] else ""}</td>'
+                          f'<td class="num">{money.fmt(r["credit_paise"]) if r["credit_paise"] else ""}</td>'
+                          f'<td>{match_info}</td><td>{action}</td></tr>')
+        stmt_rows = stmt_rows or ('<tr><td colspan="6" class="empty">No statement lines in this period. '
+                                  'Import a CSV above.</td></tr>')
+
+        ledger_rows = ""
+        for l in rec["unmatched_ledger"]:
+            ledger_rows += (f'<tr><td>{esc(l["entry_date"])}</td><td>{esc(l["entry_no"])}</td>'
+                            f'<td>{esc(l["source_type"])}</td><td>{esc(l["narration"])}</td>'
+                            f'<td class="num">{money.fmt(l["debit_paise"]) if l["debit_paise"] else ""}</td>'
+                            f'<td class="num">{money.fmt(l["credit_paise"]) if l["credit_paise"] else ""}</td></tr>')
+        ledger_rows = ledger_rows or '<tr><td colspan="6" class="empty">Every ledger entry in this period is matched.</td></tr>'
+
+        last = bank_mod.latest_import(conn, tenant["id"], account_id)
+        last_note = ""
+        if last:
+            last_note = (f'<span class="small muted">Last import: {esc(last["created_at"][:19].replace("T", " "))} '
+                         f'· {last["rows_imported"]} new / {last["rows_duplicate"]} duplicate</span>')
+        acct_opts = "".join(
+            f'<option value="{a["id"]}" {"selected" if a["id"] == account_id else ""}>'
+            f'{esc(a["code"])} — {esc(a["name"])}</option>' for a in accounts)
+        closing = rec["closing_ledger"]
+        stmt_balance = rec["latest_statement_balance"]
+        balance_note = ""
+        if stmt_balance is not None:
+            balance_note = (f'<tr><td>Statement closing balance</td>'
+                            f'<td class="num">{money.fmt(stmt_balance)}</td></tr>')
+        diff_badge = "ok" if rec["difference"] == 0 else "bad"
+        export_qs = urllib.parse.urlencode({"account": account_id, "from": dfrom, "to": dto})
+
+        body = f"""
+{banner}
+<div class="kpis">
+  {kpi("Statement net", money.fmt(rec["statement_net"]), f'{rec["statement_count"]} line(s)')}
+  {kpi("Ledger net", money.fmt(rec["ledger_net"]), f'{len(rec["unmatched_ledger"])} unmatched ledger line(s)')}
+  {kpi("Unmatched statement", money.fmt(rec["unmatched_net"]), f'{rec["unmatched_count"]} line(s)')}
+  {kpi("Difference", money.fmt(rec["difference"]), "ledger minus statement")}
+</div>
+<form method="get" action="/bank-recon" class="card pad sect">
+<div class="row c4">
+<div class="field"><label>Bank account</label><select name="account">{acct_opts}</select></div>
+<div class="field"><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div class="field"><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
+</div></form>
+<div class="card pad sect">
+<div class="sect-head"><h2 style="margin-bottom:0">Import bank statement</h2>{last_note}</div>
+<form method="post" action="/bank-recon/import">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<input type="hidden" name="filename" id="filename" value="">
+<div class="field"><label>CSV file</label><input type="file" id="csvfile" accept=".csv,text/csv"></div>
+<div class="field"><label>Or paste CSV</label><textarea name="csv_text" id="csv_text" rows="5" placeholder="Date,Description,Reference,Debit,Credit,Balance&#10;2026-06-01,NEFT CR SUNDARAM,NEFT-88421,,23600.00,523600.00"></textarea></div>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<button class="btn" type="submit">Import statement</button>
+<span class="small muted">Columns: Date, Description, Reference, Debit, Credit (or Amount + Dr/Cr). Duplicate rows are skipped.</span>
+</div></form>
+<script>
+document.getElementById('csvfile').addEventListener('change', function (e) {{
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = function () {{
+    document.getElementById('csv_text').value = reader.result;
+    document.getElementById('filename').value = f.name;
+  }};
+  reader.readAsText(f);
+}});
+</script></div>
+<div class="sect-head"><h2>Reconciliation</h2>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<a class="btn ghost small" href="/export/bank-statement.csv?{esc(export_qs)}">Export statement CSV</a>
+<form method="post" action="/bank-recon/auto-match">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<input type="hidden" name="from" value="{esc(dfrom)}">
+<input type="hidden" name="to" value="{esc(dto)}">
+<button class="btn ghost" type="submit">Auto-match unambiguous</button></form></div></div>
+<div class="card sect"><table>
+<thead><tr><th>Date</th><th>Statement description</th><th class="num">Debit (out)</th><th class="num">Credit (in)</th><th>Status / match</th><th>Action</th></tr></thead>
+<tbody>{stmt_rows}</tbody></table></div>
+<div class="grid2 sect">
+<div class="card"><div class="pad"><h2>Ledger entries not matched</h2>
+<p class="small muted" style="margin:4px 0 0">Only posted journal lines on this bank account are shown.</p></div>
+<table><thead><tr><th>Date</th><th>Voucher</th><th>Type</th><th>Narration</th><th class="num">In</th><th class="num">Out</th></tr></thead>
+<tbody>{ledger_rows}</tbody></table></div>
+<div class="card"><div class="pad"><h2>Reconciliation summary</h2></div>
+<table><tbody>
+<tr><td>Opening ledger balance</td><td class="num">{money.fmt(rec["opening_ledger"])}</td></tr>
+<tr><td>Ledger movement (period)</td><td class="num">{money.fmt(rec["ledger_net"])}</td></tr>
+<tr><td>Closing ledger balance</td><td class="num"><b>{money.fmt(closing)}</b></td></tr>
+{balance_note}
+<tr><td>Matched statement net</td><td class="num">{money.fmt(rec["matched_net"])}</td></tr>
+<tr><td>Unmatched statement net</td><td class="num">{money.fmt(rec["unmatched_net"])}</td></tr>
+<tr><td>Unmatched ledger net</td><td class="num">{money.fmt(rec["unmatched_ledger_net"])}</td></tr>
+<tr><td>Difference</td><td class="num"><span class="badge {diff_badge}">{money.fmt(rec["difference"])}</span></td></tr>
+</tbody></table>
+<p class="small muted" style="padding:0 20px 16px">A zero difference means every bank movement in this period is represented by a ledger entry. Unmatched statement lines may need a journal entry (for example bank charges or interest); this build does not auto-post them.</p>
+</div></div>
+<p class="small muted">Reconciliation matches equal amounts only. The date window for suggestions is ±7 days; manual match lets you pick any ledger line with the same amount. Matching never changes a journal entry.</p>"""
+        return layout("Bank reconciliation", body, "bank-recon", user, tenant)
 
     def page_ageing(self, conn, user, tenant, q, kind: str) -> str:
         as_of = (q.get("as_of") or [date.today().isoformat()])[0]
@@ -1234,7 +1492,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <div class="card"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{sales}</tbody></table></div></div>
 <div class="sect"><h2 style="margin-bottom:10px">Purchase register</h2>
 <div class="card"><table><thead><tr><th>Bill</th><th>Date</th><th>Vendor</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{purchases}</tbody></table></div></div>
-<p class="small muted">Working summary, not a filed return. GSTR-1 export lists invoices (B2B + B2C small) and credit notes separately, while this page shows net GST after credit notes. Verify with your tax professional before filing.</p>"""
+<p class="small muted">Working summary, not a filed return. Input tax is net of debit notes; GSTR-1 export lists invoices (B2B + B2C small) and credit notes separately, while this page shows net GST after credit notes. Verify with your tax professional before filing.</p>"""
         return layout("GST summary", body, "reports/gst", user, tenant)
 
     def page_ledger(self, conn, user, tenant, q) -> str:
@@ -1731,6 +1989,20 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
             return self._error_page(user, tenant, getattr(e, "message", str(e)),
                                     f"/invoices/{invoice_id}")
 
+    def _create_debit_note(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "debit_note.create")
+        bill_id = first(form, "bill_id")
+        try:
+            qty = money.parse_qty(first(form, "qty"))
+            note = acct.create_debit_note(
+                conn, tenant["id"], bill_id, first(form, "note_date") or date.today().isoformat(),
+                first(form, "reason"), [{"bill_line_id": first(form, "bill_line_id"), "qty": qty}],
+                created_by=user["id"])
+            return self._redirect(f"/bills/{bill_id}")
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/bills/{bill_id}")
+
     def _create_bill(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "bill.create")
         item_ids = form.get("item_id") or []
@@ -1768,6 +2040,64 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         except acct.AccountingError as e:
             return self._send(self.page_bill_new(conn, user, tenant, sess, e.message), 400)
         return self._redirect(f'/bills/{bill["id"]}')
+
+    def _bank_import(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "bank.reconcile")
+        account_id = first(form, "account_id")
+        try:
+            rows = bank_mod.parse_csv(first(form, "csv_text"))
+            result = bank_mod.import_statement(
+                conn, tenant["id"], account_id, rows,
+                filename=first(form, "filename"), created_by=user["id"])
+        except bank_mod.BankError as e:
+            return self._error_page(user, tenant, e.message, "/bank-recon")
+        qs = urllib.parse.urlencode({
+            "account": account_id, "from": result["period_start"], "to": result["period_end"],
+            "imported": result["imported"], "duplicates": result["duplicates"]})
+        return self._redirect(f"/bank-recon?{qs}")
+
+    def _bank_auto_match(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "bank.reconcile")
+        account_id = first(form, "account_id")
+        dfrom = first(form, "from") or fiscal_start(date.today(), tenant["fiscal_year_start_month"])
+        dto = first(form, "to") or date.today().isoformat()
+        try:
+            result = bank_mod.auto_match(conn, tenant["id"], account_id, dfrom, dto,
+                                         created_by=user["id"])
+        except bank_mod.BankError as e:
+            return self._error_page(user, tenant, e.message, "/bank-recon")
+        qs = urllib.parse.urlencode({
+            "account": account_id, "from": dfrom, "to": dto,
+            "matched": result["matched"], "ambiguous": result["ambiguous"]})
+        return self._redirect(f"/bank-recon?{qs}")
+
+    def _bank_match(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "bank.reconcile")
+        account_id = first(form, "account_id")
+        dfrom = first(form, "from")
+        dto = first(form, "to")
+        try:
+            bank_mod.match_line(conn, tenant["id"], first(form, "statement_id"),
+                                first(form, "journal_line_id"), created_by=user["id"])
+        except bank_mod.BankError as e:
+            return self._error_page(user, tenant, e.message, "/bank-recon")
+        qs = urllib.parse.urlencode({"account": account_id, "from": dfrom, "to": dto,
+                                     "matched": 1})
+        return self._redirect(f"/bank-recon?{qs}")
+
+    def _bank_unmatch(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "bank.reconcile")
+        account_id = first(form, "account_id")
+        dfrom = first(form, "from")
+        dto = first(form, "to")
+        try:
+            bank_mod.unmatch_line(conn, tenant["id"], first(form, "statement_id"),
+                                  created_by=user["id"])
+        except bank_mod.BankError as e:
+            return self._error_page(user, tenant, e.message, "/bank-recon")
+        qs = urllib.parse.urlencode({"account": account_id, "from": dfrom, "to": dto,
+                                     "unmatched": 1})
+        return self._redirect(f"/bank-recon?{qs}")
 
     def _create_vendor(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "vendor.manage")
@@ -1974,6 +2304,29 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
             rows += [[r["note_no"], r["note_date"], r["name"], r["reason"],
                       money.to_str(r["sub_total_paise"]), money.to_str(r["tax_paise"]),
                       money.to_str(r["total_paise"])] for r in data]
+        elif key == "debit-notes":
+            data = conn.execute(
+                "SELECT n.*, v.name, b.bill_no FROM debit_note n JOIN vendor v ON v.id=n.vendor_id"
+                " LEFT JOIN bill b ON b.id=n.bill_id"
+                " WHERE n.tenant_id=? ORDER BY n.note_date", (tid,)).fetchall()
+            rows = [["Note", "Date", "Vendor", "Bill", "Reason", "Taxable", "GST", "Total"]]
+            rows += [[r["note_no"], r["note_date"], r["name"], r["bill_no"] or "", r["reason"],
+                      money.to_str(r["sub_total_paise"]), money.to_str(r["tax_paise"]),
+                      money.to_str(r["total_paise"])] for r in data]
+        elif key == "bank-statement":
+            accounts = bank_mod.bank_accounts(conn, tid)
+            account_id = (q.get("account") or [accounts[0]["id"] if accounts else ""])[0]
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            lines = (bank_mod.statement_lines(conn, tid, account_id, dfrom, dto)
+                     if account_id else [])
+            rows = [["Date", "Description", "Reference", "Debit", "Credit", "Balance",
+                     "Status", "Matched entry"]]
+            rows += [[r["txn_date"], r["description"], r["reference"],
+                      money.to_str(r["debit_paise"]) if r["debit_paise"] else "",
+                      money.to_str(r["credit_paise"]) if r["credit_paise"] else "",
+                      money.to_str(r["balance_paise"]) if r["balance_paise"] is not None else "",
+                      r["status"], r["entry_no"] or ""] for r in lines]
         else:
             return self._send("Unknown export", 404)
 

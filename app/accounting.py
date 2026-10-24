@@ -380,7 +380,12 @@ def bill_outstanding(conn: sqlite3.Connection, tenant_id: str, bill_id: str) -> 
         " WHERE tenant_id=? AND doc_type='bill' AND doc_id=?",
         (tenant_id, bill_id),
     ).fetchone()["a"]
-    return bill["total_paise"] - allocated
+    debited = conn.execute(
+        "SELECT COALESCE(SUM(total_paise),0) d FROM debit_note"
+        " WHERE tenant_id=? AND bill_id=?",
+        (tenant_id, bill_id),
+    ).fetchone()["d"]
+    return bill["total_paise"] - allocated - debited
 
 
 def record_payment(conn: sqlite3.Connection, tenant_id: str, direction: str, party_id: str,
@@ -771,6 +776,178 @@ def create_credit_note(conn: sqlite3.Connection, tenant_id: str, invoice_id: str
         raise
 
 
+def create_debit_note(conn: sqlite3.Connection, tenant_id: str, bill_id: str, note_date: str,
+                      reason: str, lines: list[dict], idempotency_key: str | None = None,
+                      created_by: str | None = None) -> dict:
+    """Purchase return / debit note against a bill.
+
+    Reverses the original purchase value and input GST, and reduces the vendor
+    payable. Stock is taken out at the bill line's purchase value, so the
+    weighted-average cost is restated without inventing a gain or loss.
+    """
+    if not reason or not reason.strip():
+        raise AccountingError("REASON_REQUIRED", "A debit note needs a reason")
+    if not lines:
+        raise AccountingError("NO_ITEMS", "A debit note needs at least one line")
+    bill = _doc_or_raise(conn, tenant_id, "bill", bill_id, "Bill")
+    if bill["status"] != "posted":
+        raise AccountingError("BILL_NOT_POSTED", "Only posted bills can be debited")
+    _assert_period_open(conn, tenant_id, note_date)
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    intra = bill["place_of_supply_state"] == tenant["state_code"]
+
+    computed: list[dict] = []
+    sub_total = tax_total = stock_value = purchase_value = 0
+    stock_out: dict[str, int] = {}
+    stock_value_out: dict[str, int] = {}
+
+    for ln in lines:
+        bill_line = conn.execute(
+            "SELECT * FROM bill_line WHERE id=? AND bill_id=? AND tenant_id=?",
+            (ln["bill_line_id"], bill_id, tenant_id),
+        ).fetchone()
+        if not bill_line:
+            raise AccountingError("LINE_NOT_FOUND", "Bill line not found")
+        qty_milli = int(ln["qty"])
+        if qty_milli <= 0:
+            raise AccountingError("BAD_QTY", "Quantity must be positive")
+        already = conn.execute(
+            "SELECT COALESCE(SUM(l.qty_milli),0) q FROM debit_note_line l"
+            " JOIN debit_note n ON n.id=l.debit_note_id"
+            " WHERE n.tenant_id=? AND n.bill_id=? AND l.bill_line_id=?",
+            (tenant_id, bill_id, bill_line["id"]),
+        ).fetchone()["q"]
+        if qty_milli > bill_line["qty_milli"] - already:
+            raise AccountingError(
+                "OVER_DEBIT",
+                f"Cannot return {qty_milli/1000:.3f}; only "
+                f"{(bill_line['qty_milli']-already)/1000:.3f} returnable",
+            )
+
+        gross = mul_qty_price(qty_milli, bill_line["unit_price_paise"])
+        disc = (bill_line["discount_paise"] * qty_milli
+                + bill_line["qty_milli"] // 2) // bill_line["qty_milli"]
+        taxable = max(0, gross - disc)
+        tax = tax_on(taxable, bill_line["tax_rate_bp"])
+
+        item = None
+        if bill_line["item_id"]:
+            item = conn.execute("SELECT * FROM item WHERE id=? AND tenant_id=?",
+                                (bill_line["item_id"], tenant_id)).fetchone()
+        track = bool(item and item["track_stock"])
+        if track:
+            stock_value += taxable
+            stock_out[item["id"]] = stock_out.get(item["id"], 0) + qty_milli
+            stock_value_out[item["id"]] = stock_value_out.get(item["id"], 0) + taxable
+        else:
+            purchase_value += taxable
+
+        sub_total += taxable
+        tax_total += tax
+        computed.append({
+            "bill_line_id": bill_line["id"], "item_id": bill_line["item_id"],
+            "description": bill_line["description"], "qty_milli": qty_milli,
+            "unit_price_paise": bill_line["unit_price_paise"], "taxable_paise": taxable,
+            "tax_rate_bp": bill_line["tax_rate_bp"], "tax_paise": tax,
+            "cost_paise": taxable if track else 0, "line_total_paise": taxable + tax,
+            "track_stock": track,
+        })
+
+    # Validate stock quantity and restated average cost before posting anything.
+    cost_updates: dict[str, tuple[int, int]] = {}
+    for item_id, qty_out in stock_out.items():
+        item = conn.execute("SELECT * FROM item WHERE id=?", (item_id,)).fetchone()
+        if item["stock_milli"] < qty_out:
+            raise AccountingError(
+                "INSUFFICIENT_STOCK",
+                f"Cannot return {qty_out/1000:.3f} of {item['name']}; only "
+                f"{item['stock_milli']/1000:.3f} in stock",
+            )
+        new_qty = item["stock_milli"] - qty_out
+        new_value_milli = item["stock_milli"] * item["cost_paise"] - stock_value_out[item_id] * 1000
+        if new_qty > 0 and new_value_milli < 0:
+            raise AccountingError(
+                "COST_UNDERFLOW",
+                f"Inventory value is lower than the purchase value being returned for {item['name']}."
+                " Post an inventory revaluation journal first.",
+            )
+        new_cost = ((new_value_milli + new_qty // 2) // new_qty) if new_qty > 0 else item["cost_paise"]
+        cost_updates[item_id] = (new_qty, max(0, new_cost))
+
+    total = sub_total + tax_total
+
+    acct = db.account_id
+    ap = acct(conn, tenant_id, AP_ACCOUNT)
+    inventory = acct(conn, tenant_id, "1200")
+    purchases = acct(conn, tenant_id, "5100")
+
+    if intra:
+        cgst, sgst = split_tax(tax_total)
+        tax_lines = [(acct(conn, tenant_id, "2200"), cgst), (acct(conn, tenant_id, "2201"), sgst)]
+    else:
+        tax_lines = [(acct(conn, tenant_id, "2202"), tax_total)]
+
+    lines_j = [{"account_id": ap, "debit": total, "credit": 0, "party_id": bill["vendor_id"],
+                "memo": "Debit note / purchase return"}]
+    if stock_value:
+        lines_j.append({"account_id": inventory, "debit": 0, "credit": stock_value,
+                        "memo": "Stock returned"})
+    if purchase_value:
+        lines_j.append({"account_id": purchases, "debit": 0, "credit": purchase_value,
+                        "memo": "Purchase return"})
+    for acc, amt in tax_lines:
+        if amt:
+            lines_j.append({"account_id": acc, "debit": 0, "credit": amt,
+                            "memo": "GST input reversal"})
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if idempotency_key:
+            existing = conn.execute(
+                "SELECT * FROM debit_note WHERE tenant_id=? AND idempotency_key=?",
+                (tenant_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                conn.execute("COMMIT")
+                return dict(existing)
+
+        entry_id = post_journal(conn, tenant_id, note_date, f"Debit note: {reason}", lines_j,
+                                source_type="debit_note", idempotency_key=idempotency_key,
+                                created_by=created_by)
+        note_id = db.new_id()
+        note_no = db.next_number(conn, tenant_id, "debit_note", "DBN")
+        conn.execute(
+            "INSERT INTO debit_note (id, tenant_id, note_no, note_date, vendor_id, bill_id,"
+            " place_of_supply_state, sub_total_paise, tax_paise, round_off_paise, total_paise,"
+            " reason, journal_entry_id, idempotency_key, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)",
+            (note_id, tenant_id, note_no, note_date, bill["vendor_id"], bill_id,
+             bill["place_of_supply_state"], sub_total, tax_total, total, reason[:200],
+             entry_id, idempotency_key, db.now()),
+        )
+        for c in computed:
+            conn.execute(
+                "INSERT INTO debit_note_line (id, tenant_id, debit_note_id, item_id,"
+                " bill_line_id, description, qty_milli, unit_price_paise, taxable_paise,"
+                " tax_rate_bp, tax_paise, cost_paise, line_total_paise)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (db.new_id(), tenant_id, note_id, c["item_id"], c["bill_line_id"],
+                 c["description"], c["qty_milli"], c["unit_price_paise"], c["taxable_paise"],
+                 c["tax_rate_bp"], c["tax_paise"], c["cost_paise"], c["line_total_paise"]),
+            )
+        for item_id, (new_qty, new_cost) in cost_updates.items():
+            conn.execute("UPDATE item SET stock_milli=?, cost_paise=? WHERE id=?",
+                         (new_qty, new_cost, item_id))
+        conn.execute("UPDATE journal_entry SET source_id=? WHERE id=?", (note_id, entry_id))
+        audit(conn, tenant_id, created_by, "debit_note.create", "debit_note", note_id,
+              meta={"total": total, "bill_id": bill_id})
+        conn.execute("COMMIT")
+        return dict(conn.execute("SELECT * FROM debit_note WHERE id=?", (note_id,)).fetchone())
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
 def receivable_ageing(conn: sqlite3.Connection, tenant_id: str, as_of: str | None = None) -> dict:
     as_of = as_of or _today_iso()
     as_of_d = date.fromisoformat(as_of)
@@ -1109,16 +1286,20 @@ def vendor_statement(conn: sqlite3.Connection, tenant_id: str, vendor_id: str,
     ).fetchall()
     running = opening
     out = []
-    billed = paid = 0
+    billed = paid = debited = 0
     for r in rows:
         running += (r["credit_paise"] or 0) - (r["debit_paise"] or 0)
         billed += r["credit_paise"] or 0
-        paid += r["debit_paise"] or 0
+        if r["source_type"] == "debit_note":
+            debited += r["debit_paise"] or 0
+        else:
+            paid += r["debit_paise"] or 0
         out.append({"date": r["entry_date"], "ref": r["entry_no"], "narration": r["narration"],
                     "source_type": r["source_type"], "source_id": r["source_id"],
                     "debit": r["debit_paise"], "credit": r["credit_paise"], "balance": running})
     return {"vendor": dict(vendor), "from": date_from, "to": date_to, "opening": opening,
-            "rows": out, "closing": running, "billed": billed, "paid": paid}
+            "rows": out, "closing": running, "billed": billed, "paid": paid,
+            "debited": debited}
 
 
 # --------------------------------------------------------------------------

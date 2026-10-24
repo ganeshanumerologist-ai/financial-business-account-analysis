@@ -2,16 +2,16 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.3).** The sales cycle (invoice → receipt →
-outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, day book,
-manual journals, GST summary, ageing reports, CSV exports, a print-ready tax invoice and a
-GSTR-1 style working export are implemented through a real double-entry engine and covered by
-**87 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`, run
-`RUN-2026-10-24-04`).
+**Status: working local prototype (Build 0.4).** The sales cycle (invoice → receipt →
+outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
+(purchase returns), day book, manual journals, bank reconciliation, GST summary, ageing reports,
+CSV exports, a print-ready tax invoice and a GSTR-1 style working export are implemented through
+a real double-entry engine and covered by **120 automated tests that pass on this machine**
+(see `docs/TEST_RESULTS.md`, run `RUN-2026-10-24-05`).
 
-It is **not production-ready yet**: GST portal upload / GSTR-3B, e-invoice/IRN, debit notes,
-bank reconciliation, multi-user admin UI and the Next.js front end are not built. Do not put
-real customer data in it.
+It is **not production-ready yet**: GST portal upload / GSTR-3B, e-invoice/IRN, TDS/TCS,
+multi-user admin UI, PostgreSQL and the Next.js front end are not built. Do not put real
+customer data in it.
 
 ---
 
@@ -28,7 +28,7 @@ cd "D:\financial business account data analysis"
 Or step by step:
 
 ```powershell
-python -m unittest discover -s tests     # 87 tests
+python -m unittest discover -s tests     # 120 tests
 python scripts/seed_demo.py              # demo books (idempotent)
 python -m app.server                     # http://127.0.0.1:8000
 ```
@@ -53,11 +53,13 @@ the backup folder with `ARTHIVIO_BACKUP_DIR`, and the port with `PORT`.
 | Receipts | Customer receipts against an invoice (full or partial), cash/bank/UPI/cheque/card, advance receipts, allocation guards, idempotency; invoice status becomes Paid/Partial/Open | `TestReceipts`, `test_web.test_10` |
 | Bills / AP | Purchase bills with input GST (CGST/SGST or IGST), inventory in at weighted-average cost, purchases for non-stock items, vendor payments, payable ageing | `TestBills`, `test_web.test_11` |
 | Credit notes | Sales returns against invoice lines, revenue + GST reversal, stock returned at cost, COGS reversal, over-credit guard | `TestCreditNotes`, `test_web.test_12` |
+| Debit notes | Purchase returns against bill lines, purchase value + input GST reversal, stock out at bill cost with average-cost restatement, payable reduction, over-debit and stock guards, vendor credit after payment | `TestDebitNotes`, `test_web.test_19` |
+| Bank reconciliation | CSV import (Date/Description/Reference/Debit/Credit or Amount+Dr/Cr, multiple date formats), SHA-256 dedup, exact-amount suggestions within ±7 days, auto-match unambiguous, manual match/unmatch, statement-vs-ledger difference | `TestCsvParsing`, `TestImportAndMatch`, `test_web.test_20` |
 | Posting engine | Integer-paise double entry, exact balance enforcement, per-tenant accounts, period locks, immutable entries + reversals, atomic document posting | `TestPosting`, `TestReports.test_reversal_nets_to_zero` |
 | Inventory | Perpetual stock, weighted-average cost, COGS at cost, negative-stock block, service items never touch stock | `test_cogs_and_stock`, `test_purchase_at_current_cost_keeps_average`, `test_service_invoice_does_not_touch_stock` |
 | Receivables / payables | Customer and vendor balances + statements, open-invoice and open-bill ageing (current / 31-60 / 61-90 / 90+), reconciled to control accounts | `TestReceipts`, `TestAgeingAndGST`, `test_customer_statement_matches_receivable_control` |
 | Reports | Trial balance, general ledger with running balance, P&L, balance sheet (A = L + E), day book, GST summary with sales/purchase registers | `test_04`, `test_balance_sheet_equation`, `TestAgeingAndGST` |
-| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, ageing and GST registers (UTF-8 with BOM for Excel); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections | `test_13_csv_exports`, `test_17`, `test_18` |
+| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, debit notes, bank statement, ageing and GST registers (UTF-8 with BOM for Excel); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections | `test_13_csv_exports`, `test_17`, `test_18`, `test_19`, `test_20` |
 | Tax invoice | A4 print view with seller/buyer GSTIN, HSN/SAC, CGST/SGST vs IGST, amount in words, bank details and terms; browser Print / Save as PDF | `test_16_settings_and_print_invoice` |
 | Business settings | Owner-editable legal name, GSTIN, GST state, address, contact, bank details and invoice terms; validated and audited | `test_16_settings_and_print_invoice`, `MigrationTest` |
 | Backups | Consistent online backup, SHA-256, integrity + foreign-key + balanced-journal + row-count verification, recorded runs, CLI restore drill | `TestBackup`, `test_15_backup_over_http`, `scripts/backup.py` |
@@ -67,9 +69,8 @@ the backup folder with `ARTHIVIO_BACKUP_DIR`, and the port with `PORT`.
 
 ## What is not built yet (honest gaps)
 
-- Debit notes, purchase returns, expense categories beyond simple journals
-- GST portal upload, GSTR-3B, e-invoice/IRN, e-way bills, TDS/TCS
-- Bank reconciliation, cheque printing, payment reminders
+- GST portal upload, GSTR-3B, GSTR-2B reconciliation, e-invoice/IRN, e-way bills, TDS/TCS
+- Auto-posting journal entries from unmatched bank lines (bank charges/interest), cheque printing, payment reminders
 - Excel (xlsx) export, email delivery, e-invoice QR
 - Multi-user invite/role administration UI (roles exist in the data layer)
 - Fixed-asset depreciation, payroll, budgets, cost centres, multi-currency
@@ -87,12 +88,13 @@ accounting core and keeps the app runnable offline.
 app/
   money.py        integer paise, half-up rounding, largest-remainder allocation
   db.py           schema, chart of accounts, per-tenant sequences
-  accounting.py   posting, invoices, receipts, bills, credit notes, ageing, GST, reports
+  accounting.py   posting, invoices, receipts, bills, credit notes, debit notes, ageing, GST, reports
+  bank.py         bank statement CSV parsing, import dedup, matching, reconciliation summary
   security.py     scrypt hashing, sessions, RBAC, tenant authorisation
   backup.py       online backup + verification (integrity, FKs, balance, row counts)
   server.py       HTTP server + server-rendered UI (stdlib only)
   demo.py         synthetic demo books
-tests/            87 unittest cases (unit + end-to-end HTTP)
+tests/            120 unittest cases (unit + end-to-end HTTP)
 scripts/          seed_demo.py, backup.py, restore_verify.py
 dev.ps1           test → seed → run
 ```
@@ -109,7 +111,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **87 tests, OK, ~9 s**, Python 3.14.6, Windows.
+Last verified: **120 tests, OK, ~8 s**, Python 3.14.6, Windows.
 
 Backup drill:
 
@@ -124,7 +126,7 @@ python scripts/restore_verify.py --backup backups\<file>.db
 |---|---|
 | `docs/PROJECT_SPEC.md` | Governing specification (hash-verified copy) |
 | `docs/SOFTWARE_AUDIT.md` | Evidence-based audit of the starting state |
-| `docs/TEST_RESULTS.md` | Executed runs and evidence (`RUN-2026-10-24-03`) |
+| `docs/TEST_RESULTS.md` | Executed runs and evidence (`RUN-2026-10-24-05`) |
 | `docs/TEST_PLAN.md` | 90 planned cases |
 | `docs/BUG_REPORT.md` | Defects and known gaps |
 | `docs/ARCHITECTURE.md` | Design and current implementation status |
@@ -132,7 +134,7 @@ python scripts/restore_verify.py --backup backups\<file>.db
 | `docs/SECURITY_PLAN.md` | Threat model, RBAC, security gates |
 | `docs/ACCOUNTING_RULES.md` | Money, rounding, posting and report formulas |
 | `docs/REQUIREMENTS_TRACEABILITY.md` | Requirement → module → test → status |
-| `docs/DECISION_LOG.md` | Decisions D-000 … D-009 |
+| `docs/DECISION_LOG.md` | Decisions D-000 … D-015 |
 | `docs/REPORT_CATALOG.md` | 66 target reports |
 | `docs/DEVELOPMENT_ROADMAP.md` | Phases and gates |
 | `docs/BACKUP_AND_RECOVERY.md` | RPO/RTO and restore drill |

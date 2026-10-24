@@ -396,3 +396,33 @@ totals.
 
 New refinement gap (no ID assigned): rate-wise credit-note rows in GSTR-1 (document-level
 rows exist today), and a settings history screen (the audit log already records changes).
+
+### Gap status after Build 0.4
+
+| ID | Gap | Status | Notes |
+|---|---|---|---|
+| G-01 | No receipts/payments against invoices | **CLOSED** | unchanged |
+| G-02 | No purchases/AP/vendor ledger | **CLOSED** | unchanged |
+| G-03 | No credit notes / debit notes | **CLOSED** | credit notes (Build 0.2) and debit notes (Build 0.4) |
+| G-04 | No GST returns or exports | **PARTIAL** | GST summary/registers + GSTR-1 working CSV/JSON; GSTR-2/2B, GSTR-3B, portal upload and official schema still open |
+| G-05 | Backup/restore documented but not automated | **CLOSED** | unchanged |
+| G-06 | Single-user session UI; no invite/role admin screens | **OPEN** | roles exist in the data layer only |
+| G-07 | No PostgreSQL deployment; SQLite only | **OPEN** | single-node, local |
+| G-08 | No PDF invoice / print view | **CLOSED (print view)** | A4 tax invoice; browser Print / Save as PDF |
+| G-09 | No bank reconciliation or cheque workflow | **PARTIAL** | CSV import, suggestions, auto/manual match and unmatch built; cheque printing and auto-posting bank charges remain open |
+| G-10 | No multi-currency, TDS/TCS, payroll, depreciation | **OPEN** | out of current scope |
+
+### B-019 - Blank bank balance imported as zero (fixed)
+
+A CSV row with an empty `Balance` cell was stored as `0`, so the reconciliation page could show
+a false statement closing balance. The parser now stores `None` for blank/dash balances and only
+uses a real value. Covered by `test_blank_balance_stays_none`.
+
+### B-020 - Vendor statement counted debit notes as payments (fixed)
+
+`vendor_statement` summed every debit to the payable control as "Paid", which made a purchase
+return look like a cash payment. It now reports `paid` and `debited` separately; the closing
+balance is unchanged. The vendor page shows a "Debit notes (period)" KPI. Covered by
+`test_vendor_statement_and_gst_summary_include_return` and the browser check in
+`RUN-2026-10-24-05`.
+

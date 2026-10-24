@@ -297,6 +297,76 @@ CREATE TABLE IF NOT EXISTS credit_note_line (
     line_total_paise INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS debit_note (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    note_no TEXT NOT NULL,
+    note_date TEXT NOT NULL,
+    vendor_id TEXT NOT NULL REFERENCES vendor(id),
+    bill_id TEXT REFERENCES bill(id),
+    place_of_supply_state TEXT NOT NULL,
+    sub_total_paise INTEGER NOT NULL,
+    tax_paise INTEGER NOT NULL,
+    round_off_paise INTEGER NOT NULL DEFAULT 0,
+    total_paise INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    journal_entry_id TEXT REFERENCES journal_entry(id),
+    idempotency_key TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, note_no),
+    UNIQUE (tenant_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS debit_note_line (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    debit_note_id TEXT NOT NULL REFERENCES debit_note(id),
+    item_id TEXT REFERENCES item(id),
+    bill_line_id TEXT REFERENCES bill_line(id),
+    description TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL,
+    unit_price_paise INTEGER NOT NULL,
+    taxable_paise INTEGER NOT NULL,
+    tax_rate_bp INTEGER NOT NULL,
+    tax_paise INTEGER NOT NULL,
+    cost_paise INTEGER NOT NULL DEFAULT 0,
+    line_total_paise INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bank_import (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    account_id TEXT NOT NULL REFERENCES account(id),
+    filename TEXT NOT NULL DEFAULT '',
+    period_start TEXT,
+    period_end TEXT,
+    rows_total INTEGER NOT NULL DEFAULT 0,
+    rows_imported INTEGER NOT NULL DEFAULT 0,
+    rows_duplicate INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bank_statement_line (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    account_id TEXT NOT NULL REFERENCES account(id),
+    import_id TEXT REFERENCES bank_import(id),
+    txn_date TEXT NOT NULL,
+    description TEXT NOT NULL,
+    reference TEXT NOT NULL DEFAULT '',
+    debit_paise INTEGER NOT NULL DEFAULT 0 CHECK (debit_paise >= 0),
+    credit_paise INTEGER NOT NULL DEFAULT 0 CHECK (credit_paise >= 0),
+    balance_paise INTEGER,
+    source_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'unmatched' CHECK (status IN ('unmatched','matched')),
+    matched_journal_line_id TEXT REFERENCES journal_line(id),
+    matched_at TEXT,
+    matched_by TEXT,
+    imported_at TEXT NOT NULL,
+    UNIQUE (tenant_id, account_id, source_hash)
+);
+
 CREATE TABLE IF NOT EXISTS backup_run (
     id TEXT PRIMARY KEY,
     path TEXT NOT NULL,
@@ -325,6 +395,9 @@ CREATE INDEX IF NOT EXISTS ix_bill_tenant_date ON bill (tenant_id, bill_date);
 CREATE INDEX IF NOT EXISTS ix_payment_tenant_date ON payment (tenant_id, payment_date);
 CREATE INDEX IF NOT EXISTS ix_alloc_doc ON payment_allocation (tenant_id, doc_type, doc_id);
 CREATE INDEX IF NOT EXISTS ix_cn_tenant_date ON credit_note (tenant_id, note_date);
+CREATE INDEX IF NOT EXISTS ix_dn_tenant_date ON debit_note (tenant_id, note_date);
+CREATE INDEX IF NOT EXISTS ix_bank_stmt_tenant_date ON bank_statement_line (tenant_id, account_id, txn_date);
+CREATE INDEX IF NOT EXISTS ix_bank_stmt_match ON bank_statement_line (tenant_id, matched_journal_line_id);
 CREATE INDEX IF NOT EXISTS ix_audit_tenant_time ON audit_log (tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_session_token ON session (token_hash);
 """

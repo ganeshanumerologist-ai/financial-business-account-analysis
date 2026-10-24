@@ -337,9 +337,31 @@ and documentation agree.
 
 ### Still not implemented
 
-- Debit notes / purchase returns
-- Bank reconciliation (CSV import and matching)
-- GSTR-3B, official GSTR-1 JSON schema, GST portal upload
+- GSTR-2 / GSTR-2B purchase reconciliation, GSTR-3B, official GSTR-1 JSON schema, GST portal upload
 - e-invoice/IRN, e-way bill, TDS/TCS
+- Auto-posting journal entries from unmatched bank lines, cheque printing, payment reminders
 - PDF binary generation (browser print is used), Excel export, email delivery
 - Multi-user invite/role admin UI, PostgreSQL, Next.js UI
+
+## 11. Status after Build 0.4 (2026-10-24)
+
+### Implemented and verified
+
+| Feature | Where | Notes |
+|---|---|---|
+| Debit notes / purchase returns | Bill detail, `/debit-notes` | original bill value + input GST reversed, stock out at bill cost, payable reduced, over-debit/stock guards, vendor credit after payment |
+| Debit-note export | `/export/debit-notes.csv` | note, date, vendor, bill, reason, taxable, GST, total |
+| Bank statement import | `/bank-recon` | CSV file or paste; Debit/Credit, Amount+Dr/Cr and Withdrawal/Deposit layouts; ISO/DD-MM-YYYY dates; SHA-256 dedup |
+| Bank matching | `/bank-recon` | exact signed amount, ±7-day suggestions, auto-match unambiguous, manual match/unmatch, one-to-one ledger use |
+| Reconciliation summary | `/bank-recon` | statement net, ledger net, unmatched amounts, opening/closing ledger, statement balance, difference |
+| Bank statement export | `/export/bank-statement.csv` | period/account filtered statement lines with match status |
+| Bank/debit-note permissions and audit | `security.py`, `bank.py` | `bank.reconcile`, `debit_note.create`; `bank.import/match/unmatch/auto_match`, `debit_note.create` |
+
+### Still not implemented
+
+- Partial-amount / one-to-many bank matching; auto-posting bank charges or interest
+- GSTR-2 / GSTR-2B, GSTR-3B, official GSTR-1 schema, GST portal upload
+- e-invoice/IRN, e-way bill, TDS/TCS
+- Cheque printing, payment reminders, Excel export, email delivery
+- Multi-user invite/role admin UI, PostgreSQL, Next.js UI
+
