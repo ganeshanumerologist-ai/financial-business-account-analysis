@@ -209,3 +209,85 @@ Payments/receipts, purchases/AP, credit notes, GST returns, exports/PDF, backup/
 multi-user invitations, PostgreSQL, concurrency/load, penetration testing, the Next.js UI,
 accessibility audit, and behaviour under real data volumes. These remain open and are not
 claimed anywhere.
+
+
+---
+
+## 7. Application run `RUN-2026-10-24-03` ? receipts, purchases, credit notes, GST, backup
+
+| Field | Value |
+|---|---|
+| Date | 2026-10-24 |
+| Type | Automated unit + end-to-end HTTP tests, plus a real-browser walkthrough and a backup/restore drill |
+| Command | `python -m unittest discover -s tests` |
+| Environment | Windows, Python 3.14.6, SQLite (stdlib), zero pip packages |
+| Tests | **75 executed, 75 passed, 0 failed** (~9 s) |
+| Verdict | Sales cycle, purchase cycle, returns, GST summary, day book, exports and backup verification work end-to-end for this build |
+
+### 7.1 What was actually executed
+
+| Suite | Tests | Verified behaviour |
+|---|---|---|
+| `TestMoney` | 5 | float rejection, 2-dp validation, half-up tax rounding, largest-remainder allocation |
+| `TestPosting` | 6 | unbalanced rejection, one-sided lines, idempotency, period lock, cross-tenant rejection |
+| `TestInvoice` | 8 | CGST/SGST split, IGST, COGS + stock decrement, negative-stock block, discount guard, round-off, idempotency, service revenue |
+| `TestReports` | 8 | TB totals, balance sheet, P&L, ledger running balances, reversal, statements, tenant isolation |
+| `TestSecurity` | 6 | scrypt, weak password, session revoke, lockout, RBAC, membership |
+| `TestReceipts` | 7 | full receipt clears AR, partial receipt, over-allocation rejected, allocations cannot exceed amount, idempotent receipt, cross-tenant invoice rejected, statement includes receipt |
+| `TestBills` | 7 | input GST, stock in, weighted average cost, purchase at current cost keeps average, vendor payment clears AP, overpayment rejected, inter-state IGST, service item leaves stock untouched |
+| `TestCreditNotes` | 4 | full return reverses sale/GST/COGS and restores stock, partial return, over-credit rejected, reason required |
+| `TestAgeingAndGST` | 4 | receivable buckets, payable buckets, GST output vs input nets to zero, day book lists all vouchers |
+| `TestBackup` | 5 | backup verified and recorded, restore verification matches source, corrupt file fails, row tampering detected, missing DB raises |
+| `test_web.WebTest` | 15 | login/CSRF/RBAC, invoice flow, receipt through the form reduces outstanding by exactly the amount, bill + vendor payment, credit note, four CSV exports, ten new pages render, backup over HTTP |
+
+### 7.2 Defects found and fixed during this run
+
+| ID | Symptom | Root cause | Fix | Regression test |
+|---|---|---|---|---|
+| B-013 | Weighted-average cost fell sharply after a purchase (TRD-001 92000 ? 62352 paise) | Purchase taxable value is paise for the whole line, while stock is held in thousandths; the two were added without unit conversion | Convert purchase value to milli-paise (`taxable * 1000`) before averaging | `TestBills.test_weighted_average_cost`, `test_purchase_at_current_cost_keeps_average` |
+| B-014 | Service item stock drifted negative (`SRV-001` ?20 units) | Invoices decremented stock for every item, ignoring `track_stock` | Decrement only when `track_stock` is set | `TestBills.test_service_invoice_does_not_touch_stock` |
+| B-015 | Replaying an identical receipt failed with "exceeds outstanding" instead of returning the original | Allocation validation ran before the idempotency lookup | Look up the stored payment by key before validating allocations | `TestReceipts.test_receipt_idempotent` |
+| B-016 | Invoice/bill/receipt posting could leave an orphan journal if the document insert failed | Journal committed in its own transaction before the document row | Composite operations now open one transaction; `post_journal` uses a savepoint when already inside one | `TestPosting`, `TestReceipts`, `TestBills`, `TestCreditNotes` (all pass) |
+
+### 7.3 Verified demo figures (seeded synthetic books, as of 2026-10-24)
+
+| Check | Value |
+|---|---|
+| Trial balance | balanced, ?14,54,864.30 on each side |
+| Net profit (FY) | ?63,011.23 |
+| Receivables | ?1,26,310.02 across 8 open invoices |
+| Payables | ?57,680.00 across 2 open bills |
+| GST | output ?24,238.79, input ?12,090.00, net payable ?12,148.79 |
+| Stock | no negative quantities; costs remain at purchase cost (92000 / 38000 / 14500 / 210000 paise) |
+| Balance sheet | assets ?9,25,330.02 = liabilities + equity |
+
+### 7.4 Backup / restore drill (executed)
+
+| Field | Value |
+|---|---|
+| Command | `python scripts/backup.py` then `python scripts/restore_verify.py --backup backups/arthivio-20261024-160327.db` |
+| Backup file | `backups/arthivio-20261024-160327.db` (372,736 bytes) |
+| SHA-256 | `b31093d78ee9bd4c9cef7668c0569d08cfe2c64bb5cd1350dab842270410fb1b` |
+| Checks | integrity `ok`, foreign keys `ok`, journals balanced, 20 tables, row counts match source |
+| Result | **PASS** |
+
+A second backup was created through the UI (`POST /backup`), returned the banner
+"Backup created and verified", and was recorded in `backup_run`.
+
+### 7.5 Verified by manual browser check
+
+Dashboard, invoices, invoice detail, receipts, credit notes, bills, bill detail, vendors,
+day book, journal, AR ageing, AP ageing, GST summary, backups and audit log were opened in a
+real browser against the seeded books. A ?4,518.02 receipt was posted through the invoice
+form; the page immediately showed `Outstanding ?0.00` and the receipt form disappeared.
+The backup page created and verified a backup without leaving the UI.
+
+### 7.6 Explicitly NOT verified
+
+PDF invoices, e-invoicing/IRN, GSTR-1 JSON export, debit notes, multi-currency, fixed-asset
+depreciation, bank reconciliation, payroll, multi-user invitation UI, PostgreSQL,
+concurrency/load testing, penetration testing, the Next.js UI, accessibility audit, Hindi
+localisation, and behaviour under real data volumes. These remain open and are not claimed.
+
+Restores are verified but not automated as a one-click destructive operation; restoring is a
+deliberate manual step.

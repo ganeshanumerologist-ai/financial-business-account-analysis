@@ -96,6 +96,7 @@ def seed_demo(conn: sqlite3.Connection) -> dict | None:
         ("2026-10-19", "Northern Lights LLP", "07", [("SRV-001", 4, None)]),
     ]
 
+    invoice_ids: list[str] = []
     for idx, (when, customer, state, lines) in enumerate(plan, start=1):
         payload = []
         for sku, qty, discount_pct in lines:
@@ -106,13 +107,93 @@ def seed_demo(conn: sqlite3.Connection) -> dict | None:
                 "item_id": items[sku], "qty": units * 1000,
                 "discount": gross * (discount_pct or 0) // 100,
             })
-        acct.create_invoice(
+        invoice = acct.create_invoice(
             conn, tenant_id, customers[customer], when, state, payload,
             idempotency_key=f"demo-invoice-{idx}", round_to_rupee=True, created_by=owner,
         )
+        invoice_ids.append(invoice["id"])
 
-    return {"tenant_id": tenant_id, "invoices": len(plan), "owner": DEMO_EMAIL,
-            "admin": DEMO_ADMIN_EMAIL, "password": DEMO_PASSWORD}
+    # ---- purchases: vendors, bills, vendor payments ----
+    vendors = {}
+    for name, phone, gstin, state in [
+        ("Loom House Pvt Ltd", "+91 98210 55001", "27AAACL1234C1Z5", "27"),
+        ("Northern Crafts", "+91 98120 66002", "07AABCN9876D1Z2", "07"),
+    ]:
+        vid = db.new_id()
+        conn.execute(
+            "INSERT INTO vendor (id, tenant_id, name, phone, gstin, state_code, created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (vid, tenant_id, name, phone, gstin, state, db.now()),
+        )
+        vendors[name] = vid
+
+    bill_plan = [
+        ("2026-05-05", "Loom House Pvt Ltd", "27", "LH-2026-041", [("TRD-001", 40), ("TRD-002", 50)]),
+        ("2026-07-01", "Northern Crafts", "07", "NC-8891", [("TRD-003", 100)]),
+        ("2026-08-10", "Loom House Pvt Ltd", "27", "LH-2026-097", [("TRD-004", 20)]),
+    ]
+    bill_ids = []
+    for idx, (when, vendor, state, vendor_bill_no, lines) in enumerate(bill_plan, start=1):
+        payload = []
+        for sku, units in lines:
+            cost = conn.execute("SELECT cost_paise FROM item WHERE id=?", (items[sku],)).fetchone()[0]
+            payload.append({"item_id": items[sku], "qty": units * 1000, "unit_price": cost})
+        bill = acct.create_bill(
+            conn, tenant_id, vendors[vendor], when, vendor_bill_no, state, payload,
+            idempotency_key=f"demo-bill-{idx}", round_to_rupee=True, created_by=owner,
+        )
+        bill_ids.append(bill["id"])
+
+    # ---- receipts against invoices ----
+    def invoice_total(invoice_id: str) -> int:
+        return conn.execute("SELECT total_paise FROM invoice WHERE id=?", (invoice_id,)).fetchone()[0]
+
+    receipt_plan = [
+        ("2026-06-01", invoice_ids[0], invoice_total(invoice_ids[0]), "bank", "NEFT-88421", "full"),
+        ("2026-06-15", invoice_ids[1], invoice_total(invoice_ids[1]) // 2, "upi", "UPI-552013", "part"),
+        ("2026-07-02", invoice_ids[2], invoice_total(invoice_ids[2]), "cheque", "CHQ-100234", "full"),
+        ("2026-08-30", invoice_ids[4], invoice_total(invoice_ids[4]) // 2, "bank", "NEFT-90114", "part"),
+        ("2026-10-20", invoice_ids[5], invoice_total(invoice_ids[5]), "cash", "", "full"),
+    ]
+    for idx, (when, invoice_id, amount, mode, reference, _kind) in enumerate(receipt_plan, start=1):
+        customer_id = conn.execute("SELECT customer_id FROM invoice WHERE id=?", (invoice_id,)).fetchone()[0]
+        acct.record_payment(
+            conn, tenant_id, "receipt", customer_id, when, amount, mode,
+            [{"doc_type": "invoice", "doc_id": invoice_id, "amount": amount}],
+            reference=reference, idempotency_key=f"demo-receipt-{idx}", created_by=owner,
+        )
+
+    # ---- vendor payments ----
+    def bill_total(bill_id: str) -> int:
+        return conn.execute("SELECT total_paise FROM bill WHERE id=?", (bill_id,)).fetchone()[0]
+
+    payment_plan = [
+        ("2026-05-20", bill_ids[0], bill_total(bill_ids[0]), "bank", "NEFT-77120"),
+        ("2026-08-01", bill_ids[1], bill_total(bill_ids[1]) // 2, "bank", "NEFT-84210"),
+    ]
+    for idx, (when, bill_id, amount, mode, reference) in enumerate(payment_plan, start=1):
+        vendor_id = conn.execute("SELECT vendor_id FROM bill WHERE id=?", (bill_id,)).fetchone()[0]
+        acct.record_payment(
+            conn, tenant_id, "payment", vendor_id, when, amount, mode,
+            [{"doc_type": "bill", "doc_id": bill_id, "amount": amount}],
+            reference=reference, idempotency_key=f"demo-vendor-payment-{idx}", created_by=owner,
+        )
+
+    # ---- one sales return / credit note ----
+    line = conn.execute(
+        "SELECT l.id FROM invoice_line l JOIN invoice i ON i.id=l.invoice_id"
+        " WHERE i.id=? AND l.item_id=? LIMIT 1",
+        (invoice_ids[1], items["TRD-003"]),
+    ).fetchone()
+    if line:
+        acct.create_credit_note(
+            conn, tenant_id, invoice_ids[1], "2026-06-20", "Two units returned damaged in transit",
+            [{"invoice_line_id": line["id"], "qty": 2000}],
+            idempotency_key="demo-credit-note-1", created_by=owner,
+        )
+
+    return {"tenant_id": tenant_id, "invoices": len(plan), "bills": len(bill_plan),
+            "owner": DEMO_EMAIL, "admin": DEMO_ADMIN_EMAIL, "password": DEMO_PASSWORD}
 
 
 def summary(conn: sqlite3.Connection, tenant_id: str) -> dict:

@@ -316,3 +316,34 @@ Rule: no "fixed" status without a failing-then-passing test recorded in `docs/TE
 | G-05 | Backup/restore documented but not automated | RPO/RTO unproven |
 | G-06 | Single-user session UI; no invite/role admin screens | Roles exist in the data layer only |
 | G-07 | No PostgreSQL deployment; SQLite only | Single-node, local |
+
+
+---
+
+## Status update ? 2026-10-24 (Build 0.2)
+
+| ID | Previous state | Current state | Evidence |
+|---|---|---|---|
+| B-013 | (new) weighted-average cost understated after purchase | **FIXED** | unit conversion to milli-paise before averaging; `TestBills.test_weighted_average_cost`, `test_purchase_at_current_cost_keeps_average` |
+| B-014 | (new) service items decremented stock below zero | **FIXED** | stock moves only when `track_stock`; `test_service_invoice_does_not_touch_stock` |
+| B-015 | (new) receipt replay rejected by allocation check | **FIXED** | idempotency lookup before validation; `TestReceipts.test_receipt_idempotent` |
+| B-016 | (new) orphan journal possible if document insert failed | **FIXED** | single transaction per composite posting; `post_journal` savepoint; 75 tests pass |
+| B-009 | Owner-reported prompt/theme/repo absent | OPEN | still no theme or repo contents supplied |
+
+### Gap status after Build 0.2
+
+| ID | Gap | Status | Notes |
+|---|---|---|---|
+| G-01 | No receipts/payments against invoices | **CLOSED** | receipts, advances, vendor payments, allocation guards, ageing |
+| G-02 | No purchases/AP/vendor ledger | **CLOSED** | bills with input GST, weighted-average stock, vendor ledger + statement |
+| G-03 | No credit notes / debit notes | **PARTIAL** | credit notes (sales returns) built; debit notes still open |
+| G-04 | No GST returns or exports | **PARTIAL** | GST summary + sales/purchase registers + CSV exports; GSTR-1 JSON/3B still open |
+| G-05 | Backup/restore documented but not automated | **CLOSED** | `scripts/backup.py` + `scripts/restore_verify.py`, verified runs, UI button |
+| G-06 | Single-user session UI; no invite/role admin screens | **OPEN** | roles exist in the data layer only |
+| G-07 | No PostgreSQL deployment; SQLite only | **OPEN** | single-node, local |
+| G-08 | No PDF invoice / print view | **OPEN** | CSV only |
+| G-09 | No bank reconciliation or cheque workflow | **OPEN** | payment modes exist, matching does not |
+| G-10 | No multi-currency, TDS/TCS, payroll, depreciation | **OPEN** | out of current scope |
+
+Rule unchanged: no "fixed" status without a failing-then-passing test recorded in
+`docs/TEST_RESULTS.md`.

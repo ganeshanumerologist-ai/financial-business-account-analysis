@@ -1,7 +1,9 @@
 """ARTHIVIO web app — stdlib HTTP server, server-rendered, no external deps."""
 from __future__ import annotations
 
+import csv
 import html
+import io
 import os
 import re
 import secrets
@@ -12,9 +14,11 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import accounting as acct
+from . import backup as backup_mod
 from . import db, money, security
 
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
+BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 APP_NAME = "ARTHIVIO"
 
 CSS = """
@@ -36,7 +40,7 @@ a:hover{text-decoration:underline}
 h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.015em;color:var(--ink)}
 h1{font-size:26px} h2{font-size:19px} h3{font-size:15px}
 .shell{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
-.side{background:linear-gradient(180deg,#124A36 0%,#0E3B2B 100%);color:#EAF2EC;padding:20px 16px 28px;position:sticky;top:0;height:100vh}
+.side{background:linear-gradient(180deg,#124A36 0%,#0E3B2B 100%);color:#EAF2EC;padding:20px 16px 28px;position:sticky;top:0;height:100vh;overflow-y:auto}
 .brand{display:flex;align-items:center;gap:10px;margin:4px 6px 26px}
 .brand svg{flex:0 0 auto}
 .brand .name{font-size:19px;font-weight:700;letter-spacing:.06em}
@@ -126,15 +130,35 @@ ICONS = {
 }
 
 NAV = [
-    ("", "Dash", "Dashboard"),
-    ("invoices", "inv", "Invoices"),
-    ("ledger", "led", "Ledger"),
-    ("reports/trial-balance", "rep", "Trial Balance"),
-    ("reports/pnl", "rep", "Profit &amp; Loss"),
-    ("reports/balance-sheet", "rep", "Balance Sheet"),
-    ("customers", "cust", "Customers"),
-    ("items", "item", "Items"),
-    ("audit", "audit", "Audit Log"),
+    ("Overview", [("", "dash", "Dashboard")]),
+    ("Sales", [
+        ("invoices", "inv", "Invoices"),
+        ("receipts", "inv", "Receipts"),
+        ("credit-notes", "inv", "Credit Notes"),
+    ]),
+    ("Purchases", [
+        ("bills", "inv", "Bills"),
+        ("vendors", "cust", "Vendors"),
+    ]),
+    ("Books", [
+        ("daybook", "led", "Day Book"),
+        ("journal", "led", "Journal"),
+        ("ledger", "led", "Ledger"),
+    ]),
+    ("Reports", [
+        ("reports/trial-balance", "rep", "Trial Balance"),
+        ("reports/pnl", "rep", "Profit &amp; Loss"),
+        ("reports/balance-sheet", "rep", "Balance Sheet"),
+        ("reports/ar-ageing", "rep", "Receivables Ageing"),
+        ("reports/ap-ageing", "rep", "Payables Ageing"),
+        ("reports/gst", "rep", "GST Summary"),
+    ]),
+    ("Masters", [
+        ("customers", "cust", "Customers"),
+        ("items", "item", "Items"),
+        ("backup", "audit", "Backups"),
+        ("audit", "audit", "Audit Log"),
+    ]),
 ]
 
 
@@ -156,9 +180,11 @@ def icon(key: str) -> str:
 
 def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> str:
     nav = []
-    for path, ico, label in NAV:
-        cls = " on" if path == active else ""
-        nav.append(f'<a class="{cls.strip()}" href="/{path}">{icon(ico)}<span>{label}</span></a>')
+    for group, links in NAV:
+        nav.append(f'<div class="grp">{group}</div>')
+        for path, ico, label in links:
+            cls = " on" if path == active else ""
+            nav.append(f'<a class="{cls.strip()}" href="/{path}">{icon(ico)}<span>{label}</span></a>')
     who = ""
     if user:
         who = (f'<div class="who"><b>{esc(user["full_name"])}</b> &nbsp;·&nbsp; {esc(tenant["name"]) if tenant else ""}'
@@ -170,7 +196,7 @@ def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> s
 <body><div class="shell">
 <aside class="side">
   <div class="brand">{LOGO}<div><span class="name">ARTHIVIO</span><span class="tag">Smarter Finance</span></div></div>
-  <nav class="nav"><div class="grp">Workspace</div>{''.join(nav)}</nav>
+  <nav class="nav">{''.join(nav)}</nav>
 </aside>
 <main class="main">
   <div class="top"><h1>{esc(title)}</h1>{who}</div>
@@ -277,7 +303,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/invoices/new":
                 return self._send(self.page_invoice_new(conn, user, tenant, sess))
             if re.fullmatch(r"/invoices/[0-9a-f]{32}", path):
-                return self._send(self.page_invoice_detail(conn, user, tenant, path.rsplit("/", 1)[1]))
+                return self._send(self.page_invoice_detail(conn, user, tenant, sess,
+                                                           path.rsplit("/", 1)[1]))
             if path == "/ledger":
                 return self._send(self.page_ledger(conn, user, tenant, q))
             if path == "/reports/trial-balance":
@@ -291,10 +318,40 @@ class Handler(BaseHTTPRequestHandler):
             if re.fullmatch(r"/customers/[0-9a-f]{32}", path):
                 return self._send(self.page_customer_statement(conn, user, tenant,
                                                                path.rsplit("/", 1)[1], q))
+            if path == "/receipts":
+                return self._send(self.page_receipts(conn, user, tenant, sess))
+            if path == "/credit-notes":
+                return self._send(self.page_credit_notes(conn, user, tenant))
+            if path == "/bills":
+                return self._send(self.page_bills(conn, user, tenant, sess))
+            if path == "/bills/new":
+                return self._send(self.page_bill_new(conn, user, tenant, sess))
+            if re.fullmatch(r"/bills/[0-9a-f]{32}", path):
+                return self._send(self.page_bill_detail(conn, user, tenant, sess,
+                                                        path.rsplit("/", 1)[1]))
+            if path == "/vendors":
+                return self._send(self.page_vendors(conn, user, tenant, sess))
+            if re.fullmatch(r"/vendors/[0-9a-f]{32}", path):
+                return self._send(self.page_vendor_statement(conn, user, tenant,
+                                                             path.rsplit("/", 1)[1], q))
+            if path == "/daybook":
+                return self._send(self.page_daybook(conn, user, tenant, q))
+            if path == "/journal":
+                return self._send(self.page_journal(conn, user, tenant, sess))
+            if path == "/reports/ar-ageing":
+                return self._send(self.page_ageing(conn, user, tenant, q, "ar"))
+            if path == "/reports/ap-ageing":
+                return self._send(self.page_ageing(conn, user, tenant, q, "ap"))
+            if path == "/reports/gst":
+                return self._send(self.page_gst(conn, user, tenant, q))
+            if path.startswith("/export/"):
+                return self.export_csv(conn, user, tenant, path, q)
             if path == "/items":
                 return self._send(self.page_items(conn, user, tenant, sess))
             if path == "/audit":
                 return self._send(self.page_audit(conn, user, tenant))
+            if path == "/backup":
+                return self._send(self.page_backups(conn, user, tenant, sess, q))
             return self._send(layout("Not found", '<div class="card pad">Page not found.</div>', user=user, tenant=tenant), 404)
         finally:
             conn.close()
@@ -336,8 +393,26 @@ class Handler(BaseHTTPRequestHandler):
                 security.revoke_session(conn, self._cookies().get("sid"))
                 return self._redirect("/login", {"Set-Cookie": "sid=; Max-Age=0; Path=/"})
 
+            if path == "/backup":
+                security.require(conn, user["id"], tenant["id"], "backup.run")
+                try:
+                    backup_mod.create_backup(DB_PATH, BACKUP_DIR)
+                except Exception as exc:  # noqa: BLE001 - surface as a page error
+                    return self._error_page(user, tenant, f"Backup failed: {exc}", "/backup")
+                return self._redirect("/backup?done=1")
+
             if path == "/invoices":
                 return self._create_invoice(conn, user, tenant, sess, form)
+            if path == "/receipts":
+                return self._create_payment(conn, user, tenant, sess, form)
+            if path == "/credit-notes":
+                return self._create_credit_note(conn, user, tenant, sess, form)
+            if path == "/bills":
+                return self._create_bill(conn, user, tenant, sess, form)
+            if path == "/vendors":
+                return self._create_vendor(conn, user, tenant, sess, form)
+            if path == "/journal":
+                return self._create_journal(conn, user, tenant, sess, form)
             if path == "/customers":
                 return self._create_customer(conn, user, tenant, sess, form)
             if path == "/items":
@@ -387,9 +462,9 @@ class Handler(BaseHTTPRequestHandler):
   {kpi("Revenue (FY)", money.fmt(d["revenue"]), "from posted journals")}
   {kpi("Net profit (FY)", money.fmt(d["profit"]), "income minus expenses")}
   {kpi("Cash + bank", money.fmt(d["cash"]), "accounts 1000 / 1010")}
-  {kpi("Receivable", money.fmt(d["receivable"]), "accounts receivable")}
+  {kpi("Receivable", money.fmt(d["receivable"]), f'{d["open_invoices"]} open invoice(s)')}
+  {kpi("Payable", money.fmt(d["payable"]), f'{d["open_bills"]} open bill(s)')}
   {kpi("Inventory", money.fmt(d["inventory"]), "perpetual valuation")}
-  {kpi("Invoices (FY)", str(d["invoice_count"]), "posted only")}
 </div>
 <div class="grid2">
   <div class="card pad">
@@ -401,8 +476,13 @@ class Handler(BaseHTTPRequestHandler):
     <div class="sect-head"><h2>Checks</h2></div>
     <p class="small muted" style="margin:0 0 12px">Every figure on this page is computed from posted journal lines — nothing is cached or invented.</p>
     <p class="small"><span class="badge ok">Double-entry balanced</span></p>
-    <p class="small muted">Balance sheet and trial balance are available from the left menu.</p>
+    <table style="margin:10px 0">
+      <tr><td>Overdue receivable (60+ days)</td><td class="num">{money.fmt(d["overdue_receivable"])}</td></tr>
+      <tr><td>Overdue payable (60+ days)</td><td class="num">{money.fmt(d["overdue_payable"])}</td></tr>
+      <tr><td>Invoices posted this FY</td><td class="num">{d["invoice_count"]}</td></tr>
+    </table>
     <a class="btn" href="/invoices/new">Create invoice</a>
+    <a class="btn ghost" href="/bills/new" style="margin-left:6px">Record bill</a>
   </div>
 </div>
 <div class="sect" style="margin-top:20px">
@@ -417,16 +497,31 @@ class Handler(BaseHTTPRequestHandler):
             "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
             " WHERE i.tenant_id=? ORDER BY i.invoice_date DESC, i.invoice_no DESC LIMIT 100",
             (tenant["id"],)).fetchall()
-        trs = "".join(
-            f'<tr><td><a href="/invoices/{r["id"]}">{esc(r["invoice_no"])}</a></td><td>{esc(r["invoice_date"])}</td>'
-            f'<td>{esc(r["name"])}</td><td class="num">{money.fmt(r["sub_total_paise"])}</td>'
-            f'<td class="num">{money.fmt(r["tax_paise"])}</td><td class="num"><b>{money.fmt(r["total_paise"])}</b></td>'
-            f'<td><span class="badge ok">{esc(r["status"])}</span></td></tr>'
-            for r in rows) or '<tr><td colspan="7" class="empty">No invoices yet. Create the first one.</td></tr>'
+        trs = ""
+        total_out = 0
+        for r in rows:
+            out = acct.invoice_outstanding(conn, tenant["id"], r["id"])
+            total_out += out
+            status = "Paid" if out <= 0 else ("Partial" if out < r["total_paise"] else "Open")
+            badge = "ok" if status == "Paid" else ("neutral" if status == "Partial" else "bad")
+            trs += (f'<tr><td><a href="/invoices/{r["id"]}">{esc(r["invoice_no"])}</a></td>'
+                    f'<td>{esc(r["invoice_date"])}</td><td>{esc(r["name"])}</td>'
+                    f'<td class="num">{money.fmt(r["sub_total_paise"])}</td>'
+                    f'<td class="num">{money.fmt(r["tax_paise"])}</td>'
+                    f'<td class="num"><b>{money.fmt(r["total_paise"])}</b></td>'
+                    f'<td class="num">{money.fmt(out)}</td>'
+                    f'<td><span class="badge {badge}">{status}</span></td></tr>')
+        trs = trs or '<tr><td colspan="8" class="empty">No invoices yet. Create the first one.</td></tr>'
         body = f"""
-<div class="sect-head"><h2>{len(rows)} invoice(s)</h2><a class="btn" href="/invoices/new">New invoice</a></div>
+<div class="kpis">
+  {kpi("Invoices shown", str(len(rows)), "latest 100")}
+  {kpi("Outstanding", money.fmt(total_out), "from these invoices")}
+</div>
+<div class="sect-head"><h2>Sales invoices</h2>
+<div><a class="btn" href="/invoices/new">New invoice</a>
+<a class="btn ghost" href="/export/invoices.csv">Export CSV</a></div></div>
 <div class="card"><table>
-<thead><tr><th>No</th><th>Date</th><th>Customer</th><th class="num">Net</th><th class="num">Tax</th><th class="num">Total</th><th>Status</th></tr></thead>
+<thead><tr><th>No</th><th>Date</th><th>Customer</th><th class="num">Net</th><th class="num">Tax</th><th class="num">Total</th><th class="num">Outstanding</th><th>Status</th></tr></thead>
 <tbody>{trs}</tbody></table></div>"""
         return layout("Invoices", body, "invoices", user, tenant)
 
@@ -478,7 +573,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 </script>"""
         return layout("New invoice", body, "invoices", user, tenant)
 
-    def page_invoice_detail(self, conn, user, tenant, invoice_id: str) -> str:
+    def page_invoice_detail(self, conn, user, tenant, sess, invoice_id: str) -> str:
         inv = conn.execute("SELECT i.*, c.name, c.state_code FROM invoice i JOIN customer c ON c.id=i.customer_id"
                            " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant["id"])).fetchone()
         if not inv:
@@ -492,10 +587,61 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             f'<td class="num">{money.fmt(l["tax_paise"])}</td><td class="num"><b>{money.fmt(l["line_total_paise"])}</b></td></tr>'
             for l in lines)
         je = conn.execute("SELECT * FROM journal_entry WHERE id=?", (inv["journal_entry_id"],)).fetchone()
+        out = acct.invoice_outstanding(conn, tenant["id"], invoice_id)
+        status = "Paid" if out <= 0 else ("Part paid" if out < inv["total_paise"] else "Open")
+        badge = "ok" if out <= 0 else ("neutral" if out < inv["total_paise"] else "bad")
+
+        receipt_form = ""
+        if out > 0:
+            receipt_form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Receive payment</h2>
+<form method="post" action="/receipts">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="invoice_id" value="{esc(invoice_id)}">
+<div class="row c4">
+<div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+<div class="field"><label>Amount</label><input name="amount" value="{money.to_str(out)}" inputmode="decimal"></div>
+<div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option><option value="card">Card</option></select></div>
+<div class="field"><label>Reference</label><input name="reference" maxlength="60"></div>
+</div>
+<button class="btn" type="submit">Record receipt</button>
+<span class="small muted" style="margin-left:10px">Outstanding {money.fmt(out)}</span>
+</form></div>"""
+
+        cn_lines = []
+        for l in lines:
+            credited = conn.execute(
+                "SELECT COALESCE(SUM(cnl.qty_milli),0) q FROM credit_note_line cnl"
+                " JOIN credit_note cn ON cn.id=cnl.credit_note_id"
+                " WHERE cn.tenant_id=? AND cn.invoice_id=? AND cnl.invoice_line_id=?",
+                (tenant["id"], invoice_id, l["id"])).fetchone()["q"]
+            remaining = l["qty_milli"] - credited
+            if remaining > 0:
+                cn_lines.append((l, remaining))
+        cn_opts = "".join(
+            f'<option value="{l["id"]}">{esc(l["description"])} — {rem/1000:.3f} returnable</option>'
+            for l, rem in cn_lines)
+        credit_form = ""
+        if cn_opts:
+            credit_form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Credit note / sales return</h2>
+<form method="post" action="/credit-notes">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="invoice_id" value="{esc(invoice_id)}">
+<div class="row c4">
+<div class="field"><label>Date</label><input type="date" name="note_date" value="{date.today().isoformat()}"></div>
+<div class="field" style="grid-column:span 2"><label>Invoice line</label><select name="invoice_line_id">{cn_opts}</select></div>
+<div class="field"><label>Quantity</label><input name="qty" value="1" inputmode="decimal"></div>
+</div>
+<div class="field"><label>Reason</label><input name="reason" required maxlength="200" placeholder="Damaged / short supply / return"></div>
+<button class="btn ghost" type="submit">Post credit note</button>
+</form></div>"""
+
         body = f"""
 <div class="sect-head"><div><h2>{esc(inv["invoice_no"])}</h2>
 <div class="small muted">{esc(inv["invoice_date"])} · {esc(inv["name"])} · place of supply {esc(inv["place_of_supply_state"])}</div></div>
-<a class="btn ghost" href="/invoices">Back</a></div>
+<div><span class="badge {badge}">Outstanding {money.fmt(out)}</span>
+<a class="btn ghost" href="/invoices" style="margin-left:8px">Back</a></div></div>
 <div class="card sect"><table>
 <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Disc</th><th class="num">Taxable</th><th class="num">Rate</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
 <tbody>{trs}</tbody>
@@ -505,8 +651,384 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <tr><td colspan="6">Round off</td><td colspan="2" class="num">{money.fmt(inv["round_off_paise"])}</td></tr>
 <tr><td colspan="6">Invoice total</td><td colspan="2" class="num">{money.fmt(inv["total_paise"])}</td></tr>
 </tfoot></table></div>
-<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted on {esc(je["posted_at"][:10])}. Posted entries are immutable; corrections use a reversal.</div>"""
+{receipt_form}
+{credit_form}
+<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted on {esc(je["posted_at"][:10])}. Posted entries are immutable; corrections use a credit note or reversal.</div>"""
         return layout(f'Invoice {inv["invoice_no"]}', body, "invoices", user, tenant)
+
+    def page_receipts(self, conn, user, tenant, sess) -> str:
+        rows = conn.execute(
+            "SELECT p.*, c.name FROM payment p JOIN customer c ON c.id=p.party_id"
+            " WHERE p.tenant_id=? AND p.direction='receipt' ORDER BY p.payment_date DESC,"
+            " p.voucher_no DESC LIMIT 100", (tenant["id"],)).fetchall()
+        trs = ""
+        for r in rows:
+            alloc = conn.execute(
+                "SELECT COALESCE(SUM(amount_paise),0) a FROM payment_allocation WHERE payment_id=?",
+                (r["id"],)).fetchone()["a"]
+            trs += (f'<tr><td>{esc(r["voucher_no"])}</td><td>{esc(r["payment_date"])}</td>'
+                    f'<td>{esc(r["name"])}</td><td>{esc(r["mode"])}</td>'
+                    f'<td>{esc(r["reference"] or "")}</td>'
+                    f'<td class="num">{money.fmt(r["amount_paise"])}</td>'
+                    f'<td class="num">{money.fmt(alloc)}</td>'
+                    f'<td class="num">{money.fmt(r["amount_paise"] - alloc)}</td></tr>')
+        trs = trs or '<tr><td colspan="8" class="empty">No receipts yet</td></tr>'
+        customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
+                                 (tenant["id"],)).fetchall()
+        c_opts = "".join(f'<option value="{c["id"]}">{esc(c["name"])}</option>' for c in customers)
+        ar = acct.receivable_ageing(conn, tenant["id"])
+        body = f"""
+<div class="kpis">
+  {kpi("Receivable outstanding", money.fmt(ar["grand_total"]), f'{len(ar["rows"])} open invoice(s)')}
+  {kpi("Overdue 60+ days", money.fmt(ar["totals"]["61-90"] + ar["totals"]["90+"]), "needs follow-up")}
+</div>
+<div class="grid2">
+  <div class="card"><table>
+  <thead><tr><th>Voucher</th><th>Date</th><th>Customer</th><th>Mode</th><th>Ref</th><th class="num">Amount</th><th class="num">Allocated</th><th class="num">On account</th></tr></thead>
+  <tbody>{trs}</tbody></table></div>
+  <div class="card pad"><h2 style="margin-bottom:6px">Advance receipt</h2>
+  <p class="small muted" style="margin:0 0 12px">To settle a specific invoice, open the invoice and use <b>Receive payment</b>.</p>
+  <form method="post" action="/receipts">
+  <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+  <input type="hidden" name="direction" value="receipt">
+  <div class="field"><label>Customer</label><select name="customer_id">{c_opts}</select></div>
+  <div class="row c2"><div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+  <div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option><option value="card">Card</option></select></div></div>
+  <div class="row c2"><div class="field"><label>Amount</label><input name="amount" placeholder="0.00" inputmode="decimal"></div>
+  <div class="field"><label>Reference</label><input name="reference" maxlength="60"></div></div>
+  <div class="field"><label>Notes</label><input name="notes" maxlength="200"></div>
+  <button class="btn" type="submit">Record receipt</button></form></div>
+</div>
+<p class="small muted" style="margin-top:14px">Receipts post Dr Cash/Bank, Cr Accounts Receivable with the customer tagged, so the customer statement and the control account always agree. <a href="/export/receipts.csv">Export CSV</a></p>"""
+        return layout("Receipts", body, "receipts", user, tenant)
+
+    def page_credit_notes(self, conn, user, tenant) -> str:
+        rows = conn.execute(
+            "SELECT n.*, c.name, i.invoice_no FROM credit_note n"
+            " JOIN customer c ON c.id=n.customer_id LEFT JOIN invoice i ON i.id=n.invoice_id"
+            " WHERE n.tenant_id=? ORDER BY n.note_date DESC, n.note_no DESC", (tenant["id"],)).fetchall()
+        trs = "".join(
+            f'<tr><td>{esc(r["note_no"])}</td><td>{esc(r["note_date"])}</td><td>{esc(r["name"])}</td>'
+            f'<td>{esc(r["invoice_no"] or "—")}</td><td>{esc(r["reason"])}</td>'
+            f'<td class="num">{money.fmt(r["total_paise"])}</td></tr>' for r in rows) or \
+            '<tr><td colspan="6" class="empty">No credit notes yet. Open an invoice to raise one.</td></tr>'
+        body = f"""
+<div class="sect-head"><h2>{len(rows)} credit note(s)</h2><a class="btn ghost" href="/export/credit-notes.csv">Export CSV</a></div>
+<div class="card"><table><thead><tr><th>Note</th><th>Date</th><th>Customer</th><th>Invoice</th><th>Reason</th><th class="num">Total</th></tr></thead>
+<tbody>{trs}</tbody></table></div>
+<p class="small muted" style="margin-top:12px">A credit note reverses revenue and GST, returns stock at cost, and reduces the invoice outstanding. The original invoice is never edited.</p>"""
+        return layout("Credit notes", body, "credit-notes", user, tenant)
+
+    def page_bills(self, conn, user, tenant, sess) -> str:
+        rows = conn.execute(
+            "SELECT b.*, v.name FROM bill b JOIN vendor v ON v.id=b.vendor_id"
+            " WHERE b.tenant_id=? ORDER BY b.bill_date DESC, b.bill_no DESC LIMIT 100",
+            (tenant["id"],)).fetchall()
+        trs = ""
+        for r in rows:
+            out = acct.bill_outstanding(conn, tenant["id"], r["id"])
+            status = "Paid" if out <= 0 else ("Partial" if out < r["total_paise"] else "Open")
+            badge = "ok" if status == "Paid" else ("neutral" if status == "Partial" else "bad")
+            trs += (f'<tr><td><a href="/bills/{r["id"]}">{esc(r["bill_no"])}</a></td>'
+                    f'<td>{esc(r["vendor_bill_no"] or "")}</td><td>{esc(r["bill_date"])}</td>'
+                    f'<td>{esc(r["name"])}</td><td class="num">{money.fmt(r["sub_total_paise"])}</td>'
+                    f'<td class="num">{money.fmt(r["tax_paise"])}</td>'
+                    f'<td class="num"><b>{money.fmt(r["total_paise"])}</b></td>'
+                    f'<td class="num">{money.fmt(out)}</td><td><span class="badge {badge}">{status}</span></td></tr>')
+        trs = trs or '<tr><td colspan="9" class="empty">No bills yet. Record your first purchase.</td></tr>'
+        ap = acct.payable_ageing(conn, tenant["id"])
+        body = f"""
+<div class="kpis">
+  {kpi("Payable outstanding", money.fmt(ap["grand_total"]), f'{len(ap["rows"])} open bill(s)')}
+  {kpi("Overdue 60+ days", money.fmt(ap["totals"]["61-90"] + ap["totals"]["90+"]), "to be paid")}
+</div>
+<div class="sect-head"><h2>{len(rows)} bill(s)</h2>
+<div><a class="btn" href="/bills/new">New bill</a> <a class="btn ghost" href="/export/bills.csv">Export CSV</a></div></div>
+<div class="card"><table>
+<thead><tr><th>Bill</th><th>Vendor bill no</th><th>Date</th><th>Vendor</th><th class="num">Net</th><th class="num">GST</th><th class="num">Total</th><th class="num">Outstanding</th><th>Status</th></tr></thead>
+<tbody>{trs}</tbody></table></div>"""
+        return layout("Bills", body, "bills", user, tenant)
+
+    def page_bill_new(self, conn, user, tenant, sess, error: str = "") -> str:
+        vendors = conn.execute("SELECT * FROM vendor WHERE tenant_id=? ORDER BY name",
+                               (tenant["id"],)).fetchall()
+        items = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name",
+                             (tenant["id"],)).fetchall()
+        if not vendors or not items:
+            return layout("New bill", '<div class="card pad"><div class="err">Add at least one vendor and one item first.</div>'
+                          '<a class="btn ghost" href="/vendors">Vendors</a> <a class="btn ghost" href="/items">Items</a></div>',
+                          "bills", user, tenant)
+        v_opts = "".join(f'<option value="{v["id"]}">{esc(v["name"])} ({esc(v["state_code"])})</option>' for v in vendors)
+        i_opts = "".join(
+            f'<option value="{i["id"]}">{esc(i["name"])} — cost {money.fmt(i["cost_paise"])} @ {i["tax_rate_bp"]/100:.0f}%</option>'
+            for i in items)
+        err = f'<div class="err">{esc(error)}</div>' if error else ""
+        row_tpl = f"""<tr>
+  <td><select name="item_id">{i_opts}</select></td>
+  <td><input name="qty" value="1" inputmode="decimal"></td>
+  <td><input name="price" placeholder="auto (cost)" inputmode="decimal"></td>
+  <td><input name="discount" value="0" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+</tr>"""
+        rows = "".join(row_tpl for _ in range(2))
+        body = f"""
+{err}
+<form method="post" action="/bills">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="card pad sect">
+<div class="row c4">
+<div class="field"><label>Bill date</label><input type="date" name="bill_date" value="{date.today().isoformat()}" required></div>
+<div class="field"><label>Vendor</label><select name="vendor_id">{v_opts}</select></div>
+<div class="field"><label>Vendor bill no</label><input name="vendor_bill_no" maxlength="60"></div>
+<div class="field"><label>Place of supply</label><input name="place_of_supply" value="{esc(tenant['state_code'])}" maxlength="2"></div>
+</div></div>
+<div class="card sect"><table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit cost</th><th>Discount</th><th></th></tr></thead>
+<tbody id="lines">{rows}</tbody></table>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div></div>
+<button class="btn" type="submit">Post bill</button>
+<a class="btn ghost" href="/bills" style="margin-left:8px">Cancel</a>
+<script>
+const tpl = document.querySelector('#lines tr').outerHTML;
+function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
+</script>"""
+        return layout("New bill", body, "bills", user, tenant)
+
+    def page_bill_detail(self, conn, user, tenant, sess, bill_id: str) -> str:
+        bill = conn.execute("SELECT b.*, v.name, v.state_code FROM bill b JOIN vendor v ON v.id=b.vendor_id"
+                            " WHERE b.id=? AND b.tenant_id=?", (bill_id, tenant["id"])).fetchone()
+        if not bill:
+            return layout("Not found", '<div class="card pad">Bill not found.</div>', "bills", user, tenant)
+        lines = conn.execute("SELECT * FROM bill_line WHERE bill_id=? ORDER BY rowid", (bill_id,)).fetchall()
+        trs = "".join(
+            f'<tr><td>{esc(l["description"])}</td><td class="num">{l["qty_milli"]/1000:.3f}</td>'
+            f'<td class="num">{money.fmt(l["unit_price_paise"])}</td><td class="num">{money.fmt(l["discount_paise"])}</td>'
+            f'<td class="num">{money.fmt(l["taxable_paise"])}</td><td class="num">{l["tax_rate_bp"]/100:.0f}%</td>'
+            f'<td class="num">{money.fmt(l["tax_paise"])}</td><td class="num"><b>{money.fmt(l["line_total_paise"])}</b></td></tr>'
+            for l in lines)
+        out = acct.bill_outstanding(conn, tenant["id"], bill_id)
+        je = conn.execute("SELECT * FROM journal_entry WHERE id=?", (bill["journal_entry_id"],)).fetchone()
+        pay_form = ""
+        if out > 0:
+            pay_form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Pay this bill</h2>
+<form method="post" action="/receipts">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="direction" value="payment">
+<input type="hidden" name="bill_id" value="{esc(bill_id)}">
+<input type="hidden" name="vendor_id" value="{esc(bill["vendor_id"])}">
+<div class="row c4">
+<div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+<div class="field"><label>Amount</label><input name="amount" value="{money.to_str(out)}" inputmode="decimal"></div>
+<div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option></select></div>
+<div class="field"><label>Reference</label><input name="reference" maxlength="60"></div>
+</div>
+<button class="btn" type="submit">Record payment</button></form></div>"""
+        body = f"""
+<div class="sect-head"><div><h2>{esc(bill["bill_no"])}</h2>
+<div class="small muted">{esc(bill["bill_date"])} · {esc(bill["name"])} · vendor bill {esc(bill["vendor_bill_no"] or "—")}</div></div>
+<div><span class="badge {"ok" if out <= 0 else "neutral"}">Outstanding {money.fmt(out)}</span>
+<a class="btn ghost" href="/bills" style="margin-left:8px">Back</a></div></div>
+<div class="card sect"><table>
+<thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Disc</th><th class="num">Taxable</th><th class="num">Rate</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
+<tbody>{trs}</tbody>
+<tfoot>
+<tr><td colspan="6">Net</td><td colspan="2" class="num">{money.fmt(bill["sub_total_paise"])}</td></tr>
+<tr><td colspan="6">GST input</td><td colspan="2" class="num">{money.fmt(bill["tax_paise"])}</td></tr>
+<tr><td colspan="6">Round off</td><td colspan="2" class="num">{money.fmt(bill["round_off_paise"])}</td></tr>
+<tr><td colspan="6">Bill total</td><td colspan="2" class="num">{money.fmt(bill["total_paise"])}</td></tr>
+</tfoot></table></div>
+{pay_form}
+<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted. Bills are immutable; corrections use a debit note or reversal.</div>"""
+        return layout("Bill", body, "bills", user, tenant)
+
+    def page_vendors(self, conn, user, tenant, sess) -> str:
+        rows = acct.vendor_balances(conn, tenant["id"])
+        trs = "".join(
+            f'<tr><td><a href="/vendors/{r["id"]}">{esc(r["name"])}</a></td>'
+            f'<td>{esc(r["phone"] or "")}</td><td>{esc(r["state_code"])}</td>'
+            f'<td class="num"><b>{money.fmt(r["balance"])}</b></td></tr>' for r in rows) or \
+            '<tr><td colspan="4" class="empty">No vendors</td></tr>'
+        body = f"""
+<div class="grid2">
+<div class="card"><table><thead><tr><th>Vendor</th><th>Phone</th><th>State</th><th class="num">Payable</th></tr></thead><tbody>{trs}</tbody></table></div>
+<div class="card pad"><h2 style="margin-bottom:12px">Add vendor</h2>
+<form method="post" action="/vendors">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field"><label>Name</label><input name="name" required maxlength="120"></div>
+<div class="row c2"><div class="field"><label>Phone</label><input name="phone" maxlength="20"></div>
+<div class="field"><label>State code</label><input name="state_code" value="{esc(tenant['state_code'])}" maxlength="2"></div></div>
+<div class="field"><label>GSTIN (optional)</label><input name="gstin" maxlength="15"></div>
+<button class="btn" type="submit">Save vendor</button></form></div></div>"""
+        return layout("Vendors", body, "vendors", user, tenant)
+
+    def page_vendor_statement(self, conn, user, tenant, vendor_id: str, q) -> str:
+        today = date.today()
+        dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
+        dto = (q.get("to") or [today.isoformat()])[0]
+        try:
+            st = acct.vendor_statement(conn, tenant["id"], vendor_id, dfrom, dto)
+        except acct.AccountingError:
+            return layout("Not found", '<div class="card pad">Vendor not found.</div>', "vendors", user, tenant)
+        v = st["vendor"]
+        rows = ""
+        for r in st["rows"]:
+            ref = esc(r["ref"])
+            if r["source_type"] == "bill" and r["source_id"]:
+                ref = f'<a href="/bills/{esc(r["source_id"])}">{esc(r["ref"])}</a>'
+            rows += (f'<tr><td>{esc(r["date"])}</td><td>{ref}</td><td>{esc(r["narration"])}</td>'
+                     f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
+        rows = rows or '<tr><td colspan="6" class="empty">No transactions in this period</td></tr>'
+        body = f"""
+<div class="kpis">
+  {kpi("Billed (period)", money.fmt(st["billed"]), "credits to payable")}
+  {kpi("Paid (period)", money.fmt(st["paid"]), "debits to payable")}
+  {kpi("Closing payable", money.fmt(st["closing"]), "amount we owe")}
+</div>
+<form method="get" class="card pad sect">
+<div class="row c4">
+<div class="field"><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div class="field"><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/vendors">All vendors</a></div>
+</div></form>
+<div class="card"><table>
+<thead><tr><th>Date</th><th>Ref</th><th>Narration</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+<tbody><tr><td colspan="5" class="muted">Opening balance</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
+{rows}</tbody>
+<tfoot><tr><td colspan="5">Closing payable</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
+</table></div>
+<p class="small muted">Vendor: {esc(v["name"])} · state {esc(v["state_code"])} · GSTIN {esc(v["gstin"] or "—")}</p>"""
+        return layout(f'Vendor — {v["name"]}', body, "vendors", user, tenant)
+
+    def page_daybook(self, conn, user, tenant, q) -> str:
+        today = date.today()
+        dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
+        dto = (q.get("to") or [today.isoformat()])[0]
+        entries = acct.day_book(conn, tenant["id"], dfrom, dto)
+        links = {"invoice": "/invoices/", "bill": "/bills/", "credit_note": "/credit-notes",
+                 "receipt": "/receipts", "payment": "/receipts"}
+        trs = ""
+        for e in entries:
+            ref = esc(e["entry_no"])
+            base = links.get(e["source_type"])
+            if base and e["source_id"] and base.endswith("/"):
+                ref = f'<a href="{base}{esc(e["source_id"])}">{esc(e["entry_no"])}</a>'
+            trs += (f'<tr><td>{esc(e["entry_date"])}</td><td>{ref}</td>'
+                    f'<td>{esc(e["source_type"])}</td><td>{esc(e["narration"])}</td>'
+                    f'<td class="num">{money.fmt(e["amount"])}</td>'
+                    f'<td><span class="badge {"ok" if e["status"] == "posted" else "neutral"}">{esc(e["status"])}</span></td></tr>')
+        trs = trs or '<tr><td colspan="6" class="empty">No vouchers in this period</td></tr>'
+        body = f"""
+<form method="get" class="card pad sect">
+<div class="row c4">
+<div class="field"><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div class="field"><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/export/daybook.csv">Export CSV</a></div>
+</div></form>
+<div class="card"><table><thead><tr><th>Date</th><th>Voucher</th><th>Type</th><th>Narration</th><th class="num">Amount</th><th>Status</th></tr></thead>
+<tbody>{trs}</tbody></table></div>
+<p class="small muted" style="margin-top:12px">Every voucher is one balanced journal entry. {len(entries)} entries in this period.</p>"""
+        return layout("Day book", body, "daybook", user, tenant)
+
+    def page_journal(self, conn, user, tenant, sess) -> str:
+        accounts = conn.execute("SELECT * FROM account WHERE tenant_id=? ORDER BY code",
+                                (tenant["id"],)).fetchall()
+        opts = "".join(f'<option value="{a["id"]}">{a["code"]} — {esc(a["name"])}</option>' for a in accounts)
+        rows = "".join(
+            f'<tr><td><select name="account_id">{opts}</select></td>'
+            f'<td><input name="debit" value="0" inputmode="decimal"></td>'
+            f'<td><input name="credit" value="0" inputmode="decimal"></td></tr>' for _ in range(4))
+        body = f"""
+<form method="post" action="/journal">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="card pad sect">
+<div class="row c3">
+<div class="field"><label>Date</label><input type="date" name="entry_date" value="{date.today().isoformat()}" required></div>
+<div class="field" style="grid-column:span 2"><label>Narration</label><input name="narration" required maxlength="200"></div>
+</div></div>
+<div class="card sect"><table><thead><tr><th style="width:60%">Account</th><th>Debit</th><th>Credit</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<button class="btn" type="submit">Post journal</button>
+<p class="small muted" style="margin-top:12px">Debits must equal credits exactly. Posting is atomic: an unbalanced entry is rejected and nothing is written.</p>
+</form>"""
+        return layout("Journal entry", body, "journal", user, tenant)
+
+    def page_ageing(self, conn, user, tenant, q, kind: str) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        data = acct.receivable_ageing(conn, tenant["id"], as_of) if kind == "ar" else \
+            acct.payable_ageing(conn, tenant["id"], as_of)
+        party_key = "customer" if kind == "ar" else "vendor"
+        doc_key = "invoice_no" if kind == "ar" else "bill_no"
+        title = "Receivables ageing" if kind == "ar" else "Payables ageing"
+        rows = "".join(
+            f'<tr><td>{esc(r[doc_key])}</td><td>{esc(r["date"])}</td><td>{esc(r[party_key])}</td>'
+            f'<td class="num">{money.fmt(r["total"])}</td><td class="num">{money.fmt(r["outstanding"])}</td>'
+            f'<td class="num">{r["days"]}</td><td><span class="badge neutral">{esc(r["bucket"])}</span></td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="7" class="empty">Nothing outstanding</td></tr>'
+        t = data["totals"]
+        body = f"""
+<div class="kpis">
+  {kpi("Current (0-30)", money.fmt(t["current"]), "not yet due")}
+  {kpi("31-60 days", money.fmt(t["31-60"]), "watch")}
+  {kpi("61-90 days", money.fmt(t["61-90"]), "follow up")}
+  {kpi("90+ days", money.fmt(t["90+"]), "escalate")}
+  {kpi("Total outstanding", money.fmt(data["grand_total"]), f'as of {as_of}')}
+</div>
+<form method="get" class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<a class="btn ghost" href="/export/{kind}-ageing.csv">Export CSV</a></form>
+<div class="card"><table>
+<thead><tr><th>Document</th><th>Date</th><th>{party_key.title()}</th><th class="num">Document total</th><th class="num">Outstanding</th><th class="num">Days</th><th>Bucket</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="4">Total</td><td class="num">{money.fmt(data["grand_total"])}</td><td colspan="2"></td></tr></tfoot>
+</table></div>"""
+        return layout(title, body, f"reports/{kind}-ageing", user, tenant)
+
+    def page_gst(self, conn, user, tenant, q) -> str:
+        today = date.today()
+        dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
+        dto = (q.get("to") or [today.isoformat()])[0]
+        g = acct.gst_summary(conn, tenant["id"], dfrom, dto)
+        sales = "".join(
+            f'<tr><td>{esc(r["invoice_no"])}</td><td>{esc(r["invoice_date"])}</td><td>{esc(r["party"])}</td>'
+            f'<td class="num">{money.fmt(r["sub_total_paise"])}</td><td class="num">{money.fmt(r["tax_paise"])}</td>'
+            f'<td class="num">{money.fmt(r["total_paise"])}</td></tr>' for r in g["sales"]) or \
+            '<tr><td colspan="6" class="empty">No sales in this period</td></tr>'
+        purchases = "".join(
+            f'<tr><td>{esc(r["bill_no"])}</td><td>{esc(r["bill_date"])}</td><td>{esc(r["party"])}</td>'
+            f'<td class="num">{money.fmt(r["sub_total_paise"])}</td><td class="num">{money.fmt(r["tax_paise"])}</td>'
+            f'<td class="num">{money.fmt(r["total_paise"])}</td></tr>' for r in g["purchases"]) or \
+            '<tr><td colspan="6" class="empty">No purchases in this period</td></tr>'
+        out_rows = "".join(f'<tr><td>{k}</td><td class="num">{money.fmt(v)}</td></tr>' for k, v in g["output"].items())
+        in_rows = "".join(f'<tr><td>{k}</td><td class="num">{money.fmt(v)}</td></tr>' for k, v in g["input"].items())
+        body = f"""
+<form method="get" class="card pad sect">
+<div class="row c4">
+<div class="field"><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div class="field"><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/export/gst-sales.csv">Sales CSV</a></div>
+</div></form>
+<div class="grid2">
+<div class="card"><div class="pad"><h2>Output tax (sales)</h2></div><table><tbody>{out_rows}</tbody>
+<tfoot><tr><td>Total output</td><td class="num">{money.fmt(g["output_total"])}</td></tr></tfoot></table></div>
+<div class="card"><div class="pad"><h2>Input tax (purchases)</h2></div><table><tbody>{in_rows}</tbody>
+<tfoot><tr><td>Total input</td><td class="num">{money.fmt(g["input_total"])}</td></tr></tfoot></table></div>
+</div>
+<div class="card pad" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+<div><div class="lbl small muted">NET GST {"PAYABLE" if g["net_payable"] >= 0 else "CREDIT"}</div>
+<div style="font-size:28px;font-weight:700">{money.fmt(abs(g["net_payable"]))}</div></div>
+<span class="badge neutral">{esc(dfrom)} → {esc(dto)}</span></div>
+<div class="sect" style="margin-top:20px"><h2 style="margin-bottom:10px">Sales register</h2>
+<div class="card"><table><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{sales}</tbody></table></div></div>
+<div class="sect"><h2 style="margin-bottom:10px">Purchase register</h2>
+<div class="card"><table><thead><tr><th>Bill</th><th>Date</th><th>Vendor</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{purchases}</tbody></table></div></div>
+<p class="small muted">Working summary, not a filed return. Verify with your tax professional before filing.</p>"""
+        return layout("GST summary", body, "reports/gst", user, tenant)
 
     def page_ledger(self, conn, user, tenant, q) -> str:
         accounts = conn.execute("SELECT * FROM account WHERE tenant_id=? ORDER BY code", (tenant["id"],)).fetchall()
@@ -701,6 +1223,41 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <button class="btn" type="submit">Save item</button></form></div></div>"""
         return layout("Items", body, "items", user, tenant)
 
+    def page_backups(self, conn, user, tenant, sess, q) -> str:
+        runs = backup_mod.recent_runs(conn)
+        trs = "".join(
+            f'<tr><td>{esc(r["created_at"][:19].replace("T"," "))}</td>'
+            f'<td><span class="badge {"ok" if r["status"] == "verified" else "bad"}">{esc(r["status"])}</span></td>'
+            f'<td class="num">{r["size_bytes"]:,}</td>'
+            f'<td class="small"><code>{esc(r["sha256"][:16])}…</code></td>'
+            f'<td class="small muted">{esc(r["path"])}</td></tr>' for r in runs) or \
+            '<tr><td colspan="5" class="empty">No backups yet. Run the first one.</td></tr>'
+        done = (q.get("done") or [""])[0] == "1"
+        banner = ('<div class="card pad" style="margin-bottom:14px"><span class="badge ok">Backup created and verified</span> '
+                  'The file is stored in <code>backups/</code> with its SHA-256 recorded above.</div>') if done else ""
+        body = f"""
+{banner}
+<div class="kpis">
+  {kpi("Backups recorded", str(len(runs)), "latest 20 shown")}
+  {kpi("Verified", str(sum(1 for r in runs if r["status"] == "verified")), "integrity + balance checks")}
+</div>
+<div class="sect-head"><h2>Backup &amp; restore drill</h2>
+<form method="post" action="/backup">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn" type="submit">Back up now</button>
+</form></div>
+<div class="card"><table>
+<thead><tr><th>Created (UTC)</th><th>Status</th><th class="num">Size (bytes)</th><th>SHA-256</th><th>File</th></tr></thead>
+<tbody>{trs}</tbody></table></div>
+<div class="card pad sect">
+<h2 style="margin-bottom:8px">Restore verification</h2>
+<p class="small muted" style="margin-top:0">Every backup is opened in read-only mode and checked for SQLite integrity, foreign-key violations, balanced journals and matching row counts before it is marked verified. To repeat the drill from a terminal:</p>
+<pre class="small" style="background:#F4F7F4;padding:12px;border-radius:10px;overflow:auto">python scripts/backup.py
+python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
+<p class="small muted">A failed backup is recorded as failed and never presented as safe. Restores are a manual, verified operation in this build — there is no one-click destructive restore.</p>
+</div>"""
+        return layout("Backups", body, "backup", user, tenant)
+
     def page_audit(self, conn, user, tenant) -> str:
         rows = conn.execute(
             "SELECT * FROM audit_log WHERE tenant_id=? ORDER BY created_at DESC LIMIT 100",
@@ -784,6 +1341,291 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         except acct.AccountingError as e:
             return self._send(self.page_invoice_new(conn, user, tenant, sess, e.message), 400)
         return self._redirect(f'/invoices/{inv["id"]}')
+
+
+    # ---------------- actions: sales / purchases / books ----------------
+    def _error_page(self, user, tenant, message: str, back: str = "/") -> str:
+        return self._send(layout("Cannot post",
+                                 f'<div class="card pad"><div class="err">{esc(message)}</div>'
+                                 f'<a class="btn ghost" href="{esc(back)}">Back</a></div>',
+                                 "", user, tenant), 400)
+
+    def _create_payment(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "payment.record")
+        invoice_id = first(form, "invoice_id")
+        bill_id = first(form, "bill_id")
+        back = f"/invoices/{invoice_id}" if invoice_id else (f"/bills/{bill_id}" if bill_id else "/receipts")
+        try:
+            amount = money.parse_amount(first(form, "amount"))
+            if amount <= 0:
+                raise money.MoneyError("Amount must be greater than zero")
+            when = first(form, "payment_date") or date.today().isoformat()
+            mode = first(form, "mode") or "bank"
+            reference = first(form, "reference")
+            notes = first(form, "notes")
+
+            if invoice_id:
+                inv = conn.execute("SELECT * FROM invoice WHERE id=? AND tenant_id=?",
+                                   (invoice_id, tenant["id"])).fetchone()
+                if not inv:
+                    raise acct.AccountingError("DOC_NOT_FOUND", "Invoice not found")
+                outstanding = acct.invoice_outstanding(conn, tenant["id"], invoice_id)
+                if amount > outstanding:
+                    raise acct.AccountingError(
+                        "OVER_ALLOCATION",
+                        f"Amount exceeds the outstanding balance of {money.fmt(outstanding)}")
+                acct.record_payment(conn, tenant["id"], "receipt", inv["customer_id"], when, amount,
+                                    mode, [{"doc_type": "invoice", "doc_id": invoice_id,
+                                            "amount": amount}], reference=reference, notes=notes,
+                                    created_by=user["id"])
+                return self._redirect(f"/invoices/{invoice_id}")
+
+            if bill_id:
+                bill = conn.execute("SELECT * FROM bill WHERE id=? AND tenant_id=?",
+                                    (bill_id, tenant["id"])).fetchone()
+                if not bill:
+                    raise acct.AccountingError("DOC_NOT_FOUND", "Bill not found")
+                outstanding = acct.bill_outstanding(conn, tenant["id"], bill_id)
+                if amount > outstanding:
+                    raise acct.AccountingError(
+                        "OVER_ALLOCATION",
+                        f"Amount exceeds the outstanding balance of {money.fmt(outstanding)}")
+                acct.record_payment(conn, tenant["id"], "payment", bill["vendor_id"], when, amount,
+                                    mode, [{"doc_type": "bill", "doc_id": bill_id,
+                                            "amount": amount}], reference=reference, notes=notes,
+                                    created_by=user["id"])
+                return self._redirect(f"/bills/{bill_id}")
+
+            customer_id = first(form, "customer_id")
+            if not customer_id:
+                raise acct.AccountingError("CUSTOMER_REQUIRED", "Choose a customer")
+            acct.record_payment(conn, tenant["id"], "receipt", customer_id, when, amount, mode, [],
+                                reference=reference, notes=notes, created_by=user["id"])
+            return self._redirect("/receipts")
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)), back)
+
+    def _create_credit_note(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "credit_note.create")
+        invoice_id = first(form, "invoice_id")
+        try:
+            qty = money.parse_qty(first(form, "qty"))
+            note = acct.create_credit_note(
+                conn, tenant["id"], invoice_id, first(form, "note_date") or date.today().isoformat(),
+                first(form, "reason"), [{"invoice_line_id": first(form, "invoice_line_id"), "qty": qty}],
+                created_by=user["id"])
+            return self._redirect(f"/invoices/{invoice_id}")
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/invoices/{invoice_id}")
+
+    def _create_bill(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
+        item_ids = form.get("item_id") or []
+        qtys = form.get("qty") or []
+        prices = form.get("price") or []
+        discounts = form.get("discount") or []
+
+        def pick(seq, i):
+            return seq[i] if i < len(seq) else ""
+
+        lines = []
+        try:
+            for i, iid in enumerate(item_ids):
+                q = pick(qtys, i)
+                if not q or q.strip() in ("", "0", "0.0", "0.000"):
+                    continue
+                line = {"item_id": iid, "qty": money.parse_qty(q),
+                        "discount": money.parse_amount(pick(discounts, i) or "0")}
+                p = pick(prices, i).strip()
+                if p:
+                    line["unit_price"] = money.parse_amount(p)
+                lines.append(line)
+        except money.MoneyError as e:
+            return self._send(self.page_bill_new(conn, user, tenant, sess, str(e)), 400)
+
+        if not lines:
+            return self._send(self.page_bill_new(conn, user, tenant, sess,
+                                                 "Add at least one line with a quantity."), 400)
+        try:
+            bill = acct.create_bill(
+                conn, tenant["id"], first(form, "vendor_id"), first(form, "bill_date"),
+                first(form, "vendor_bill_no"),
+                (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                round_to_rupee=first(form, "rounding") == "1", created_by=user["id"])
+        except acct.AccountingError as e:
+            return self._send(self.page_bill_new(conn, user, tenant, sess, e.message), 400)
+        return self._redirect(f'/bills/{bill["id"]}')
+
+    def _create_vendor(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "vendor.manage")
+        name = first(form, "name").strip()
+        if not name:
+            return self._redirect("/vendors")
+        vid = db.new_id()
+        conn.execute("INSERT INTO vendor (id, tenant_id, name, phone, gstin, state_code, created_at)"
+                     " VALUES (?,?,?,?,?,?,?)",
+                     (vid, tenant["id"], name[:120], first(form, "phone")[:20],
+                      first(form, "gstin")[:15],
+                      (first(form, "state_code") or tenant["state_code"])[:2], db.now()))
+        acct.audit(conn, tenant["id"], user["id"], "vendor.create", "vendor", vid)
+        return self._redirect("/vendors")
+
+    def _create_journal(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "journal.post")
+        accounts = form.get("account_id") or []
+        debits = form.get("debit") or []
+        credits = form.get("credit") or []
+
+        def pick(seq, i):
+            return seq[i] if i < len(seq) else ""
+
+        lines = []
+        try:
+            for i, aid in enumerate(accounts):
+                d = money.parse_amount(pick(debits, i) or "0")
+                c = money.parse_amount(pick(credits, i) or "0")
+                if d == 0 and c == 0:
+                    continue
+                lines.append({"account_id": aid, "debit": d, "credit": c})
+            entry_id = acct.post_journal(
+                conn, tenant["id"], first(form, "entry_date") or date.today().isoformat(),
+                first(form, "narration") or "Manual journal", lines, source_type="manual",
+                created_by=user["id"])
+            return self._redirect("/daybook")
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)), "/journal")
+
+    # ---------------- exports ----------------
+    def _send_bytes(self, data: bytes, content_type: str, filename: str):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def export_csv(self, conn, user, tenant, path, q):
+        security.require(conn, user["id"], tenant["id"], "report.export")
+        name = path.rsplit("/", 1)[-1]
+        if not name.endswith(".csv"):
+            return self._send("Not found", 404)
+        key = name[:-4]
+        tid = tenant["id"]
+        today = date.today().isoformat()
+        rows: list[list] = []
+
+        if key == "trial-balance":
+            as_of = (q.get("as_of") or [today])[0]
+            tb = acct.trial_balance(conn, tid, as_of)
+            rows = [["Code", "Account", "Type", "Debit", "Credit", "Balance"]]
+            rows += [[r["code"], r["name"], r["type"], money.to_str(r["debit"]),
+                      money.to_str(r["credit"]), money.to_str(r["balance"])] for r in tb["rows"]]
+            rows.append(["", "", "TOTAL", money.to_str(tb["total_debit"]),
+                         money.to_str(tb["total_credit"]), ""])
+        elif key == "pnl":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            p = acct.profit_and_loss(conn, tid, dfrom, dto)
+            rows = [["Section", "Code", "Account", "Amount"]]
+            rows += [["Income", r["code"], r["name"], money.to_str(r["amount"])] for r in p["income"]]
+            rows += [["Expense", r["code"], r["name"], money.to_str(r["amount"])] for r in p["expense"]]
+            rows.append(["", "", "Net profit", money.to_str(p["net_profit"])])
+        elif key == "balance-sheet":
+            as_of = (q.get("as_of") or [today])[0]
+            bs = acct.balance_sheet(conn, tid, as_of)
+            rows = [["Section", "Code", "Account", "Amount"]]
+            rows += [["Asset", r["code"], r["name"], money.to_str(r["amount"])] for r in bs["assets"]]
+            rows += [["Liability", r["code"], r["name"], money.to_str(r["amount"])] for r in bs["liabilities"]]
+            rows += [["Equity", r["code"], r["name"], money.to_str(r["amount"])] for r in bs["equity"]]
+            rows.append(["Equity", "3999", "Retained earnings (current period)",
+                         money.to_str(bs["retained_earnings"])])
+        elif key == "ledger":
+            accounts = conn.execute("SELECT id FROM account WHERE tenant_id=? ORDER BY code",
+                                    (tid,)).fetchall()
+            account_id = (q.get("account") or [accounts[0]["id"] if accounts else ""])[0]
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            gl = acct.general_ledger(conn, tid, account_id, dfrom, dto)
+            rows = [["Date", "Ref", "Narration", "Debit", "Credit", "Balance"],
+                    ["", "", "Opening balance", "", "", money.to_str(gl["opening"])]]
+            rows += [[r["date"], r["ref"], r["narration"], money.to_str(r["debit"]) if r["debit"] else "",
+                      money.to_str(r["credit"]) if r["credit"] else "", money.to_str(r["balance"])]
+                     for r in gl["rows"]]
+            rows.append(["", "", "Closing balance", "", "", money.to_str(gl["closing"])])
+        elif key == "daybook":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            rows = [["Date", "Voucher", "Type", "Narration", "Amount", "Status"]]
+            rows += [[e["entry_date"], e["entry_no"], e["source_type"], e["narration"],
+                      money.to_str(e["amount"]), e["status"]]
+                     for e in acct.day_book(conn, tid, dfrom, dto)]
+        elif key in ("ar-ageing", "ap-ageing"):
+            as_of = (q.get("as_of") or [today])[0]
+            data = acct.receivable_ageing(conn, tid, as_of) if key == "ar-ageing" else \
+                acct.payable_ageing(conn, tid, as_of)
+            party = "Customer" if key == "ar-ageing" else "Vendor"
+            doc = "Invoice" if key == "ar-ageing" else "Bill"
+            rows = [[doc, "Date", party, "Total", "Outstanding", "Days", "Bucket"]]
+            rows += [[r.get("invoice_no") or r.get("bill_no"), r["date"], r[party.lower()],
+                      money.to_str(r["total"]), money.to_str(r["outstanding"]), r["days"], r["bucket"]]
+                     for r in data["rows"]]
+        elif key in ("gst-sales", "gst-purchases"):
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            g = acct.gst_summary(conn, tid, dfrom, dto)
+            if key == "gst-sales":
+                rows = [["Invoice", "Date", "Customer", "Taxable", "GST", "Total"]]
+                rows += [[r["invoice_no"], r["invoice_date"], r["party"], money.to_str(r["sub_total_paise"]),
+                          money.to_str(r["tax_paise"]), money.to_str(r["total_paise"])] for r in g["sales"]]
+            else:
+                rows = [["Bill", "Date", "Vendor", "Taxable", "GST", "Total"]]
+                rows += [[r["bill_no"], r["bill_date"], r["party"], money.to_str(r["sub_total_paise"]),
+                          money.to_str(r["tax_paise"]), money.to_str(r["total_paise"])] for r in g["purchases"]]
+        elif key == "invoices":
+            data = conn.execute(
+                "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
+                " WHERE i.tenant_id=? ORDER BY i.invoice_date", (tid,)).fetchall()
+            rows = [["Invoice", "Date", "Customer", "Taxable", "GST", "Total", "Outstanding", "Status"]]
+            for r in data:
+                out = acct.invoice_outstanding(conn, tid, r["id"])
+                rows.append([r["invoice_no"], r["invoice_date"], r["name"],
+                             money.to_str(r["sub_total_paise"]), money.to_str(r["tax_paise"]),
+                             money.to_str(r["total_paise"]), money.to_str(out), r["status"]])
+        elif key == "receipts":
+            data = conn.execute(
+                "SELECT p.*, c.name FROM payment p JOIN customer c ON c.id=p.party_id"
+                " WHERE p.tenant_id=? AND p.direction='receipt' ORDER BY p.payment_date", (tid,)).fetchall()
+            rows = [["Voucher", "Date", "Customer", "Mode", "Reference", "Amount"]]
+            rows += [[r["voucher_no"], r["payment_date"], r["name"], r["mode"],
+                      r["reference"] or "", money.to_str(r["amount_paise"])] for r in data]
+        elif key == "bills":
+            data = conn.execute(
+                "SELECT b.*, v.name FROM bill b JOIN vendor v ON v.id=b.vendor_id"
+                " WHERE b.tenant_id=? ORDER BY b.bill_date", (tid,)).fetchall()
+            rows = [["Bill", "Vendor bill no", "Date", "Vendor", "Taxable", "GST", "Total", "Outstanding"]]
+            for r in data:
+                rows.append([r["bill_no"], r["vendor_bill_no"] or "", r["bill_date"], r["name"],
+                             money.to_str(r["sub_total_paise"]), money.to_str(r["tax_paise"]),
+                             money.to_str(r["total_paise"]),
+                             money.to_str(acct.bill_outstanding(conn, tid, r["id"]))])
+        elif key == "credit-notes":
+            data = conn.execute(
+                "SELECT n.*, c.name FROM credit_note n JOIN customer c ON c.id=n.customer_id"
+                " WHERE n.tenant_id=? ORDER BY n.note_date", (tid,)).fetchall()
+            rows = [["Note", "Date", "Customer", "Reason", "Taxable", "GST", "Total"]]
+            rows += [[r["note_no"], r["note_date"], r["name"], r["reason"],
+                      money.to_str(r["sub_total_paise"]), money.to_str(r["tax_paise"]),
+                      money.to_str(r["total_paise"])] for r in data]
+        else:
+            return self._send("Unknown export", 404)
+
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator="\r\n")
+        writer.writerows(rows)
+        data = buf.getvalue().encode("utf-8-sig")
+        self._send_bytes(data, "text/csv; charset=utf-8", f"arthivio-{key}-{today}.csv")
 
 
 def main(port: int = 8000):

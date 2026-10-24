@@ -210,3 +210,36 @@ Deviations from the original plan, both recorded in `docs/DECISION_LOG.md`:
 Not yet implemented from Phases 1–6: automated backup + restore drill, payment/receipt
 posting, purchases/AP, credit notes in the UI, GST returns, exports, multi-user admin UI,
 PostgreSQL deployment, and the React front end.
+
+
+---
+
+## 12. Implementation status (2026-10-24, Build 0.2)
+
+The transaction model is now complete for the SME bookkeeping loop:
+
+```
+customer ?? invoice ??? AR ?? receipt ??? cash/bank
+              ?            ?
+              ? credit note? (revenue + GST reversed, stock returned at cost)
+
+vendor ?? bill ??? AP ?? vendor payment ??? cash/bank
+            ?
+            ? inventory in at weighted-average cost (or purchases for non-stock items)
+```
+
+| Concern | Implementation |
+|---|---|
+| Atomicity | Invoice, bill, receipt/payment, credit note and reversal each run in one `BEGIN IMMEDIATE` transaction. `post_journal` detects an open transaction and uses a savepoint instead of nesting. |
+| Idempotency | Document tables and journal entries carry `idempotency_key`; lookups happen before validation so replays return the original document. |
+| Allocation | `payment_allocation` links a receipt/payment to invoices/bills; outstanding = document total ? allocated ? credit notes. Over-allocation is rejected inside the same transaction. |
+| Stock valuation | Perpetual, weighted average: `new_cost = (old_qty*old_cost + taxable*1000) / (old_qty + qty)` in milli-paise, half-up. Only `track_stock` items move. |
+| Returns | Credit note reads invoice lines, validates remaining returnable quantity, reverses revenue by item `revenue_code`, reverses output GST by place of supply, and restores stock at current cost. |
+| Ageing | Derived from outstanding balances and document dates; buckets current / 31-60 / 61-90 / 90+. |
+| GST | Working summary from GST control accounts plus sales/purchase registers. Explicitly not a filed return. |
+| Backup | `app/backup.py` online backup + four checks (integrity, foreign keys, balanced journals, row counts) before a run is marked verified. |
+| UI | Grouped navigation (Overview / Sales / Purchases / Books / Reports / Masters); every list links to its source document. |
+
+Known architectural limits: single-process HTTP server, SQLite single-writer, no background
+jobs, no PDF renderer, no bank-feed integration. These are deployment decisions, not
+accounting shortcuts.

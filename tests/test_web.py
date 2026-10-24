@@ -19,6 +19,7 @@ from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app import accounting as acct
 from app import db, server
 from app.demo import DEMO_PASSWORD, seed_demo
 
@@ -29,6 +30,7 @@ class WebTest(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="arthivio-test-")
         cls.db_path = os.path.join(cls.tmp, "test.db")
         server.DB_PATH = cls.db_path
+        server.BACKUP_DIR = os.path.join(cls.tmp, "backups")
         conn = db.connect(cls.db_path)
         db.init_db(conn)
         seed_demo(conn)
@@ -185,6 +187,124 @@ class WebTest(unittest.TestCase):
         self.assertIn("Closing balance", st)
         self.assertIn("Statement", st)
         self.assertIn('href="/invoices/', st)
+
+
+    def test_10_receipt_posts_and_reduces_outstanding(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        inv = conn.execute("SELECT id FROM invoice WHERE tenant_id=? ORDER BY created_at DESC LIMIT 1",
+                           (self.tenant_id,)).fetchone()
+        before = acct.invoice_outstanding(conn, self.tenant_id, inv["id"])
+        conn.close()
+        self.assertGreater(before, 100)
+
+        page = self.get(f"/invoices/{inv['id']}")[1]
+        token = self.csrf(page)
+        status, body, _ = self.post("/receipts", {
+            "_csrf": token, "invoice_id": inv["id"], "amount": "1.00", "mode": "bank",
+            "payment_date": "2026-10-23", "reference": "TEST-RCPT"})
+        self.assertEqual(status, 200)
+        self.assertIn("Outstanding", body)
+
+        conn = db.connect(self.db_path)
+        after = acct.invoice_outstanding(conn, self.tenant_id, inv["id"])
+        conn.close()
+        self.assertEqual(after, before - 100)
+
+    def test_11_bill_and_vendor_payment(self):
+        self.login()
+        page = self.get("/vendors")[1]
+        token = self.csrf(page)
+        self.post("/vendors", {"_csrf": token, "name": "Test Supplier", "phone": "",
+                               "state_code": "27", "gstin": ""})
+        conn = db.connect(self.db_path)
+        vendor = conn.execute("SELECT id FROM vendor WHERE tenant_id=? AND name='Test Supplier'",
+                              (self.tenant_id,)).fetchone()
+        conn.close()
+        self.assertIsNotNone(vendor)
+
+        page = self.get("/bills/new")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/bills", {
+            "_csrf": token, "vendor_id": vendor["id"], "bill_date": "2026-10-23",
+            "vendor_bill_no": "T-1", "place_of_supply": "27",
+            "item_id": [self.item_id], "qty": ["2"], "price": ["50"], "discount": ["0"]})
+        self.assertEqual(status, 200)
+        self.assertIn("Bill total", body)
+        self.assertRegex(final, r"/bills/[0-9a-f]{32}$")
+
+        bill_id = final.rsplit("/", 1)[-1]
+        token = self.csrf(body)
+        status, paid, _ = self.post("/receipts", {
+            "_csrf": token, "direction": "payment", "bill_id": bill_id,
+            "amount": "105.00", "mode": "bank", "payment_date": "2026-10-23"})
+        self.assertEqual(status, 200)
+        self.assertIn("Outstanding ₹0.00", paid)
+
+    def test_12_credit_note_from_invoice(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        inv = conn.execute("SELECT id FROM invoice WHERE tenant_id=? ORDER BY created_at DESC LIMIT 1",
+                           (self.tenant_id,)).fetchone()
+        line = conn.execute("SELECT id FROM invoice_line WHERE invoice_id=? LIMIT 1",
+                            (inv["id"],)).fetchone()
+        conn.close()
+
+        page = self.get(f"/invoices/{inv['id']}")[1]
+        token = self.csrf(page)
+        status, body, _ = self.post("/credit-notes", {
+            "_csrf": token, "invoice_id": inv["id"], "invoice_line_id": line["id"],
+            "qty": "1", "note_date": "2026-10-23", "reason": "Web test return"})
+        self.assertEqual(status, 200)
+        self.assertIn("Credit note", body)
+
+        conn = db.connect(self.db_path)
+        count = conn.execute("SELECT COUNT(*) c FROM credit_note WHERE tenant_id=? AND reason='Web test return'",
+                             (self.tenant_id,)).fetchone()["c"]
+        conn.close()
+        self.assertEqual(count, 1)
+
+    def test_13_csv_exports(self):
+        self.login()
+        for path, needle in [("/export/trial-balance.csv", "TOTAL"),
+                             ("/export/gst-sales.csv", "Taxable"),
+                             ("/export/invoices.csv", "Outstanding"),
+                             ("/export/daybook.csv", "Voucher")]:
+            status, body = self.get(path)
+            self.assertEqual(status, 200, path)
+            self.assertIn(needle, body, path)
+
+    def test_14_new_pages_render(self):
+        self.login()
+        pages = {
+            "/receipts": "Advance receipt",
+            "/bills": "New bill",
+            "/vendors": "Add vendor",
+            "/daybook": "Day book",
+            "/journal": "Post journal",
+            "/reports/ar-ageing": "Receivables ageing",
+            "/reports/ap-ageing": "Payables ageing",
+            "/reports/gst": "Output tax",
+            "/credit-notes": "credit note",
+            "/backup": "Backup",
+        }
+        for path, needle in pages.items():
+            status, body = self.get(path)
+            self.assertEqual(status, 200, path)
+            self.assertIn(needle, body, path)
+            self.assertNotIn("Internal server error", body, path)
+
+    def test_15_backup_over_http(self):
+        self.login()
+        page = self.get("/backup")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/backup", {"_csrf": token})
+        self.assertEqual(status, 200)
+        self.assertIn("Backup created and verified", body)
+        self.assertIn("done=1", final)
+        backup_dir = os.path.join(self.tmp, "backups")
+        self.assertTrue(os.path.isdir(backup_dir))
+        self.assertTrue([f for f in os.listdir(backup_dir) if f.endswith(".db")])
 
 
 if __name__ == "__main__":

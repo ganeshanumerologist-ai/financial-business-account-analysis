@@ -172,3 +172,27 @@ truth and supersedes their status column only; the requirement text and test IDs
 | Backup and restore | OPS-01 | — | NOT IMPLEMENTED |
 | Payments/receipts, AP, GST returns, exports | ACC / compliance | — | NOT IMPLEMENTED |
 | PostgreSQL, hosting, Next.js UI | NFR / deployment | — | NOT IMPLEMENTED |
+
+
+---
+
+## 10. Status after Build 0.2 (2026-10-24)
+
+| Capability | Requirement area | Test evidence | Status |
+|---|---|---|---|
+| Sales cycle: invoice to receipt to outstanding | ACC / AR | `TestReceipts` (7), `test_web.test_10` | VERIFIED |
+| Purchase cycle: bill to vendor payment to payable | ACC / AP | `TestBills` (7), `test_web.test_11` | VERIFIED |
+| Credit notes / sales returns | ACC / corrections | `TestCreditNotes` (4), `test_web.test_12` | VERIFIED |
+| Ageing (AR and AP, four buckets) | reporting | `TestAgeingAndGST` (4) | VERIFIED |
+| GST summary + sales/purchase registers | compliance | `TestAgeingAndGST.test_gst_summary_nets_output_and_input`, `/reports/gst` | PARTIAL (working summary, not a filed return) |
+| Day book and manual journals | books | `TestAgeingAndGST.test_day_book_lists_all_vouchers`, `test_web.test_14` | VERIFIED |
+| CSV exports | reporting / export | `test_web.test_13_csv_exports`, RBAC `report.export` | VERIFIED |
+| Backup + restore verification | OPS-01 / BAK-001..003 | `TestBackup` (5), `test_web.test_15`, recorded drill | VERIFIED |
+| Atomic composite postings | FIN-01 / integrity | `TestPosting`, `TestBills`, `TestReceipts`, `TestCreditNotes` | VERIFIED |
+| Weighted-average inventory | inventory | `test_weighted_average_cost`, `test_purchase_at_current_cost_keeps_average` | VERIFIED |
+| PDF, GSTR-1 JSON, debit notes, bank reconciliation, multi-user admin UI | various | - | NOT IMPLEMENTED |
+| PostgreSQL, Next.js, hosting | NFR / deployment | - | NOT IMPLEMENTED |
+
+Gate 9 (backup created) and gate 10 (restore verified with matching counts) from ?7 can now
+be marked PASS with evidence in `docs/TEST_RESULTS.md` ?7.4. Gate 6 (export permission) is
+enforced by `security.require(..., "report.export")` and covered by the HTTP export test.

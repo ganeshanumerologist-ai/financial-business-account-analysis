@@ -293,3 +293,30 @@ Status vocabulary: **VERIFIED** means a test in `docs/TEST_RESULTS.md` run
 | 20 | Responsive branded UI | manual browser check | VERIFIED (visual only) |
 
 Everything else in the 142-item inventory above remains **NOT IMPLEMENTED**.
+
+
+---
+
+## 3. Status after Build 0.2 (2026-10-24)
+
+The baseline table above is preserved as the audit-time record (0 features). This section is
+the current, test-backed state. A row is `VERIFIED` only when implementation, automated tests
+and documentation agree.
+
+| Module | Baseline status | Current status | Evidence |
+|---|---|---|---|
+| Accounting engine | NOT IMPLEMENTED | **VERIFIED (core)** | double entry, period locks, reversals, TB, ledger, P&L, balance sheet |
+| Billing / invoices | NOT IMPLEMENTED | **VERIFIED (sales)** | multi-line GST invoices, numbering, round-off, idempotency |
+| Receipts / AR | NOT IMPLEMENTED | **VERIFIED** | receipts, advances, allocation guards, ageing, statements |
+| Purchases / AP | NOT IMPLEMENTED | **VERIFIED (bills)** | input GST, weighted-average stock, vendor payments, ageing |
+| Credit notes | NOT IMPLEMENTED | **VERIFIED (sales returns)** | revenue/GST/COGS reversal, stock return, over-credit guard |
+| Inventory | NOT IMPLEMENTED | **PARTIAL** | perpetual stock + weighted average; no barcode/warehouse/transfers |
+| Reports & analytics | NOT IMPLEMENTED | **PARTIAL** | TB, ledger, P&L, BS, day book, ageing, GST summary; 6 of 66 catalogue reports |
+| Documents / compliance | NOT IMPLEMENTED | **PARTIAL** | GST working summary + CSV registers; no GSTR-1 JSON, e-invoice, PDF |
+| Users & permissions | NOT IMPLEMENTED | **PARTIAL** | RBAC enforced in data layer + routes; no invite/admin screens |
+| Backups / DR | NOT IMPLEMENTED | **VERIFIED (local)** | verified online backup, SHA-256, restore drill; no off-site copy |
+| Settings | NOT IMPLEMENTED | **NOT IMPLEMENTED** | tenant fiscal year exists in data, no settings UI |
+| Public marketing site | NOT IMPLEMENTED | **NOT IMPLEMENTED** | authenticated app only |
+| Onboarding wizard | NOT IMPLEMENTED | **NOT IMPLEMENTED** | demo seed only |
+| Offline & sync | NOT IMPLEMENTED | **NOT IMPLEMENTED** | local server only |
+| AI insights | NOT IMPLEMENTED | **NOT IMPLEMENTED** | not started |

@@ -18,16 +18,19 @@ PERMISSIONS = {
     "tenant.manage", "user.invite", "role.assign", "ledger.post", "ledger.reverse",
     "invoice.create", "invoice.void", "customer.manage", "item.manage",
     "report.view", "report.export", "backup.run",
+    "payment.record", "bill.create", "credit_note.create", "vendor.manage", "journal.post",
 }
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "owner": set(PERMISSIONS),
     "admin": PERMISSIONS - {"tenant.manage"},
     "manager": {"ledger.post", "invoice.create", "customer.manage", "item.manage",
-                "report.view", "report.export"},
+                "report.view", "report.export", "payment.record", "bill.create",
+                "credit_note.create", "vendor.manage"},
     "accountant": {"ledger.post", "ledger.reverse", "invoice.create", "customer.manage",
-                   "report.view", "report.export"},
-    "cashier": {"invoice.create", "customer.manage", "report.view"},
+                   "report.view", "report.export", "payment.record", "bill.create",
+                   "credit_note.create", "vendor.manage", "journal.post"},
+    "cashier": {"invoice.create", "customer.manage", "report.view", "payment.record"},
     "sales": {"invoice.create", "customer.manage", "report.view"},
     "inventory": {"item.manage", "report.view"},
     "readonly": {"report.view"},

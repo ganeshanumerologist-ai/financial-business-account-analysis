@@ -116,6 +116,16 @@ CREATE TABLE IF NOT EXISTS customer (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS vendor (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    name TEXT NOT NULL,
+    phone TEXT,
+    gstin TEXT,
+    state_code TEXT NOT NULL DEFAULT '27',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS item (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenant(id),
@@ -174,6 +184,118 @@ CREATE TABLE IF NOT EXISTS sequence (
     PRIMARY KEY (tenant_id, doc_type)
 );
 
+CREATE TABLE IF NOT EXISTS bill (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    bill_no TEXT NOT NULL,
+    vendor_bill_no TEXT,
+    bill_date TEXT NOT NULL,
+    vendor_id TEXT NOT NULL REFERENCES vendor(id),
+    place_of_supply_state TEXT NOT NULL,
+    sub_total_paise INTEGER NOT NULL,
+    tax_paise INTEGER NOT NULL,
+    round_off_paise INTEGER NOT NULL DEFAULT 0,
+    total_paise INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted','void')),
+    idempotency_key TEXT,
+    journal_entry_id TEXT REFERENCES journal_entry(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, bill_no),
+    UNIQUE (tenant_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS bill_line (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    bill_id TEXT NOT NULL REFERENCES bill(id),
+    item_id TEXT REFERENCES item(id),
+    description TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL,
+    unit_price_paise INTEGER NOT NULL,
+    gross_paise INTEGER NOT NULL,
+    discount_paise INTEGER NOT NULL DEFAULT 0,
+    taxable_paise INTEGER NOT NULL,
+    tax_rate_bp INTEGER NOT NULL,
+    tax_paise INTEGER NOT NULL,
+    line_total_paise INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payment (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    voucher_no TEXT NOT NULL,
+    payment_date TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('receipt','payment')),
+    party_type TEXT NOT NULL CHECK (party_type IN ('customer','vendor')),
+    party_id TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('cash','bank','upi','cheque','card')),
+    account_id TEXT NOT NULL REFERENCES account(id),
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    reference TEXT,
+    notes TEXT,
+    journal_entry_id TEXT REFERENCES journal_entry(id),
+    idempotency_key TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, voucher_no),
+    UNIQUE (tenant_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS payment_allocation (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    payment_id TEXT NOT NULL REFERENCES payment(id),
+    doc_type TEXT NOT NULL CHECK (doc_type IN ('invoice','bill','credit_note')),
+    doc_id TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0)
+);
+
+CREATE TABLE IF NOT EXISTS credit_note (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    note_no TEXT NOT NULL,
+    note_date TEXT NOT NULL,
+    customer_id TEXT NOT NULL REFERENCES customer(id),
+    invoice_id TEXT REFERENCES invoice(id),
+    place_of_supply_state TEXT NOT NULL,
+    sub_total_paise INTEGER NOT NULL,
+    tax_paise INTEGER NOT NULL,
+    round_off_paise INTEGER NOT NULL DEFAULT 0,
+    total_paise INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    journal_entry_id TEXT REFERENCES journal_entry(id),
+    idempotency_key TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, note_no),
+    UNIQUE (tenant_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS credit_note_line (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    credit_note_id TEXT NOT NULL REFERENCES credit_note(id),
+    item_id TEXT REFERENCES item(id),
+    invoice_line_id TEXT REFERENCES invoice_line(id),
+    description TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL,
+    unit_price_paise INTEGER NOT NULL,
+    taxable_paise INTEGER NOT NULL,
+    tax_rate_bp INTEGER NOT NULL,
+    tax_paise INTEGER NOT NULL,
+    cost_paise INTEGER NOT NULL DEFAULT 0,
+    line_total_paise INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backup_run (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('created','verified','failed')),
+    created_at TEXT NOT NULL,
+    verified_at TEXT,
+    note TEXT
+);
+
 CREATE TABLE IF NOT EXISTS period_lock (
     tenant_id TEXT NOT NULL REFERENCES tenant(id),
     period_start TEXT NOT NULL,
@@ -187,6 +309,10 @@ CREATE INDEX IF NOT EXISTS ix_jl_tenant_account ON journal_line (tenant_id, acco
 CREATE INDEX IF NOT EXISTS ix_jl_party ON journal_line (tenant_id, party_id);
 CREATE INDEX IF NOT EXISTS ix_je_tenant_date ON journal_entry (tenant_id, entry_date);
 CREATE INDEX IF NOT EXISTS ix_inv_tenant_date ON invoice (tenant_id, invoice_date);
+CREATE INDEX IF NOT EXISTS ix_bill_tenant_date ON bill (tenant_id, bill_date);
+CREATE INDEX IF NOT EXISTS ix_payment_tenant_date ON payment (tenant_id, payment_date);
+CREATE INDEX IF NOT EXISTS ix_alloc_doc ON payment_allocation (tenant_id, doc_type, doc_id);
+CREATE INDEX IF NOT EXISTS ix_cn_tenant_date ON credit_note (tenant_id, note_date);
 CREATE INDEX IF NOT EXISTS ix_audit_tenant_time ON audit_log (tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_session_token ON session (token_hash);
 """

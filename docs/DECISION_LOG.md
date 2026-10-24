@@ -200,3 +200,24 @@ No code will be written before this answer.
 | Context | Owner requires invoices, ledger and reports ("pura account"), not a foundation-only deliverable. |
 | Decision | Deliver a vertical slice — posting engine → invoices → ledger/TB/P&L/BS → customer statements → UI — with tests at each step, then continue with receipts, purchases, credit notes and GST. |
 | Consequence | The foundation controls (tenancy, RBAC, CSRF, audit, sessions) ship inside the same slice rather than as a separate phase, so no accounting feature exists without tenant isolation and an audit trail. |
+
+
+## D-009 - Complete the transaction cycles before adding breadth
+
+| | |
+|---|---|
+| Date | 2026-10-24 |
+| Status | Decided |
+| Context | Owner asked for a platform that behaves like a real accounting product ("jis tarah se kaam karta ho usi tarah"), not an invoice-only demo. |
+| Decision | Finish the two core cycles end-to-end before adding secondary features: sales (invoice to receipt to ageing to statement) and purchases (bill to vendor payment to ageing to vendor statement), plus credit notes, day book, manual journals, GST summary and CSV exports. Each slice ships with unit + HTTP tests and a browser check. |
+| Consequence | The product now covers the daily bookkeeping loop an SME actually performs. Debit notes, GSTR-1 JSON, PDF and bank reconciliation remain explicitly out of scope for this build and are listed as open gaps. |
+
+## D-010 - Backups are only "verified" after four independent checks
+
+| | |
+|---|---|
+| Date | 2026-10-24 |
+| Status | Decided |
+| Context | A backup that has never been opened is not a backup. The audit rules require evidence, not claims. |
+| Decision | `app/backup.py` uses SQLite's online backup API, then opens the copy read-only and checks: (1) `PRAGMA integrity_check`, (2) `PRAGMA foreign_key_check`, (3) every tenant's journal debits equal credits, (4) row counts match the live source. Only then is the run stored as `verified` with its SHA-256. Restores stay manual and are re-verified with `scripts/restore_verify.py`. |
+| Consequence | Failed or tampered backups are recorded as `failed` and never presented as safe. There is no one-click destructive restore in this build. |

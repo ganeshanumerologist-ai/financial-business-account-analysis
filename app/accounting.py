@@ -96,7 +96,11 @@ def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narr
     _assert_accounts(conn, tenant_id, {c[0] for c in clean})
     _assert_period_open(conn, tenant_id, entry_date)
 
-    conn.execute("BEGIN IMMEDIATE")
+    own_tx = not conn.in_transaction
+    if own_tx:
+        conn.execute("BEGIN IMMEDIATE")
+    else:
+        conn.execute("SAVEPOINT sp_post_journal")
     try:
         if idempotency_key:
             row = conn.execute(
@@ -104,7 +108,10 @@ def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narr
                 (tenant_id, idempotency_key),
             ).fetchone()
             if row:
-                conn.execute("COMMIT")
+                if own_tx:
+                    conn.execute("COMMIT")
+                else:
+                    conn.execute("RELEASE sp_post_journal")
                 return row["id"]
 
         entry_id = db.new_id()
@@ -124,10 +131,17 @@ def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narr
             )
         audit(conn, tenant_id, created_by, "ledger.post", "journal_entry", entry_id,
               meta={"amount": total_debit, "lines": len(clean), "source": source_type})
-        conn.execute("COMMIT")
+        if own_tx:
+            conn.execute("COMMIT")
+        else:
+            conn.execute("RELEASE sp_post_journal")
         return entry_id
     except Exception:
-        conn.execute("ROLLBACK")
+        if own_tx:
+            conn.execute("ROLLBACK")
+        else:
+            conn.execute("ROLLBACK TO sp_post_journal")
+            conn.execute("RELEASE sp_post_journal")
         raise
 
 
@@ -150,10 +164,12 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
                  "credit": l["debit_paise"], "party_id": l["party_id"],
                  "memo": f"Reversal: {reason}"} for l in lines]
 
-    new_id = post_journal(conn, tenant_id, entry["entry_date"], f"Reversal of {entry['entry_no']}: {reason}",
-                          mirrored, source_type="reversal", source_id=entry_id, created_by=created_by)
     conn.execute("BEGIN IMMEDIATE")
     try:
+        new_id = post_journal(conn, tenant_id, entry["entry_date"],
+                              f"Reversal of {entry['entry_no']}: {reason}",
+                              mirrored, source_type="reversal", source_id=entry_id,
+                              created_by=created_by)
         conn.execute("UPDATE journal_entry SET status='reversed' WHERE id=?", (entry_id,))
         conn.execute("UPDATE journal_entry SET reversal_of=? WHERE id=?", (entry_id, new_id))
         conn.execute("COMMIT")
@@ -161,7 +177,6 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
         conn.execute("ROLLBACK")
         raise
     return new_id
-
 
 # --------------------------------------------------------------------------
 # invoicing
@@ -229,6 +244,7 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
             "qty_milli": qty_milli, "unit_price_paise": price, "gross_paise": gross,
             "discount_paise": discount, "taxable_paise": taxable, "tax_rate_bp": rate_bp,
             "tax_paise": tax, "line_total_paise": line_total,
+            "track_stock": bool(item["track_stock"]),
         })
 
     base_total = sub_total + tax_total
@@ -273,21 +289,21 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
     elif round_off < 0:
         lines.append({"account_id": round_acc, "debit": -round_off, "credit": 0, "memo": "Round off"})
 
-    entry_id = post_journal(conn, tenant_id, invoice_date,
-                            f"Invoice for {customer['name']}", lines,
-                            source_type="invoice", idempotency_key=idempotency_key,
-                            created_by=created_by)
-
     conn.execute("BEGIN IMMEDIATE")
     try:
-        existing = conn.execute(
-            "SELECT * FROM invoice WHERE tenant_id=? AND journal_entry_id=?",
-            (tenant_id, entry_id),
-        ).fetchone()
-        if existing:
-            conn.execute("COMMIT")
-            return dict(existing)
+        if idempotency_key:
+            existing = conn.execute(
+                "SELECT * FROM invoice WHERE tenant_id=? AND idempotency_key=?",
+                (tenant_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                conn.execute("COMMIT")
+                return dict(existing)
 
+        entry_id = post_journal(conn, tenant_id, invoice_date,
+                                f"Invoice for {customer['name']}", lines,
+                                source_type="invoice", idempotency_key=idempotency_key,
+                                created_by=created_by)
         invoice_id = db.new_id()
         invoice_no = db.next_number(conn, tenant_id, "invoice", "INV")
         conn.execute(
@@ -307,10 +323,11 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
                  c["unit_price_paise"], c["gross_paise"], c["discount_paise"], c["taxable_paise"],
                  c["tax_rate_bp"], c["tax_paise"], c["line_total_paise"]),
             )
-            conn.execute(
-                "UPDATE item SET stock_milli = stock_milli - ? WHERE id=?",
-                (c["qty_milli"], c["item_id"]),
-            )
+            if c["track_stock"]:
+                conn.execute(
+                    "UPDATE item SET stock_milli = stock_milli - ? WHERE id=?",
+                    (c["qty_milli"], c["item_id"]),
+                )
         conn.execute("UPDATE journal_entry SET source_id=? WHERE id=?", (invoice_id, entry_id))
         audit(conn, tenant_id, created_by, "invoice.create", "invoice", invoice_id,
               meta={"total": total, "invoice_no": invoice_no})
@@ -319,6 +336,596 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
     except Exception:
         conn.execute("ROLLBACK")
         raise
+
+
+# --------------------------------------------------------------------------
+# receivables / payables: receipts, vendor payments, bills, credit notes
+# --------------------------------------------------------------------------
+
+CASH_ACCOUNT = "1000"
+BANK_ACCOUNT = "1010"
+AR_ACCOUNT = "1100"
+AP_ACCOUNT = "2000"
+
+
+def _doc_or_raise(conn: sqlite3.Connection, tenant_id: str, table: str, doc_id: str,
+                  label: str) -> sqlite3.Row:
+    row = conn.execute(
+        f"SELECT * FROM {table} WHERE id=? AND tenant_id=?", (doc_id, tenant_id)
+    ).fetchone()
+    if not row:
+        raise AccountingError("DOC_NOT_FOUND", f"{label} not found in this business")
+    return row
+
+
+def invoice_outstanding(conn: sqlite3.Connection, tenant_id: str, invoice_id: str) -> int:
+    inv = _doc_or_raise(conn, tenant_id, "invoice", invoice_id, "Invoice")
+    allocated = conn.execute(
+        "SELECT COALESCE(SUM(amount_paise),0) a FROM payment_allocation"
+        " WHERE tenant_id=? AND doc_type='invoice' AND doc_id=?",
+        (tenant_id, invoice_id),
+    ).fetchone()["a"]
+    credited = conn.execute(
+        "SELECT COALESCE(SUM(total_paise),0) c FROM credit_note"
+        " WHERE tenant_id=? AND invoice_id=?",
+        (tenant_id, invoice_id),
+    ).fetchone()["c"]
+    return inv["total_paise"] - allocated - credited
+
+
+def bill_outstanding(conn: sqlite3.Connection, tenant_id: str, bill_id: str) -> int:
+    bill = _doc_or_raise(conn, tenant_id, "bill", bill_id, "Bill")
+    allocated = conn.execute(
+        "SELECT COALESCE(SUM(amount_paise),0) a FROM payment_allocation"
+        " WHERE tenant_id=? AND doc_type='bill' AND doc_id=?",
+        (tenant_id, bill_id),
+    ).fetchone()["a"]
+    return bill["total_paise"] - allocated
+
+
+def record_payment(conn: sqlite3.Connection, tenant_id: str, direction: str, party_id: str,
+                   payment_date: str, amount_paise: int, mode: str = "bank",
+                   allocations: list[dict] | None = None, reference: str = "", notes: str = "",
+                   idempotency_key: str | None = None, created_by: str | None = None) -> dict:
+    """Record a customer receipt or a vendor payment, optionally allocating it to documents."""
+    if direction not in ("receipt", "payment"):
+        raise AccountingError("BAD_DIRECTION", "Direction must be receipt or payment")
+    if amount_paise <= 0:
+        raise AccountingError("BAD_AMOUNT", "Payment amount must be greater than zero")
+    if mode not in ("cash", "bank", "upi", "cheque", "card"):
+        raise AccountingError("BAD_MODE", "Unknown payment mode")
+
+    if idempotency_key:
+        existing = conn.execute(
+            "SELECT * FROM payment WHERE tenant_id=? AND idempotency_key=?",
+            (tenant_id, idempotency_key),
+        ).fetchone()
+        if existing:
+            return dict(existing)
+
+    party_type = "customer" if direction == "receipt" else "vendor"
+    table = "customer" if direction == "receipt" else "vendor"
+    party = _doc_or_raise(conn, tenant_id, table, party_id, party_type.title())
+    _assert_period_open(conn, tenant_id, payment_date)
+
+    allocations = allocations or []
+    total_alloc = 0
+    for al in allocations:
+        doc_type = al["doc_type"]
+        expected = "invoice" if direction == "receipt" else "bill"
+        if doc_type != expected:
+            raise AccountingError("BAD_ALLOCATION", f"{direction} can only allocate to {expected}s")
+        if int(al["amount"]) <= 0:
+            raise AccountingError("BAD_ALLOCATION", "Allocation amount must be positive")
+        if doc_type == "invoice":
+            outstanding = invoice_outstanding(conn, tenant_id, al["doc_id"])
+        else:
+            outstanding = bill_outstanding(conn, tenant_id, al["doc_id"])
+        if int(al["amount"]) > outstanding:
+            raise AccountingError(
+                "OVER_ALLOCATION",
+                f"Allocation {al['amount']} exceeds outstanding {outstanding} for {doc_type}",
+            )
+        total_alloc += int(al["amount"])
+    if total_alloc > amount_paise:
+        raise AccountingError("OVER_ALLOCATION", "Allocations exceed the payment amount")
+
+    cash_or_bank = db.account_id(
+        conn, tenant_id, CASH_ACCOUNT if mode == "cash" else BANK_ACCOUNT
+    )
+    if direction == "receipt":
+        ar = db.account_id(conn, tenant_id, AR_ACCOUNT)
+        lines = [
+            {"account_id": cash_or_bank, "debit": amount_paise, "credit": 0,
+             "memo": f"Receipt from {party['name']}"},
+            {"account_id": ar, "debit": 0, "credit": amount_paise, "party_id": party_id,
+             "memo": f"Receipt from {party['name']}"},
+        ]
+        narration = f"Receipt from {party['name']}" + (f" ({reference})" if reference else "")
+        prefix, doc_type = "RCPT", "receipt"
+    else:
+        ap = db.account_id(conn, tenant_id, AP_ACCOUNT)
+        lines = [
+            {"account_id": ap, "debit": amount_paise, "credit": 0, "party_id": party_id,
+             "memo": f"Payment to {party['name']}"},
+            {"account_id": cash_or_bank, "debit": 0, "credit": amount_paise,
+             "memo": f"Payment to {party['name']}"},
+        ]
+        narration = f"Payment to {party['name']}" + (f" ({reference})" if reference else "")
+        prefix, doc_type = "PYMT", "payment"
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if idempotency_key:
+            existing = conn.execute(
+                "SELECT * FROM payment WHERE tenant_id=? AND idempotency_key=?",
+                (tenant_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                conn.execute("COMMIT")
+                return dict(existing)
+
+        entry_id = post_journal(conn, tenant_id, payment_date, narration, lines,
+                                source_type=doc_type, idempotency_key=idempotency_key,
+                                created_by=created_by)
+        payment_id = db.new_id()
+        voucher_no = db.next_number(conn, tenant_id, doc_type, prefix)
+        conn.execute(
+            "INSERT INTO payment (id, tenant_id, voucher_no, payment_date, direction, party_type,"
+            " party_id, mode, account_id, amount_paise, reference, notes, journal_entry_id,"
+            " idempotency_key, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (payment_id, tenant_id, voucher_no, payment_date, direction, party_type, party_id,
+             mode, cash_or_bank, amount_paise, reference[:120], notes[:500], entry_id,
+             idempotency_key, db.now()),
+        )
+        for al in allocations:
+            conn.execute(
+                "INSERT INTO payment_allocation (id, tenant_id, payment_id, doc_type, doc_id,"
+                " amount_paise) VALUES (?,?,?,?,?,?)",
+                (db.new_id(), tenant_id, payment_id, al["doc_type"], al["doc_id"], int(al["amount"])),
+            )
+        conn.execute("UPDATE journal_entry SET source_id=? WHERE id=?", (payment_id, entry_id))
+        audit(conn, tenant_id, created_by, f"payment.{direction}", "payment", payment_id,
+              meta={"amount": amount_paise, "mode": mode, "allocations": len(allocations)})
+        conn.execute("COMMIT")
+        return dict(conn.execute("SELECT * FROM payment WHERE id=?", (payment_id,)).fetchone())
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def create_bill(conn: sqlite3.Connection, tenant_id: str, vendor_id: str, bill_date: str,
+                vendor_bill_no: str, place_of_supply_state: str, items: list[dict],
+                idempotency_key: str | None = None, round_to_rupee: bool = False,
+                created_by: str | None = None) -> dict:
+    """Post a purchase bill: input GST, inventory/purchases, and accounts payable."""
+    if not items:
+        raise AccountingError("NO_ITEMS", "A bill needs at least one line")
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    if not tenant:
+        raise AccountingError("TENANT_NOT_FOUND", "Tenant not found")
+    vendor = _doc_or_raise(conn, tenant_id, "vendor", vendor_id, "Vendor")
+    _assert_period_open(conn, tenant_id, bill_date)
+
+    intra = place_of_supply_state == tenant["state_code"]
+    computed = []
+    sub_total = tax_total = 0
+    stock_value = 0
+    purchase_value = 0
+
+    for ln in items:
+        item = _doc_or_raise(conn, tenant_id, "item", ln["item_id"], "Item")
+        qty_milli = int(ln["qty"])
+        price = int(ln.get("unit_price", item["cost_paise"]))
+        discount = int(ln.get("discount", 0))
+        rate_bp = int(ln.get("tax_rate_bp", item["tax_rate_bp"]))
+        if qty_milli <= 0:
+            raise AccountingError("BAD_QTY", "Quantity must be positive")
+        if price < 0 or discount < 0 or rate_bp < 0:
+            raise AccountingError("BAD_AMOUNT", "Negative price/discount/rate")
+        gross = mul_qty_price(qty_milli, price)
+        if discount > gross:
+            raise AccountingError("BAD_DISCOUNT", "Discount cannot exceed line value")
+        taxable = gross - discount
+        tax = tax_on(taxable, rate_bp)
+
+        if item["track_stock"]:
+            stock_value += taxable
+            old_qty = item["stock_milli"]
+            old_cost = item["cost_paise"]
+            new_qty = old_qty + qty_milli
+            # old_qty is in thousandths; taxable is paise for the purchased quantity.
+            # Convert taxable to milli-paise so both sides share the same unit.
+            new_cost = ((old_qty * old_cost + taxable * 1000) + new_qty // 2) // new_qty if new_qty else price
+        else:
+            purchase_value += taxable
+
+        sub_total += taxable
+        tax_total += tax
+        computed.append({
+            "item_id": item["id"], "description": ln.get("description", item["name"]),
+            "qty_milli": qty_milli, "unit_price_paise": price, "gross_paise": gross,
+            "discount_paise": discount, "taxable_paise": taxable, "tax_rate_bp": rate_bp,
+            "tax_paise": tax, "line_total_paise": taxable + tax,
+            "new_qty": item["stock_milli"] + qty_milli if item["track_stock"] else None,
+            "new_cost": new_cost if item["track_stock"] else None,
+        })
+
+    base_total = sub_total + tax_total
+    total = ((base_total + 50) // 100) * 100 if round_to_rupee else base_total
+    round_off = total - base_total
+
+    acct = db.account_id
+    ap = acct(conn, tenant_id, AP_ACCOUNT)
+    inventory = acct(conn, tenant_id, "1200")
+    purchases = acct(conn, tenant_id, "5100")
+    round_acc = acct(conn, tenant_id, "5900")
+
+    if intra:
+        cgst, sgst = split_tax(tax_total)
+        tax_lines = [(acct(conn, tenant_id, "2200"), cgst), (acct(conn, tenant_id, "2201"), sgst)]
+    else:
+        tax_lines = [(acct(conn, tenant_id, "2202"), tax_total)]
+
+    lines = [{"account_id": ap, "debit": 0, "credit": total, "party_id": vendor_id,
+              "memo": "Bill payable"}]
+    if stock_value:
+        lines.append({"account_id": inventory, "debit": stock_value, "credit": 0,
+                      "memo": "Inventory in"})
+    if purchase_value:
+        lines.append({"account_id": purchases, "debit": purchase_value, "credit": 0,
+                      "memo": "Purchases"})
+    for acc, amt in tax_lines:
+        if amt:
+            lines.append({"account_id": acc, "debit": amt, "credit": 0, "memo": "GST input"})
+    if round_off > 0:
+        lines.append({"account_id": round_acc, "debit": round_off, "credit": 0, "memo": "Round off"})
+    elif round_off < 0:
+        lines.append({"account_id": round_acc, "debit": 0, "credit": -round_off, "memo": "Round off"})
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if idempotency_key:
+            existing = conn.execute(
+                "SELECT * FROM bill WHERE tenant_id=? AND idempotency_key=?",
+                (tenant_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                conn.execute("COMMIT")
+                return dict(existing)
+
+        entry_id = post_journal(conn, tenant_id, bill_date, f"Bill from {vendor['name']}", lines,
+                                source_type="bill", idempotency_key=idempotency_key,
+                                created_by=created_by)
+        bill_id = db.new_id()
+        bill_no = db.next_number(conn, tenant_id, "bill", "BILL")
+        conn.execute(
+            "INSERT INTO bill (id, tenant_id, bill_no, vendor_bill_no, bill_date, vendor_id,"
+            " place_of_supply_state, sub_total_paise, tax_paise, round_off_paise, total_paise,"
+            " status, idempotency_key, journal_entry_id, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?, 'posted', ?,?,?)",
+            (bill_id, tenant_id, bill_no, (vendor_bill_no or "")[:60], bill_date, vendor_id,
+             place_of_supply_state, sub_total, tax_total, round_off, total, idempotency_key,
+             entry_id, db.now()),
+        )
+        for c in computed:
+            conn.execute(
+                "INSERT INTO bill_line (id, tenant_id, bill_id, item_id, description, qty_milli,"
+                " unit_price_paise, gross_paise, discount_paise, taxable_paise, tax_rate_bp,"
+                " tax_paise, line_total_paise) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (db.new_id(), tenant_id, bill_id, c["item_id"], c["description"], c["qty_milli"],
+                 c["unit_price_paise"], c["gross_paise"], c["discount_paise"], c["taxable_paise"],
+                 c["tax_rate_bp"], c["tax_paise"], c["line_total_paise"]),
+            )
+            if c["new_qty"] is not None:
+                conn.execute(
+                    "UPDATE item SET stock_milli=?, cost_paise=? WHERE id=?",
+                    (c["new_qty"], c["new_cost"], c["item_id"]),
+                )
+        conn.execute("UPDATE journal_entry SET source_id=? WHERE id=?", (bill_id, entry_id))
+        audit(conn, tenant_id, created_by, "bill.create", "bill", bill_id,
+              meta={"total": total, "bill_no": bill_no})
+        conn.execute("COMMIT")
+        return dict(conn.execute("SELECT * FROM bill WHERE id=?", (bill_id,)).fetchone())
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def create_credit_note(conn: sqlite3.Connection, tenant_id: str, invoice_id: str, note_date: str,
+                       reason: str, lines: list[dict], idempotency_key: str | None = None,
+                       created_by: str | None = None) -> dict:
+    """Sales return / credit note against an invoice. Restores stock at current cost."""
+    if not reason or not reason.strip():
+        raise AccountingError("REASON_REQUIRED", "A credit note needs a reason")
+    if not lines:
+        raise AccountingError("NO_ITEMS", "A credit note needs at least one line")
+    invoice = _doc_or_raise(conn, tenant_id, "invoice", invoice_id, "Invoice")
+    if invoice["status"] != "posted":
+        raise AccountingError("INVOICE_NOT_POSTED", "Only posted invoices can be credited")
+    _assert_period_open(conn, tenant_id, note_date)
+
+    computed = []
+    sub_total = tax_total = cost_total = 0
+    revenue_by_account: dict[str, int] = {}
+
+    for ln in lines:
+        inv_line = conn.execute(
+            "SELECT * FROM invoice_line WHERE id=? AND invoice_id=? AND tenant_id=?",
+            (ln["invoice_line_id"], invoice_id, tenant_id),
+        ).fetchone()
+        if not inv_line:
+            raise AccountingError("LINE_NOT_FOUND", "Invoice line not found")
+        qty_milli = int(ln["qty"])
+        if qty_milli <= 0:
+            raise AccountingError("BAD_QTY", "Quantity must be positive")
+        already = conn.execute(
+            "SELECT COALESCE(SUM(l.qty_milli),0) q FROM credit_note_line l"
+            " JOIN credit_note n ON n.id=l.credit_note_id"
+            " WHERE n.tenant_id=? AND n.invoice_id=? AND l.invoice_line_id=?",
+            (tenant_id, invoice_id, inv_line["id"]),
+        ).fetchone()["q"]
+        if qty_milli > inv_line["qty_milli"] - already:
+            raise AccountingError(
+                "OVER_CREDIT",
+                f"Cannot credit {qty_milli/1000:.3f}; only {(inv_line['qty_milli']-already)/1000:.3f} returnable",
+            )
+
+        gross = mul_qty_price(qty_milli, inv_line["unit_price_paise"])
+        disc = (inv_line["discount_paise"] * qty_milli + inv_line["qty_milli"] // 2) // inv_line["qty_milli"]
+        taxable = max(0, gross - disc)
+        tax = tax_on(taxable, inv_line["tax_rate_bp"])
+
+        item = conn.execute("SELECT * FROM item WHERE id=?", (inv_line["item_id"],)).fetchone()
+        cost = 0
+        if item and item["track_stock"]:
+            cost = (item["cost_paise"] * qty_milli + 500) // 1000
+            revenue_code = item["revenue_code"]
+        else:
+            revenue_code = item["revenue_code"] if item else "4000"
+        revenue_by_account[revenue_code] = revenue_by_account.get(revenue_code, 0) + taxable
+        sub_total += taxable
+        tax_total += tax
+        cost_total += cost
+        computed.append({
+            "invoice_line_id": inv_line["id"], "item_id": inv_line["item_id"],
+            "description": inv_line["description"], "qty_milli": qty_milli,
+            "unit_price_paise": inv_line["unit_price_paise"], "taxable_paise": taxable,
+            "tax_rate_bp": inv_line["tax_rate_bp"], "tax_paise": tax, "cost_paise": cost,
+            "line_total_paise": taxable + tax, "track_stock": bool(item and item["track_stock"]),
+        })
+
+    total = sub_total + tax_total
+    intra = invoice["place_of_supply_state"] == conn.execute(
+        "SELECT state_code FROM tenant WHERE id=?", (tenant_id,)).fetchone()["state_code"]
+
+    acct = db.account_id
+    ar = acct(conn, tenant_id, AR_ACCOUNT)
+    inventory = acct(conn, tenant_id, "1200")
+    cogs = acct(conn, tenant_id, "5000")
+
+    if intra:
+        cgst, sgst = split_tax(tax_total)
+        tax_lines = [(acct(conn, tenant_id, "2100"), cgst), (acct(conn, tenant_id, "2101"), sgst)]
+    else:
+        tax_lines = [(acct(conn, tenant_id, "2102"), tax_total)]
+
+    lines_j = [{"account_id": ar, "debit": 0, "credit": total, "party_id": invoice["customer_id"],
+                "memo": "Credit note"}]
+    for code, amount in revenue_by_account.items():
+        if amount:
+            lines_j.append({"account_id": acct(conn, tenant_id, code), "debit": amount, "credit": 0,
+                            "memo": "Sales return"})
+    for acc, amt in tax_lines:
+        if amt:
+            lines_j.append({"account_id": acc, "debit": amt, "credit": 0, "memo": "GST output reversal"})
+    if cost_total:
+        lines_j.append({"account_id": inventory, "debit": cost_total, "credit": 0, "memo": "Stock in"})
+        lines_j.append({"account_id": cogs, "debit": 0, "credit": cost_total, "memo": "COGS reversal"})
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if idempotency_key:
+            existing = conn.execute(
+                "SELECT * FROM credit_note WHERE tenant_id=? AND idempotency_key=?",
+                (tenant_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                conn.execute("COMMIT")
+                return dict(existing)
+
+        entry_id = post_journal(conn, tenant_id, note_date, f"Credit note: {reason}", lines_j,
+                                source_type="credit_note", idempotency_key=idempotency_key,
+                                created_by=created_by)
+        note_id = db.new_id()
+        note_no = db.next_number(conn, tenant_id, "credit_note", "CN")
+        conn.execute(
+            "INSERT INTO credit_note (id, tenant_id, note_no, note_date, customer_id, invoice_id,"
+            " place_of_supply_state, sub_total_paise, tax_paise, round_off_paise, total_paise,"
+            " reason, journal_entry_id, idempotency_key, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)",
+            (note_id, tenant_id, note_no, note_date, invoice["customer_id"], invoice_id,
+             invoice["place_of_supply_state"], sub_total, tax_total, total, reason[:200],
+             entry_id, idempotency_key, db.now()),
+        )
+        for c in computed:
+            conn.execute(
+                "INSERT INTO credit_note_line (id, tenant_id, credit_note_id, item_id,"
+                " invoice_line_id, description, qty_milli, unit_price_paise, taxable_paise,"
+                " tax_rate_bp, tax_paise, cost_paise, line_total_paise)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (db.new_id(), tenant_id, note_id, c["item_id"], c["invoice_line_id"],
+                 c["description"], c["qty_milli"], c["unit_price_paise"], c["taxable_paise"],
+                 c["tax_rate_bp"], c["tax_paise"], c["cost_paise"], c["line_total_paise"]),
+            )
+            if c["track_stock"]:
+                conn.execute("UPDATE item SET stock_milli=stock_milli+? WHERE id=?",
+                             (c["qty_milli"], c["item_id"]))
+        conn.execute("UPDATE journal_entry SET source_id=? WHERE id=?", (note_id, entry_id))
+        audit(conn, tenant_id, created_by, "credit_note.create", "credit_note", note_id,
+              meta={"total": total, "invoice_id": invoice_id})
+        conn.execute("COMMIT")
+        return dict(conn.execute("SELECT * FROM credit_note WHERE id=?", (note_id,)).fetchone())
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def receivable_ageing(conn: sqlite3.Connection, tenant_id: str, as_of: str | None = None) -> dict:
+    as_of = as_of or _today_iso()
+    as_of_d = date.fromisoformat(as_of)
+    rows = conn.execute(
+        """SELECT i.id, i.invoice_no, i.invoice_date, i.total_paise, c.name AS customer
+           FROM invoice i JOIN customer c ON c.id=i.customer_id
+           WHERE i.tenant_id=? AND i.status='posted' AND i.invoice_date <= ?
+           ORDER BY i.invoice_date""",
+        (tenant_id, as_of),
+    ).fetchall()
+    out = []
+    totals = {"current": 0, "31-60": 0, "61-90": 0, "90+": 0}
+    for r in rows:
+        outstanding = invoice_outstanding(conn, tenant_id, r["id"])
+        if outstanding <= 0:
+            continue
+        days = (as_of_d - date.fromisoformat(r["invoice_date"])).days
+        bucket = "current" if days <= 30 else "31-60" if days <= 60 else "61-90" if days <= 90 else "90+"
+        totals[bucket] += outstanding
+        out.append({"invoice_id": r["id"], "invoice_no": r["invoice_no"], "date": r["invoice_date"],
+                    "customer": r["customer"], "total": r["total_paise"],
+                    "outstanding": outstanding, "days": days, "bucket": bucket})
+    return {"as_of": as_of, "rows": out, "totals": totals, "grand_total": sum(totals.values())}
+
+
+def payable_ageing(conn: sqlite3.Connection, tenant_id: str, as_of: str | None = None) -> dict:
+    as_of = as_of or _today_iso()
+    as_of_d = date.fromisoformat(as_of)
+    rows = conn.execute(
+        """SELECT b.id, b.bill_no, b.bill_date, b.total_paise, v.name AS vendor
+           FROM bill b JOIN vendor v ON v.id=b.vendor_id
+           WHERE b.tenant_id=? AND b.status='posted' AND b.bill_date <= ?
+           ORDER BY b.bill_date""",
+        (tenant_id, as_of),
+    ).fetchall()
+    out = []
+    totals = {"current": 0, "31-60": 0, "61-90": 0, "90+": 0}
+    for r in rows:
+        outstanding = bill_outstanding(conn, tenant_id, r["id"])
+        if outstanding <= 0:
+            continue
+        days = (as_of_d - date.fromisoformat(r["bill_date"])).days
+        bucket = "current" if days <= 30 else "31-60" if days <= 60 else "61-90" if days <= 90 else "90+"
+        totals[bucket] += outstanding
+        out.append({"bill_id": r["id"], "bill_no": r["bill_no"], "date": r["bill_date"],
+                    "vendor": r["vendor"], "total": r["total_paise"],
+                    "outstanding": outstanding, "days": days, "bucket": bucket})
+    return {"as_of": as_of, "rows": out, "totals": totals, "grand_total": sum(totals.values())}
+
+
+def day_book(conn: sqlite3.Connection, tenant_id: str, date_from: str, date_to: str) -> list[dict]:
+    rows = conn.execute(
+        """SELECT e.id, e.entry_no, e.entry_date, e.narration, e.source_type, e.source_id,
+                  e.status, COALESCE(SUM(l.debit_paise),0) AS amount
+           FROM journal_entry e LEFT JOIN journal_line l ON l.entry_id=e.id
+           WHERE e.tenant_id=? AND e.entry_date BETWEEN ? AND ?
+           GROUP BY e.id ORDER BY e.entry_date, e.entry_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def gst_summary(conn: sqlite3.Connection, tenant_id: str, date_from: str, date_to: str) -> dict:
+    def account_tax(code: str, debit_side: bool) -> int:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(l.debit_paise),0) d, COALESCE(SUM(l.credit_paise),0) c
+               FROM journal_line l JOIN journal_entry e ON e.id=l.entry_id
+               JOIN account a ON a.id=l.account_id
+               WHERE l.tenant_id=? AND a.code=? AND e.entry_date BETWEEN ? AND ?""",
+            (tenant_id, code, date_from, date_to),
+        ).fetchone()
+        return (row["d"] - row["c"]) if debit_side else (row["c"] - row["d"])
+
+    output = {
+        "CGST": account_tax("2100", False),
+        "SGST": account_tax("2101", False),
+        "IGST": account_tax("2102", False),
+    }
+    input_tax = {
+        "CGST": account_tax("2200", True),
+        "SGST": account_tax("2201", True),
+        "IGST": account_tax("2202", True),
+    }
+    sales = conn.execute(
+        """SELECT i.invoice_no, i.invoice_date, i.sub_total_paise, i.tax_paise, i.total_paise,
+                  c.name AS party
+           FROM invoice i JOIN customer c ON c.id=i.customer_id
+           WHERE i.tenant_id=? AND i.invoice_date BETWEEN ? AND ? AND i.status='posted'
+           ORDER BY i.invoice_date, i.invoice_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    purchases = conn.execute(
+        """SELECT b.bill_no, b.bill_date, b.sub_total_paise, b.tax_paise, b.total_paise,
+                  v.name AS party
+           FROM bill b JOIN vendor v ON v.id=b.vendor_id
+           WHERE b.tenant_id=? AND b.bill_date BETWEEN ? AND ? AND b.status='posted'
+           ORDER BY b.bill_date, b.bill_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out_total = sum(output.values())
+    in_total = sum(input_tax.values())
+    return {"from": date_from, "to": date_to, "output": output, "input": input_tax,
+            "output_total": out_total, "input_total": in_total,
+            "net_payable": out_total - in_total,
+            "sales": [dict(r) for r in sales], "purchases": [dict(r) for r in purchases]}
+
+
+def vendor_balances(conn: sqlite3.Connection, tenant_id: str, as_of: str | None = None) -> list[dict]:
+    as_of = as_of or _today_iso()
+    rows = conn.execute(
+        """
+        SELECT v.id, v.name, v.phone, v.state_code,
+               COALESCE(SUM(p.credit_paise - p.debit_paise), 0) AS balance
+        FROM vendor v
+        LEFT JOIN (
+            SELECT l.party_id, l.debit_paise, l.credit_paise
+            FROM journal_line l JOIN journal_entry e ON e.id=l.entry_id
+            WHERE l.tenant_id=? AND l.party_id IS NOT NULL AND e.entry_date <= ?
+        ) p ON p.party_id = v.id
+        WHERE v.tenant_id=? GROUP BY v.id ORDER BY v.name
+        """,
+        (tenant_id, as_of, tenant_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def vendor_statement(conn: sqlite3.Connection, tenant_id: str, vendor_id: str,
+                     date_from: str, date_to: str) -> dict:
+    vendor = _doc_or_raise(conn, tenant_id, "vendor", vendor_id, "Vendor")
+    opening = conn.execute(
+        """SELECT COALESCE(SUM(l.credit_paise - l.debit_paise),0) bal
+           FROM journal_line l JOIN journal_entry e ON e.id=l.entry_id
+           WHERE l.tenant_id=? AND l.party_id=? AND e.entry_date < ?""",
+        (tenant_id, vendor_id, date_from),
+    ).fetchone()["bal"] or 0
+    rows = conn.execute(
+        """SELECT e.entry_no, e.entry_date, e.narration, e.source_type, e.source_id,
+                  l.debit_paise, l.credit_paise
+           FROM journal_line l JOIN journal_entry e ON e.id=l.entry_id
+           WHERE l.tenant_id=? AND l.party_id=? AND e.entry_date BETWEEN ? AND ?
+           ORDER BY e.entry_date, e.entry_no, l.line_no""",
+        (tenant_id, vendor_id, date_from, date_to),
+    ).fetchall()
+    running = opening
+    out = []
+    billed = paid = 0
+    for r in rows:
+        running += (r["credit_paise"] or 0) - (r["debit_paise"] or 0)
+        billed += r["credit_paise"] or 0
+        paid += r["debit_paise"] or 0
+        out.append({"date": r["entry_date"], "ref": r["entry_no"], "narration": r["narration"],
+                    "source_type": r["source_type"], "source_id": r["source_id"],
+                    "debit": r["debit_paise"], "credit": r["credit_paise"], "balance": running})
+    return {"vendor": dict(vendor), "from": date_from, "to": date_to, "opening": opening,
+            "rows": out, "closing": running, "billed": billed, "paid": paid}
 
 
 # --------------------------------------------------------------------------
@@ -512,6 +1119,12 @@ def dashboard(conn: sqlite3.Connection, tenant_id: str, date_from: str, date_to:
         "SELECT COUNT(*) c FROM invoice WHERE tenant_id=? AND invoice_date BETWEEN ? AND ?",
         (tenant_id, date_from, date_to),
     ).fetchone()["c"]
+    payable = -tb.get("2000", {}).get("balance", 0)
+    ar_age = receivable_ageing(conn, tenant_id, date_to)
+    ap_age = payable_ageing(conn, tenant_id, date_to)
     return {"revenue": pnl["total_income"], "expense": pnl["total_expense"],
             "profit": pnl["net_profit"], "receivable": ar, "cash": cash,
-            "inventory": inventory, "invoice_count": inv_count}
+            "inventory": inventory, "invoice_count": inv_count, "payable": payable,
+            "open_invoices": len(ar_age["rows"]), "open_bills": len(ap_age["rows"]),
+            "overdue_receivable": ar_age["totals"]["61-90"] + ar_age["totals"]["90+"],
+            "overdue_payable": ap_age["totals"]["61-90"] + ap_age["totals"]["90+"]}
