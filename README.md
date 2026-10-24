@@ -13,15 +13,29 @@ D:\financial business account data analysis\
 ├── Arthivio Smarter Finance Dashboard.png          design reference (1536×1024)
 ├── WhatsApp Image 2026-10-24 at 10.10.22 AM.jpeg   design reference (1536×1024)
 ├── README.md                                        this file
+├── .gitignore                                       secrets/db/node excluded
 └── docs\
-    ├── SOFTWARE_AUDIT.md            full audit report
-    ├── FEATURE_INVENTORY.md         every specified feature, status NOT IMPLEMENTED
-    ├── TEST_PLAN.md                 90 test cases, ready to run
-    ├── TEST_RESULTS.md              results of run RUN-2026-10-24-01
-    ├── BUG_REPORT.md                9 open defects (B-001 … B-009)
-    ├── DECISION_LOG.md              decisions + the one blocking decision
-    └── PROJECT_SPEC.md              governing specification (copied, hash-verified)
+    ├── SOFTWARE_AUDIT.md              audit report (evidence-based)
+    ├── FEATURE_INVENTORY.md           142 specified features, all NOT IMPLEMENTED
+    ├── TEST_PLAN.md                   90 test cases
+    ├── TEST_RESULTS.md                results of run RUN-2026-10-24-01
+    ├── BUG_REPORT.md                  9 open defects (B-001 … B-009)
+    ├── REQUIREMENTS.md                30 product + 9 financial + 11 security + 10 NFR requirements
+    ├── ARCHITECTURE.md                decided stack, boundaries, layout
+    ├── DATABASE_DESIGN.md             Phase 1 schema + Phase 2 outline
+    ├── SECURITY_PLAN.md               threat model, RBAC, security gates
+    ├── BACKUP_AND_RECOVERY.md         RPO/RTO, restore drill, honest status
+    ├── ACCOUNTING_RULES.md            money, rounding, posting, report formulas
+    ├── COMPLIANCE_MATRIX.md           30 rows, 0 implemented
+    ├── API_INTEGRATIONS.md            12 planned, 0 connected
+    ├── REPORT_CATALOG.md              66 reports, 0 implemented
+    ├── DEVELOPMENT_ROADMAP.md         phases 0–10 with gates
+    ├── REQUIREMENTS_TRACEABILITY.md   requirement → module → test → status
+    ├── DECISION_LOG.md                decisions (D-001-D: Option A approved)
+    └── PROJECT_SPEC.md                governing specification (copied, hash-verified)
 ```
+
+Baseline commit: `9052071` on branch `main`. Nothing pushed to GitHub.
 
 ---
 
@@ -67,12 +81,25 @@ The audit did **not** invent results. Everything that could not be checked is ma
 
 ---
 
-## Two decisions the owner must make
+## Decisions — settled
 
-1. **Stack + database** — Next.js (Node 20 is already on the machine in portable form) + FastAPI, or Python-only first. In both cases PostgreSQL is missing, so Phase 1 needs a file-based database with a documented PostgreSQL path. This also covers approval to download dependencies (`npm install` / `pip install`, both free). See `docs/DECISION_LOG.md`.
-2. **Version control** — git 2.56 is already available in portable form; only a `git init` + first commit is needed. No installation, and no automatic push to GitHub.
+1. ✅ **Stack: Option A** — Next.js (TypeScript) + FastAPI (Python), approved 2026-10-24 (`D-001-D`). Node 20 and git are already on the machine in portable form; no installs needed.
+2. ✅ **Database** — file-based DB for Phase 1 (SQLite/WAL), PostgreSQL-ready schema, migration path documented (`DATABASE_DESIGN.md`, `DF-01`).
+3. ✅ **Version control** — repository initialised, baseline committed. No push to GitHub.
 
-These are the only blockers. Everything else is ready.
+**Open (non-blocking):** location of the home-page theme (OQ-01) — needed only at Phase 6 (UI), not Phase 1.
+
+---
+
+## Where we are
+
+| Phase | Status |
+|---|---|
+| Phase 0 — audit + planning | ✅ **Complete** (this documentation set) |
+| Phase 1 — secure foundation | ⏳ **Awaiting owner go-ahead** |
+| Phases 2–10 | Not started |
+
+Phase 1 = authentication, tenant isolation, roles/permissions, audit log, backup + verified restore. No financial modules until that gate passes.
 
 ---
 
@@ -86,8 +113,9 @@ Corollary used throughout the audit: **a feature is not "done" until implementat
 
 ## ओनर के लिए हिंदी में सार
 
-- अभी इस फोल्डर में **कोई सॉफ्टवेयर नहीं है** — सिर्फ दो डिज़ाइन तस्वीरें और ऑडिट डॉक्यूमेंट हैं।
+- अभी इस फोल्डर में **कोई सॉफ्टवेयर नहीं है** — सिर्फ दो डिज़ाइन तस्वीरें और पूरा प्लान/ऑडिट डॉक्यूमेंट है।
 - इसलिए ऑडिट में हर फीचर `BLOCKED` लिखा है, `PASS` नहीं। झूठी रिपोर्ट नहीं बनाई गई।
-- कंप्यूटर में Python है, लेकिन Node.js, Git और PostgreSQL नहीं हैं।
-- अगला कदम: आप दो फैसले लें — (1) कौन सी टेक्नोलॉजी से बनाएं, (2) Git इंस्टॉल करने की अनुमति। उसके बाद Phase 1 (सुरक्षित फाउंडेशन) शुरू होगा।
-- पूरी रिपोर्ट: `docs/SOFTWARE_AUDIT.md` पढ़ें।
+- कंप्यूटर में Python है, और Node.js + Git भी हैं (पोर्टेबल फोल्डर में, PATH में नहीं)। PostgreSQL नहीं है — इसलिए Phase 1 में SQLite। 
+- आपने Option A approve किया — अब Git repo बन गया और पहला commit हो गया (कुछ भी GitHub पर push नहीं हुआ)।
+- अगला कदम: आपकी हाँ के बाद **Phase 1** — लॉगिन, अलग-अलग कंपनी का डेटा अलग रखना, roles, ऑडिट लॉग, बैकअप + restore टेस्ट।
+- पूरी रिपोर्ट: `docs/SOFTWARE_AUDIT.md`, और प्लान: `docs/DEVELOPMENT_ROADMAP.md`।

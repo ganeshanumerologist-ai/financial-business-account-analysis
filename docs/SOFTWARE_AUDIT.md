@@ -236,7 +236,7 @@ The governing spec sits in `C:\Users\vicky\Downloads\`, **outside** the reposito
 | Compliance integrations | 0 | 0 | NOT IMPLEMENTED |
 | Backups / DR | 0 | 0 | NOT IMPLEMENTED |
 | Test suite / CI | 0 | 0 | NOT IMPLEMENTED |
-| Documentation | 7 files created by this audit | — | DONE (planning only) |
+| Documentation | 7 files at audit time; 18 after Rule 1 planning | — | DONE (documentation only) |
 
 **Report accuracy:** not assessable — no reports exist, therefore report-to-ledger accuracy is unmeasured rather than assumed correct.
 

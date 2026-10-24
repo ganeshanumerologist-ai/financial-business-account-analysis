@@ -22,7 +22,7 @@ Append-only. New decisions get a new ID; superseded ones are marked, never delet
 | | |
 |---|---|
 | Date | 2026-10-24 |
-| Status | **PENDING — OWNER APPROVAL REQUIRED (blocking)**. Toolchain facts revised in D-001-R1 below; the decision itself is unchanged. |
+| Status | ~~PENDING~~ → **DECIDED as Option A on 2026-10-24** (see D-001-D). Toolchain facts revised in D-001-R1. |
 | Context | Spec §20 proposes Next.js + TypeScript, Python + FastAPI, PostgreSQL. Original finding: only Python installed. **Corrected in D-001-R1:** portable Node 20.20.2 and git 2.56.0 exist; PostgreSQL and Docker are absent. |
 | Decision | Not yet made. |
 | Blocker | Cannot start Phase 1 without an approved stack, because it determines dependency installs, project layout and every architecture document. |
@@ -84,6 +84,21 @@ No code will be written before this answer.
 - Either way, `git init` + baseline commit should happen first — it is reversible, local-only, and protects the work. **No push.**
 
 **Unchanged:** no application code until the owner answers.
+
+---
+
+## D-001-D — Owner decision: Option A approved
+
+| | |
+|---|---|
+| Date | 2026-10-24 |
+| Status | **DECIDED — Option A approved** |
+| Owner input | "a" (in response to the stack question, interpreted as Option A: Next.js + FastAPI) |
+| Decision | Build with **Next.js (TypeScript) + FastAPI (Python)**, file-based DB for Phase 1 with a documented PostgreSQL migration path. |
+| Implications | `npm install` and `pip install` approved (free, no paid services) · no system installs required · portable Node 20 + git used via `dev.ps1` |
+| Scope boundary | This approves the **stack**, not unrestricted feature work. Phase 1 remains auth + tenancy + RBAC + audit + backups. |
+| Immediate actions taken | `git init` (branch `main`), `.gitignore` created, baseline commit `9052071` (11 files), no push |
+| Next gate | Owner approval to begin **Rule 2 / Phase 1 implementation** |
 
 ---
 

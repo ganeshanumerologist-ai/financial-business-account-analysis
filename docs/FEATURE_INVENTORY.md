@@ -257,6 +257,6 @@ Recorded so scope cannot drift silently:
 |---|---|---|
 | `Arthivio Smarter Finance Dashboard.png` | Design mockup, 1536×1024 | Present, reference only |
 | `WhatsApp Image 2026-10-24 at 10.10.22 AM.jpeg` | Design mockup, 1536×1024 | Present, reference only |
-| `docs/*.md` (7 files) | Audit documentation | Created by this audit |
+| `docs/*.md` (18 files) | Audit + planning documentation | Created by this audit and Rule 1 planning |
 
 That is the entire feature inventory of the running product: **nothing.**
