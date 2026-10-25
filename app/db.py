@@ -387,6 +387,78 @@ CREATE TABLE IF NOT EXISTS period_lock (
     PRIMARY KEY (tenant_id, period_start, period_end)
 );
 
+CREATE TABLE IF NOT EXISTS member_invite (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    email TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('owner','admin','manager','accountant','cashier','sales','inventory','readonly')),
+    token_hash TEXT NOT NULL UNIQUE,
+    invited_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    accepted_at TEXT,
+    revoked_at TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','revoked','expired'))
+);
+
+CREATE TABLE IF NOT EXISTS statement_share (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    party_type TEXT NOT NULL CHECK (party_type IN ('customer','vendor')),
+    party_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    date_from TEXT NOT NULL,
+    date_to TEXT NOT NULL,
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    last_viewed_at TEXT,
+    view_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS gstr2b_import (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    period TEXT NOT NULL,
+    filename TEXT NOT NULL DEFAULT '',
+    sha256 TEXT NOT NULL,
+    rows_total INTEGER NOT NULL DEFAULT 0,
+    taxable_paise INTEGER NOT NULL DEFAULT 0,
+    igst_paise INTEGER NOT NULL DEFAULT 0,
+    cgst_paise INTEGER NOT NULL DEFAULT 0,
+    sgst_paise INTEGER NOT NULL DEFAULT 0,
+    cess_paise INTEGER NOT NULL DEFAULT 0,
+    tax_paise INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','superseded')),
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, sha256)
+);
+
+CREATE TABLE IF NOT EXISTS gstr2b_line (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    import_id TEXT NOT NULL REFERENCES gstr2b_import(id),
+    supplier_gstin TEXT NOT NULL DEFAULT '',
+    supplier_name TEXT NOT NULL DEFAULT '',
+    invoice_no TEXT NOT NULL,
+    invoice_date TEXT NOT NULL,
+    taxable_paise INTEGER NOT NULL DEFAULT 0,
+    igst_paise INTEGER NOT NULL DEFAULT 0,
+    cgst_paise INTEGER NOT NULL DEFAULT 0,
+    sgst_paise INTEGER NOT NULL DEFAULT 0,
+    cess_paise INTEGER NOT NULL DEFAULT 0,
+    tax_paise INTEGER NOT NULL DEFAULT 0,
+    total_paise INTEGER NOT NULL DEFAULT 0,
+    match_status TEXT NOT NULL DEFAULT 'unmatched'
+        CHECK (match_status IN ('unmatched','matched','mismatch','missing_in_books','ignored')),
+    matched_bill_id TEXT REFERENCES bill(id),
+    note TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS ix_jl_tenant_account ON journal_line (tenant_id, account_id);
 CREATE INDEX IF NOT EXISTS ix_jl_party ON journal_line (tenant_id, party_id);
 CREATE INDEX IF NOT EXISTS ix_je_tenant_date ON journal_entry (tenant_id, entry_date);
@@ -400,6 +472,10 @@ CREATE INDEX IF NOT EXISTS ix_bank_stmt_tenant_date ON bank_statement_line (tena
 CREATE INDEX IF NOT EXISTS ix_bank_stmt_match ON bank_statement_line (tenant_id, matched_journal_line_id);
 CREATE INDEX IF NOT EXISTS ix_audit_tenant_time ON audit_log (tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_session_token ON session (token_hash);
+CREATE INDEX IF NOT EXISTS ix_member_invite_tenant ON member_invite (tenant_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS ix_statement_share_tenant ON statement_share (tenant_id, party_type, party_id);
+CREATE INDEX IF NOT EXISTS ix_gstr2b_import_period ON gstr2b_import (tenant_id, period, status);
+CREATE INDEX IF NOT EXISTS ix_gstr2b_line_import ON gstr2b_line (import_id);
 """
 
 CHART = [

@@ -377,3 +377,51 @@ The route is `/reports/gstr3b?month=YYYY-MM`; CSV is `/export/gstr3b.csv?month=Y
   import-ITC modelling; no GSTR-2B reconciliation.
 - Ledger checks compare document tax with the tax control accounts. A manual GST payment or
   adjustment posted to those accounts will show as a difference for review, not be auto-corrected.
+
+## 16. Implementation status (2026-10-25, Build 0.6)
+
+### 16.1 Team invitations, roles and business switching
+
+`security.py` adds `member_invite`, invite creation/acceptance/revocation, member listing, role
+changes and status changes. Invite tokens are random bearer secrets; only SHA-256 hashes are
+stored. New emails create a password (12+ characters); existing ARTHIVIO users verify their
+current password. Acceptance runs in one `BEGIN IMMEDIATE` transaction so a failed membership
+insert cannot leave an orphan user. Suspending/removing a member revokes all that member's
+sessions; the owner role is protected and self role/status changes are rejected.
+
+Routes: `GET /users`, `POST /users/invite`, `POST /users/role`, `POST /users/status`,
+`POST /users/invite/revoke`, `GET/POST /invite/<token>`, `GET /businesses`, `POST /switch`.
+Invite pages are public but token-scoped, `noindex` and `Cache-Control: no-store`. The business
+switcher only offers active memberships and changes the session's active tenant after a fresh
+membership check.
+
+### 16.2 Shareable statement print views
+
+`sharing.py` creates a share row scoped to tenant, party type, party ID and date range. The
+random token is shown once and only its hash is stored. `GET /share/statement/<token>` resolves
+the share, rejects revoked/expired/inactive-business links, increments the view count, computes
+the current statement from posted journals, and returns a standalone A4 print page. The page has
+no authenticated navigation, internal IDs or other-party data; headers are `noindex, nofollow`
+and `Cache-Control: no-store`. Owners/admins/managers/accountants can create shares from the
+customer/vendor statement page (`statement.share`), choose 7/30/90 days, and revoke any active
+link. The page is public by design; possession of the link is the access right.
+
+### 16.3 GSTR-2B working reconciliation
+
+`gstr2b.py` parses a working CSV (with a preamble tolerated), validates GSTIN/date/amounts,
+deduplicates by SHA-256, and imports rows in one transaction. A new import for a month marks the
+previous import `superseded` but never deletes history. Reconciliation matches 2B lines to posted
+purchase bills by supplier GSTIN and normalised invoice number, classifies each line as
+`matched`, `mismatch`, `missing_in_books` or `missing_in_2b`, stores the result for review, and
+builds warnings for duplicate invoice numbers and multiple matching bills. The page is
+`/gstr2b?month=YYYY-MM`; CSV is `/export/gstr2b.csv?month=YYYY-MM`. It never edits bills, posts
+ITC or files a return. GSTR-2B is a working aid, not the portal's official schema.
+
+### 16.4 Deliberate limits at Build 0.6
+
+- No email delivery: invite and share links are copied and sent manually.
+- No ownership transfer, per-permission editor or SSO.
+- No official GSTR-2B JSON/portal integration, supplier follow-up workflow or ITC claim hold.
+- No partial bank matching or auto-posting of bank charges/interest.
+- The statement link is a bearer link: anyone with it can view that one statement until it
+  expires or is revoked.

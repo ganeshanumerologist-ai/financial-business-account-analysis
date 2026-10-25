@@ -360,10 +360,10 @@ and documentation agree.
 ### Still not implemented
 
 - Partial-amount / one-to-many bank matching; auto-posting bank charges or interest
-- GSTR-2 / GSTR-2B, official GSTR-1 schema, GST portal upload (GSTR-3B working summary added in §12)
+- Official GSTR-2B portal format, official GSTR-1 schema, GST portal upload (working aids added in §12–§13)
 - e-invoice/IRN, e-way bill, TDS/TCS
 - Cheque printing, payment reminders, Excel export, email delivery
-- Multi-user invite/role admin UI, PostgreSQL, Next.js UI
+- PostgreSQL, Next.js UI (team invite/role admin UI added in §13)
 
 ## 12. Status after Build 0.5 (2026-10-24)
 
@@ -379,8 +379,32 @@ and documentation agree.
 ### Still not implemented
 
 - GST portal upload, official GSTR-3B JSON, challan/acknowledgment, cross-utilisation of IGST credit
-- RCM, zero-rated/nil/exempt supplies, import ITC, GSTR-2B reconciliation
+- RCM, zero-rated/nil/exempt supplies, import ITC
 - Partial/one-to-many bank matching, auto-posting bank charges/interest
 - e-invoice/IRN, e-way bill, TDS/TCS
 - Cheque printing, payment reminders, Excel export, email delivery
-- Multi-user invite/role admin UI, PostgreSQL, Next.js UI
+- PostgreSQL, Next.js UI
+
+## 13. Status after Build 0.6 (2026-10-25)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Team admin | `/users` | member list with role/status, invite form, pending invites, revoke, role save, suspend/reactivate/remove |
+| One-time invites | `/users/invite` → `/invite/<token>` | SHA-256 token hash only, 7-day expiry, new-user password or existing-user current password, auto-login after acceptance |
+| Protected authority | `/users` and `security.py` | owner role cannot be assigned/changed, self role/status changes rejected, suspended/removed sessions revoked |
+| Business switcher | `/businesses`, `POST /switch` | lists active memberships, checks membership on every switch, audits the switch |
+| Shareable statements | customer/vendor page → `/share/statement/<token>` | 7/30/90-day read-only bearer link, no-login A4 print view, revoke, expiry, view count, noindex/no-store |
+| GSTR-2B import | `/gstr2b` | working CSV, SHA-256 dedup, latest active import supersedes prior, import history, per-month view |
+| GSTR-2B matching | `/gstr2b?month=YYYY-MM` | supplier GSTIN + normalised invoice, matched/mismatch/missing-in-books/missing-in-2B, warnings, no auto-posting or bill edits |
+| GSTR-2B export | `/export/gstr2b.csv?month=YYYY-MM` | 2B rows, missing bills, summary and working-aid note; `report.export` |
+
+### Still not implemented
+
+- Email delivery of invites/statements; ownership transfer; per-permission editor; SSO
+- Official GSTR-2B JSON/portal integration, supplier follow-up and ITC hold/release
+- GST portal upload, official GSTR-1/3B schemas, cross-utilisation, RCM/zero-rated/exempt/import ITC
+- Partial/one-to-many bank matching; auto-posting bank charges/interest
+- e-invoice/IRN, e-way bill, TDS/TCS, cheque printing, payment reminders, Excel export
+- PostgreSQL, Next.js UI, load/concurrency/penetration testing

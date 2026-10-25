@@ -189,3 +189,22 @@ The frontend receives **no** secrets — only a public API base URL.
 - No independent penetration test has been performed.
 - GDPR/DPDP/IT Act obligations must be reviewed for the actual launch jurisdiction and date.
 - Phase 10 requires independent security review before any production exposure.
+
+---
+
+## 12. Build 0.6 addendum - bearer links and team authority
+
+- **Invite tokens** are 256-bit random URL-safe values. Only SHA-256 hashes are stored; the raw
+  token is shown once. Links expire after 7 days, are revoked when replaced, and are rejected for
+  inactive businesses. Acceptance requires a new password (12+ characters) or the existing
+  account's current password; emails are never silently merged.
+- **Statement shares** are bearer links scoped to one tenant, party and date range. Only hashes
+  are stored; links expire after 7/30/90 days and can be revoked. Public responses send
+  `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`; they expose no internal IDs,
+  other parties, ledger accounts or settings. Possession of the link is the access right; treat it
+  like a password.
+- **Authority:** owner is protected; self role/status changes are rejected; suspend/remove revokes
+  all sessions. Every invite, role, status, share and switch action is audited.
+- **Known residual risks:** no email verification, no rate limit dedicated to invite tokens beyond
+  token entropy, no ownership-transfer workflow, no per-permission editor, no SSO, and no
+  independent penetration test. A leaked invite/share link remains usable until expiry/revocation.

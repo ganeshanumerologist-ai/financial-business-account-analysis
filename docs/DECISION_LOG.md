@@ -290,3 +290,44 @@ nil/exempt and import ITC are not modelled. The page and CSV state clearly that 
 preparation aid, not a filed return, and every reconciliation check exposes its difference rather
 than hiding or auto-correcting it.
 
+## D-017 - Team access uses one-time invite links and protected owner authority
+
+**Date:** 2026-10-25. **Status:** accepted for Build 0.6.
+
+ARTHIVIO does not send email in this build. An owner/admin creates an invite and receives a
+one-time link; only the SHA-256 hash of the bearer token is stored. Invites expire after seven
+days and are revoked when a newer invite is created for the same business/email. A new email sets
+its own password (minimum 12 characters); an email that already has an ARTHIVIO login must enter
+its current password and is not silently merged. The owner role cannot be assigned or changed
+through the UI, self role/status changes are blocked, and suspending or removing a member revokes
+that member's sessions immediately. Existing users can belong to multiple businesses and switch
+the session's active business; every switch is checked against an active membership. Ownership
+transfer and per-permission editing are deliberately not implemented yet.
+
+## D-018 - Customer/vendor statements can be shared as read-only bearer links
+
+**Date:** 2026-10-25. **Status:** accepted for Build 0.6.
+
+A statement share is scoped to one business, one customer or vendor, and an explicit date range.
+The link contains a random bearer token; only its SHA-256 hash is stored, and the token is shown
+once at creation. Links expire after 7, 30 or 90 days, can be revoked immediately, and can be
+viewed without an ARTHIVIO login. The public page is a print-ready A4 statement with
+`noindex, nofollow` and `Cache-Control: no-store`; it exposes no internal document IDs, other
+parties, ledger accounts or business settings. View counts are recorded. The link grants only
+that one statement, not access to the business.
+
+## D-019 - GSTR-2B reconciliation reports differences and never changes the books
+
+**Date:** 2026-10-25. **Status:** accepted for Build 0.6.
+
+The GSTR-2B import accepts a documented working CSV, not the GST portal's official JSON schema.
+Files are deduplicated by SHA-256 across the business; importing the same file again returns the
+existing period and adds nothing. A new file for the same month supersedes the previous active
+import, while the prior import and its rows remain in history. Matching uses supplier GSTIN plus
+a normalised invoice number; exact taxable/tax amounts give `matched`, amount differences give
+`mismatch`, a 2B line without a posted bill gives `missing_in_books`, and a posted bill in the
+month without a 2B line gives `missing_in_2b`. Differences are reported with expected/actual
+figures and warnings; bills are never edited, ITC is never auto-posted, and no return is filed or
+uploaded. Duplicate 2B invoice numbers and multiple posted bills with the same vendor invoice are
+surfaced as warnings rather than silently resolved.
+

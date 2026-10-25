@@ -269,6 +269,11 @@ curl https://api.github.com/repos/ganeshanumerologist-ai/financial-business-acco
 
 **Defects found in existing application code: 0** — because no application code exists. All nine are baseline, process, toolchain or reference-asset findings.
 
+Build 0.6 added five fixed implementation defects during review: B-021 (duplicate GSTR-2B
+redirect), B-022 (invite-acceptance orphan risk), B-023 (bearer-page cache headers), B-024
+(accessibility contrast/labels) and B-025 (contradictory duplicate-import notice). Their details
+are in the Build 0.6 section below.
+
 ---
 
 ## What would a *real* bug report look like after Phase 2
@@ -439,4 +444,60 @@ GSTR-3B verification did not reveal a new defect. The two review signals found i
 negative CGST/SGST in June after an intra-state credit note against inter-state invoices, and a
 negative October ITC after a purchase return - are shown as warnings with explicit carry-forward
 and payable treatment, not silently netted.
+
+## Build 0.6 status - 2026-10-25
+
+### B-021 - Duplicate GSTR-2B import redirected to the wrong month (fixed)
+
+**Symptom:** importing the same 2B file while viewing a different month returned `duplicate=1`
+but redirected to the requested month, which had no active import, so the page looked empty.
+**Cause:** the import response used the submitted month instead of the period of the existing
+import returned by the deduplicator.
+**Fix:** the redirect now uses `result["period"]`, so the user lands on the import that actually
+owns the duplicate hash; the notice names that month. Covered by
+`test_duplicate_file_points_at_existing_period`.
+
+### B-022 - Invite acceptance could leave an orphan user (fixed)
+
+**Symptom:** if membership insertion failed after a new user was created, the user row could
+survive without access. **Cause:** user creation, membership insertion and invite acceptance were
+separate autocommit statements. **Fix:** acceptance now runs inside `BEGIN IMMEDIATE` with
+rollback on any error. Covered indirectly by invite/accept tests and the duplicate-membership
+guard.
+
+### B-023 - Public share/invite responses could be cached (fixed)
+
+**Symptom:** bearer-token pages had `noindex` but no explicit cache policy. **Fix:** public invite
+and statement responses now send `Cache-Control: no-store`; statement pages also send
+`X-Robots-Tag: noindex, nofollow`. Verified by `test_23_shareable_statement_and_revoke`.
+
+### B-024 - Muted text and unlabelled controls failed accessibility audit (fixed)
+
+**Symptom:** Lighthouse scored GSTR-2B accessibility 0.83 (contrast, month/file labels) and the
+Team page 0.91 (role selects). **Cause:** the muted token had only 4.37:1 contrast on ivory and
+several labels were not associated with their inputs. **Fix:** darkened the muted token
+(`#68766E` → `#5A685F`, 5.38:1 on ivory), added `for`/`id` pairs and `aria-label` on row-level
+role selects, and added a `<main>` landmark plus descriptions to public pages. Final audits:
+GSTR-2B, Team and the public statement page all score 100/100/100 for accessibility, best
+practices and SEO with no failed audits.
+
+### B-025 - Duplicate import showed a contradictory "Imported 0 rows" notice (fixed)
+
+**Symptom:** a duplicate GSTR-2B upload displayed both `Imported 0 GSTR-2B row(s) added` and
+`Duplicate ... No rows were added`, which looked contradictory in the browser. **Cause:** the
+redirect carried both query flags and the page rendered each independently. **Fix:** suppress the
+imported notice when `duplicate=1`; the duplicate notice now states the existing period. Covered
+by the `assertNotIn("Imported 0", body)` check in `test_24_gstr2b_import_and_export`.
+
+### Gap status after Build 0.6
+
+| ID | Gap | Status | Notes |
+|---|---|---|---|
+| G-04 | No GST returns or exports | **PARTIAL** | GSTR-1/3B/2B working aids exist; portal upload, official schemas, cross-utilisation and ITC hold/release remain open |
+| G-09 | No bank reconciliation or cheque workflow | **PARTIAL** | unchanged from Build 0.4 |
+| G-11 | No GST portal filing | **OPEN** | all GST outputs are labelled preparation aids |
+| G-12 | GSTR-3B set-off is head-wise only | **OPEN (deliberate)** | IGST credit is not cross-utilised |
+| G-13 | No email delivery for invites/statements | **OPEN (deliberate)** | one-time links are copied manually; no SMTP/paid API added |
+| G-14 | No ownership transfer or permission editor | **OPEN** | owner role is protected; roles are fixed presets |
+| G-15 | No official GSTR-2B portal format | **OPEN (deliberate)** | documented working CSV only; differences are not auto-corrected |
 

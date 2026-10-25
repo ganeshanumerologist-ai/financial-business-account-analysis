@@ -509,3 +509,74 @@ rows.
   to the tax control accounts; that is a review signal, not automatic correction.
 - Multi-user invitation UI, PostgreSQL, Next.js, load/penetration testing.
 
+## 11. Application run `RUN-2026-10-25-01` - team access, statement sharing and GSTR-2B
+
+### 11.1 What was actually executed
+
+| Command | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **156 tests, OK**, 12.4 s, Python 3.14.6, Windows |
+| `python -m app.server` + browser checks | `/users` rendered; `/gstr2b?month=2026-08` imported and matched; duplicate-file redirect returned the existing period |
+| Live GSTR-2B August 2026 | 1 portal line, ITC 7,560.00, posted bills 7,560.00, matched 1, difference 0.00, bill BILL-00003 |
+| Live GSTR-2B CSV | `/export/gstr2b.csv?month=2026-08` HTTP 200 with 2B rows and summary |
+| Backup drill | `backups/arthivio-20261025-081038.db`, SHA-256 `6176a27dc31fb590b67ee075936defe017ef819cd1e6f69937978e6ff5a6eea1`, 5/5 checks, restore **PASS** |\n| Lighthouse | GSTR-2B **100 / 100 / 100**, Team **100 / 100 / 100**, public statement **100 / 100 / 100** (accessibility / best practices / SEO); no failed audits |
+
+New tests added in this run:
+
+- `tests/test_gstr2b.py` (12) - preamble/alias parsing, invoice normalisation, bad GSTIN/date,
+  empty/no-header, exact match, mismatch reported without editing the bill, missing both
+  directions, prior-period match, duplicate/supersede history, duplicate-file period, cross-tenant
+  isolation and invalid month.
+- `tests/test_team_sharing.py` (11) - new-user invite/accept/login, duplicate invite revocation,
+  existing-user current password, owner/self guards, admin role change, suspend session
+  revocation, expired/revoked invites, active-member duplicate, statement scope/view count,
+  revoke/expiry, bad party/date, and statement totals equal the accounting report.
+- `tests/test_web.py` (+4) - invite creation/accept/auto-login/role change, share creation/public
+  print/revoke, GSTR-2B import/export/duplicate/invalid CSV, and business switch membership guard.
+
+### 11.2 GSTR-2B verified in the browser
+
+August 2026, working CSV containing `LH-2026-097` for Loom House Pvt Ltd
+(`27AAACL1234C1Z5`):
+
+| Figure | Value |
+|---|---|
+| GSTR-2B taxable | 42,000.00 |
+| GSTR-2B tax | 7,560.00 |
+| Posted purchase-bill taxable | 42,000.00 |
+| Posted purchase-bill tax | 7,560.00 |
+| Matched lines | 1 |
+| 2B tax minus books tax | 0.00 |
+| Matched bill | BILL-00003 |
+
+Re-importing the same file while viewing October redirected to August with `duplicate=1` and
+added no rows. Only the duplicate notice is shown (no contradictory "Imported 0 rows" banner),
+and the import audit/history row remained visible.
+
+### 11.3 Team and sharing evidence
+
+The HTTP suite runs the real server against a temporary SQLite database. It verifies invite
+creation via `/users`, public acceptance via `/invite/<token>`, auto-login, role change, and
+business switching. It verifies a statement share created from a customer page, opens the public
+`/share/statement/<token>` print view without a session, checks `noindex`, revokes the link, and
+confirms the revoked link returns HTTP 404.
+
+Live browser check on 2026-10-25: created a 7-day share for Sundaram Traders from
+`/customers/<id>`, opened the public print page (closing balance 30,161.00, amount in words,
+business/customer GSTIN and bank details), then revoked it. Reloading the same link returned the
+`Statement unavailable` page. A GSTR-2B import was also created live for August 2026, and the
+duplicate-file path was checked. Team-page browser inspection confirmed the member/invite layout;
+invite acceptance and role changes are proven by the HTTP E2E suite, not by an email-delivery
+integration (none exists).
+
+### 11.4 Explicitly NOT verified
+
+- No email is sent for invites or statements; links are copied manually. No ownership transfer,
+  per-permission editor, SSO, official GSTR-2B portal format or GST portal upload.
+- GSTR-2B is a **working reconciliation aid, not a filed return**. It never posts ITC, edits a
+  bill or corrects an amount difference automatically.
+- No partial/one-to-many bank matching, auto-posting of bank charges/interest, Excel export,
+  PostgreSQL, Next.js, load or penetration testing.
+- The statement share is a bearer link: anyone who has it can view that one statement until it
+  expires or is revoked.
+

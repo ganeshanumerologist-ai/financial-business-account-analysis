@@ -27,18 +27,18 @@
 
 | Area | Requirement | Applies when | Status | Action needed |
 |---|---|---|---|---|
-| GST registration display | Show GSTIN on invoices where registered | GST-registered entity | ❌ Not implemented | Verify format/checksum; conditional display |
-| GST rate & HSN/SAC | Correct rate per item, effective-dated | GST entity | ❌ Not implemented | Tax master with effective dates; professional review |
-| Place of supply | CGST+SGST vs IGST determination | Inter/intra-state supply | ❌ Not implemented | Rules engine + tests |
-| Invoice series | Sequential, per FY, no unauthorised gaps | All | ❌ Not implemented | Transactional numbering (Phase 3) |
-| GSTR-1 / 3B working papers | Data export for filing | GST entity | ❌ Not implemented | Report + reconciliation; no direct filing |
-| GSTR-2B reconciliation | ITC matching (2B is a source, not proof) | GST entity | ❌ Not implemented | Import + match + flag |
+| GST registration display | Show GSTIN on invoices where registered | GST-registered entity | ✅ Working (Build 0.2) | Verify format/checksum; conditional display |
+| GST rate & HSN/SAC | Correct rate per item, effective-dated | GST entity | ⚠️ Working per item; no effective-dated rate master | Add effective-dated tax master; professional review |
+| Place of supply | CGST+SGST vs IGST determination | Inter/intra-state supply | ✅ Working (Build 0.2) | State-code rules and tests; professional review |
+| Invoice series | Sequential, per FY, no unauthorised gaps | All | ✅ Working (Build 0.1) | Transactional numbering; gap report still to add |
+| GSTR-1 / 3B working papers | Data export for filing | GST entity | ✅ Working aids (Build 0.5) | Not filed; add portal schema and professional review |
+| GSTR-2B reconciliation | ITC matching (2B is a source, not proof) | GST entity | ✅ Working aid (Build 0.6) | Working CSV only; never auto-posts ITC |
 | e-Invoice (IRN) | Only via official API, with credentials | Above threshold, if applicable | ⛔ Out of scope (Phase 9) | Official onboarding, sandbox first |
 | e-Way bill | Only via official portal/API | Goods movement as applicable | ⛔ Out of scope | Verify access |
 | TDS/TCS | Deduction, deposit, certificates | Applicable payments | ⛔ Out of scope | Professional design |
 | Companies Act (MCA) | Statutory books, formats, filings | Companies | ⛔ Out of scope | Legal review |
 | Accounting standards (ICAI/Ind AS) | Presentation and measurement | Applicable entities | ⚠️ Partially reflected in ACCOUNTING_RULES | Professional review |
-| Audit trail (Companies Act) | Audit trail for books of account | Companies | ❌ Not implemented | Audit log design covers intent; verify legal adequacy |
+| Audit trail (Companies Act) | Audit trail for books of account | Companies | ⚠️ Working audit log (Build 0.1) | Legal adequacy review still required |
 
 ---
 

@@ -280,3 +280,20 @@ The app sets `SET LOCAL app.tenant_id = :tenant` per transaction. Defence in dep
 | DB-03 | PostgreSQL hosting choice (local installer vs managed) | Phase 10 |
 | DB-04 | Retention policy for `audit_log` and `login_attempt` | Phase 1 |
 | DB-05 | Whether soft delete is needed for any Phase 1 table | Phase 1 |
+
+---
+
+## 11. Build 0.6 additive tables (2026-10-25)
+
+These tables were added with `CREATE TABLE IF NOT EXISTS`; no existing table or column was
+dropped, renamed or rewritten.
+
+| Table | Purpose | Key constraints |
+|---|---|---|
+| `member_invite` | One-time team invite | `token_hash UNIQUE` (SHA-256 only), role CHECK, status CHECK, 7-day expiry, tenant FK, inviter FK |
+| `statement_share` | Bearer link for one customer/vendor statement | `token_hash UNIQUE` (SHA-256 only), party_type CHECK, tenant FK, date range, expiry/revoke/view count |
+| `gstr2b_import` | One imported 2B working file | `UNIQUE (tenant_id, sha256)`, month period, totals in paise, active/superseded status, tenant FK |
+| `gstr2b_line` | Normalised 2B rows and match result | import FK, tenant FK, match status CHECK, nullable matched bill FK, amounts in paise |
+
+Indexes cover tenant + period/status, tenant + party, and tenant + invoice lookup. Invite/share
+tokens are never stored in plaintext. GSTR-2B imports are superseded rather than deleted.

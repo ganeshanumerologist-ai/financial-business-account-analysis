@@ -253,12 +253,25 @@ Define how ARTHIVIO will be verified so that no financial or security claim is m
 | Item | Status |
 |---|---|
 | Test plan authored | ✅ DONE |
-| Tests executable | ⛔ BLOCKED (no code) |
-| Test cases defined | 90 (12 audit-time + 78 application-level) |
-| Test cases executed | 12 (audit-time only, run `RUN-2026-10-24-01`) |
-| Test cases passed | 5 |
-| Test cases failed | 6 |
-| Test cases blocked | 1 |
-| Application tests executed | **0** |
+| Tests executable | ✅ YES (stdlib + temporary SQLite) |
+| Test cases defined | 156 automated application tests plus 12 audit-time checks |
+| Test cases executed | 156 application tests in `RUN-2026-10-25-01` |
+| Test cases passed | 156 |
+| Test cases failed | 0 |
+| Test cases blocked | 0 |
+| Application tests executed | **156** |
+| Last verified | 2026-10-25, Python 3.14.6, Windows |
 
-See `docs/TEST_RESULTS.md` for the results matrix and `docs/BUG_REPORT.md` for defects.
+See `docs/TEST_RESULTS.md` for the literal run evidence and `docs/BUG_REPORT.md` for defects.
+
+### Build 0.6 additions
+
+- `T-401`–`T-412`: GSTR-2B CSV parsing, dedup/supersede, matching, differences, history,
+  duplicate-period redirect, tenant isolation and export.
+- `T-501`–`T-511`: invite create/accept/expiry, existing-user password, owner/self guards,
+  role change, suspension session revocation, statement scope/expiry/revoke/view count.
+- `T-601`–`T-604`: HTTP E2E for team invite acceptance, share/print/revoke, GSTR-2B import/export
+  and business switching.
+
+Operational checks in the same run: live GSTR-2B August 2026 reconciliation, public statement
+creation/print/revoke, backup integrity + restore, and Lighthouse accessibility/SEO audits.

@@ -21,7 +21,7 @@ from http.server import ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import accounting as acct
-from app import db, server
+from app import db, security, server
 from app.demo import DEMO_PASSWORD, seed_demo
 
 
@@ -485,6 +485,146 @@ class WebTest(unittest.TestCase):
         status, bad = self.get("/reports/gstr3b?month=2026-13")
         self.assertEqual(status, 200)
         self.assertIn("YYYY-MM", bad)
+
+    def test_22_team_invite_accept_and_role_change(self):
+        self.login()
+        status, page = self.get("/users")
+        self.assertEqual(status, 200)
+        self.assertIn("Invite a team member", page)
+        self.assertIn("Owner", page)
+        token = self.csrf(page)
+        status, created, _ = self.post("/users/invite", {
+            "_csrf": token, "email": "web-invite@example.com",
+            "full_name": "Web Invite", "role": "accountant"})
+        self.assertEqual(status, 200)
+        self.assertIn("Invite ready for", created)
+        match = re.search(r'value="(http://[^"]+/invite/[A-Za-z0-9_-]+)"', created)
+        self.assertIsNotNone(match)
+        link = match.group(1)
+
+        with urllib.request.urlopen(link, timeout=15) as r:
+            public_page = r.read().decode("utf-8")
+        self.assertIn("Join Arthivio Demo Trading", public_page)
+        self.assertIn("Create password", public_page)
+
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        body = urllib.parse.urlencode({
+            "full_name": "Web Invite", "password": "weblongpassword",
+            "confirm": "weblongpassword"}).encode()
+        req = urllib.request.Request(link, data=body, method="POST")
+        with opener.open(req, timeout=15) as r:
+            accepted = r.read().decode("utf-8")
+            final = r.geturl()
+        self.assertTrue(final.endswith("/"))
+        self.assertIn("Dashboard", accepted)
+
+        conn = db.connect(self.db_path)
+        user_id = conn.execute("SELECT id FROM user WHERE email='web-invite@example.com'").fetchone()["id"]
+        conn.close()
+        status, page = self.get("/users")
+        token = self.csrf(page)
+        status, body, _ = self.post("/users/role", {
+            "_csrf": token, "user_id": user_id, "role": "manager"})
+        self.assertEqual(status, 200)
+        self.assertIn("Team updated", body)
+
+    def test_23_shareable_statement_and_revoke(self):
+        self.login()
+        status, page = self.get(f"/customers/{self.customer_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("Share and print", page)
+        token = self.csrf(page)
+        status, page, _ = self.post(f"/customers/{self.customer_id}/share", {
+            "_csrf": token, "from": "2026-04-01", "to": "2026-10-31", "days": "7"})
+        self.assertEqual(status, 200)
+        self.assertIn("Share link created", page)
+        match = re.search(r'value="(http://[^"]+/share/statement/[A-Za-z0-9_-]+)"', page)
+        self.assertIsNotNone(match)
+        link = match.group(1)
+
+        with urllib.request.urlopen(link, timeout=15) as r:
+            shared = r.read().decode("utf-8")
+            headers = dict(r.headers)
+        self.assertIn("Statement of account", shared)
+        self.assertIn("Print / Save PDF", shared)
+        self.assertIn("noindex", headers.get("X-Robots-Tag", ""))
+
+        conn = db.connect(self.db_path)
+        share_id = conn.execute(
+            "SELECT id FROM statement_share WHERE tenant_id=? ORDER BY created_at DESC LIMIT 1",
+            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+        status, body, _ = self.post("/shares/revoke", {
+            "_csrf": token, "share_id": share_id,
+            "party_type": "customer", "party_id": self.customer_id,
+            "from": "2026-04-01", "to": "2026-10-31"})
+        self.assertEqual(status, 200)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(link, timeout=15)
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_24_gstr2b_import_and_export(self):
+        self.login()
+        status, page = self.get("/gstr2b")
+        self.assertEqual(status, 200)
+        self.assertIn("GSTR-2B reconciliation", page)
+        self.assertIn("Import GSTR-2B working CSV", page)
+        csv_text = (
+            "GSTIN,Supplier Name,Invoice No,Invoice Date,Taxable Value,IGST,CGST,SGST,Cess,Invoice Value\n"
+            "27AAACL1234C1Z5,Loom House Pvt Ltd,LH-2026-097,2026-08-10,42000.00,0,3780.00,3780.00,0,49560.00\n")
+        token = self.csrf(page)
+        status, body, final = self.post("/gstr2b/import", {
+            "_csrf": token, "month": "2026-08", "csv_text": csv_text,
+            "filename": "web-gstr2b.csv"})
+        self.assertEqual(status, 200)
+        self.assertIn("LH-2026-097", body)
+        self.assertIn("MATCHED", body)
+        self.assertIn("2026-08", final)
+
+        status, csv_body = self.get("/export/gstr2b.csv?month=2026-08")
+        self.assertEqual(status, 200)
+        self.assertIn("GSTR-2B", csv_body)
+        self.assertIn("LH-2026-097", csv_body)
+        self.assertIn("Books tax", csv_body)
+
+        status, body, _ = self.post("/gstr2b/import", {
+            "_csrf": token, "month": "2026-08", "csv_text": csv_text,
+            "filename": "web-gstr2b.csv"})
+        self.assertEqual(status, 200)
+        self.assertIn("Duplicate", body)
+        self.assertNotIn("Imported 0", body)
+
+        status, body, _ = self.post("/gstr2b/import", {
+            "_csrf": token, "month": "2026-08", "csv_text": "not,a,valid\nfile\n",
+            "filename": "bad.csv"})
+        self.assertEqual(status, 400)
+        self.assertIn("header", body.lower())
+
+    def test_25_business_switcher_checks_membership(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        t2 = db.create_tenant(conn, "Second Co", "second", state_code="27")
+        owner_id = conn.execute("SELECT id FROM user WHERE email='owner@arthivio.test'").fetchone()["id"]
+        security.add_membership(conn, t2, owner_id, "owner")
+        conn.close()
+
+        status, page = self.get("/businesses")
+        self.assertEqual(status, 200)
+        self.assertIn("Arthivio Demo Trading", page)
+        self.assertIn("Second Co", page)
+        token = self.csrf(page)
+        status, body, _ = self.post("/switch", {"_csrf": token, "tenant_id": t2})
+        self.assertEqual(status, 200)
+        self.assertIn("Second Co", body)
+        status, dashboard = self.get("/")
+        self.assertIn("Second Co", dashboard)
+
+        status, page = self.get("/businesses")
+        token = self.csrf(page)
+        status, body, _ = self.post("/switch", {"_csrf": token, "tenant_id": "not-a-membership"})
+        self.assertEqual(status, 400)
+        self.assertIn("do not have active access", body)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,8 @@ from . import accounting as acct
 from . import backup as backup_mod
 from . import bank as bank_mod
 from . import db, money, security
+from . import gstr2b as gstr2b_mod
+from . import sharing
 
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
@@ -27,7 +29,7 @@ CSS = """
 :root{
   --ivory:#F7F5EF; --surface:#FFFFFF; --ink:#183E35; --ink-soft:#3C534B;
   --emerald:#176B4D; --emerald-700:#11543C; --sage:#DCE8D9; --sage-soft:#EEF4EC;
-  --gold:#C6A15B; --line:#E5E1D6; --muted:#68766E; --danger:#A6402F; --danger-bg:#F7E7E3;
+  --gold:#C6A15B; --line:#E5E1D6; --muted:#5A685F; --danger:#A6402F; --danger-bg:#F7E7E3;
   --radius:14px; --shadow:0 1px 2px rgba(24,62,53,.05),0 8px 24px rgba(24,62,53,.05);
 }
 *{box-sizing:border-box}
@@ -130,7 +132,7 @@ body{margin:0;background:#EEECE5;color:#1B2B26;font-family:"Segoe UI",system-ui,
 .addr{font-size:11px;color:#44564F;margin-top:3px}
 .parties{display:flex;gap:16px;margin:12px 0}
 .parties>div{flex:1;border:1px solid #DDE3DF;border-radius:6px;padding:8px 10px;min-height:24mm}
-.parties h4{margin:0 0 4px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#68766E}
+.parties h4{margin:0 0 4px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#5A685F}
 table{width:100%;border-collapse:collapse;font-size:11px}
 th,td{border:1px solid #DDE3DF;padding:5px 6px;vertical-align:top}
 th{background:#F4F7F4;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#44564F;text-align:left}
@@ -144,7 +146,7 @@ th{background:#F4F7F4;font-size:9.5px;letter-spacing:.06em;text-transform:upperc
 .foot .box{flex:1}
 .sign .line{margin-top:26px;border-top:1px solid #9FB0A8;display:block;padding-top:4px;text-align:center}
 .foot .sign{flex:0 0 58mm;text-align:center;margin:0}
-.note{margin-top:10px;font-size:10px;color:#68766E}
+.note{margin-top:10px;font-size:10px;color:#5A685F}
 .warn{max-width:190mm;margin:12px auto 0;background:#F7E7E3;border:1px solid #E7C4BC;color:#A6402F;padding:8px 12px;border-radius:8px;font-size:12px}
 @media print{body{background:#fff}.toolbar,.warn{display:none}.sheet{box-shadow:none;margin:0;width:auto;min-height:0;padding:0}}
 """
@@ -192,10 +194,12 @@ NAV = [
         ("reports/ap-ageing", "rep", "Payables Ageing"),
         ("reports/gst", "rep", "GST Summary"),
         ("reports/gstr3b", "rep", "GSTR-3B"),
+        ("gstr2b", "rep", "GSTR-2B Recon"),
     ]),
     ("Masters", [
         ("customers", "cust", "Customers"),
         ("items", "item", "Items"),
+        ("users", "cust", "Team"),
         ("settings", "gear", "Settings"),
         ("backup", "audit", "Backups"),
         ("audit", "audit", "Audit Log"),
@@ -229,6 +233,34 @@ def state_options(selected: str) -> str:
         for code, name in STATES.items())
 
 
+ROLE_CHOICES = [
+    ("admin", "Admin", "Every business action except owner-only business settings"),
+    ("manager", "Manager", "Sales, purchases, banking and reports"),
+    ("accountant", "Accountant", "Books, GST, banking and reports"),
+    ("cashier", "Cashier", "Receipts and customer balances"),
+    ("sales", "Sales", "Invoices and customers"),
+    ("inventory", "Inventory", "Items and stock"),
+    ("readonly", "Read only", "View reports and documents"),
+]
+ROLE_LABELS = {role: label for role, label, _desc in ROLE_CHOICES}
+ROLE_LABELS["owner"] = "Owner"
+
+
+def role_options(selected: str = "readonly") -> str:
+    return "".join(
+        f'<option value="{esc(role)}"{" selected" if role == selected else ""}>{esc(label)}</option>'
+        for role, label, _desc in ROLE_CHOICES)
+
+
+def role_name(role: str) -> str:
+    return ROLE_LABELS.get(role, role or "—")
+
+
+def member_status_badge(status: str) -> str:
+    cls = "ok" if status == "active" else ("bad" if status in ("suspended", "removed") else "neutral")
+    return f'<span class="badge {cls}">{esc(status)}</span>'
+
+
 def fiscal_start(today: date, start_month: int = 4) -> str:
     year = today.year if today.month >= start_month else today.year - 1
     return date(year, start_month, 1).isoformat()
@@ -260,10 +292,13 @@ def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> s
     who = ""
     if user:
         who = (f'<div class="who"><b>{esc(user["full_name"])}</b> &nbsp;·&nbsp; {esc(tenant["name"]) if tenant else ""}'
-               f'<form method="post" action="/logout" style="display:inline;margin-left:12px">'
+               f'<a class="btn ghost small" href="/businesses" style="margin-left:10px">Businesses</a>'
+               f'<form method="post" action="/logout" style="display:inline;margin-left:6px">'
                f'<button class="btn ghost small" type="submit">Sign out</button></form></div>')
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="ARTHIVIO private accounting workspace: double-entry books, GST working papers and financial statements.">
 <title>{esc(title)} · {APP_NAME}</title><style>{CSS}</style></head>
 <body><div class="shell">
 <aside class="side">
@@ -280,7 +315,10 @@ def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> s
 def login_page(error: str = "") -> str:
     err = f'<div class="err">{esc(error)}</div>' if error else ""
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · {APP_NAME}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="Sign in to your private ARTHIVIO accounting workspace.">
+<title>Sign in · {APP_NAME}</title>
 <style>{CSS}</style></head><body><div class="login-wrap"><div class="login">
 <div class="brandline">{LOGO}<div><div style="font-weight:700;letter-spacing:.06em">ARTHIVIO</div>
 <div class="small muted">Smarter Finance. Stronger Business.</div></div></div>
@@ -347,6 +385,14 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length).decode("utf-8") if length else ""
         return urllib.parse.parse_qs(raw, keep_blank_values=True)
 
+    def _base_url(self) -> str:
+        fallback = f"127.0.0.1:{os.environ.get('PORT', '8000')}"
+        host = (self.headers.get("Host") or fallback).strip()
+        if not re.fullmatch(r"[A-Za-z0-9.:\-\[\]]+", host):
+            host = fallback
+        scheme = "https" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else "http"
+        return f"{scheme}://{host}"
+
     # ---------------- routing ----------------
     def do_GET(self):
         conn = self._conn()
@@ -359,6 +405,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(login_page())
             if path == "/health":
                 return self._send("ok")
+            invite_match = re.fullmatch(r"/invite/([A-Za-z0-9_-]{20,})", path)
+            if invite_match:
+                return self._send(self.page_invite_accept(conn, invite_match.group(1)),
+                                  headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
+            share_match = re.fullmatch(r"/share/statement/([A-Za-z0-9_-]{20,})", path)
+            if share_match:
+                try:
+                    body = self.page_statement_share(conn, share_match.group(1))
+                except sharing.ShareError as e:
+                    return self._send(self.page_share_error(e.message), 404,
+                                      headers={"Cache-Control": "no-store",
+                                               "X-Robots-Tag": "noindex, nofollow"})
+                except acct.AccountingError:
+                    return self._send(self.page_share_error("This statement is not available."), 404,
+                                      headers={"Cache-Control": "no-store",
+                                               "X-Robots-Tag": "noindex, nofollow"})
+                return self._send(body, headers={"Cache-Control": "no-store",
+                                                 "X-Robots-Tag": "noindex, nofollow"})
 
             sess = self._session(conn)
             if not sess:
@@ -391,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/customers":
                 return self._send(self.page_customers(conn, user, tenant, sess))
             if re.fullmatch(r"/customers/[0-9a-f]{32}", path):
-                return self._send(self.page_customer_statement(conn, user, tenant,
+                return self._send(self.page_customer_statement(conn, user, tenant, sess,
                                                                path.rsplit("/", 1)[1], q))
             if path == "/receipts":
                 return self._send(self.page_receipts(conn, user, tenant, sess))
@@ -409,7 +473,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/vendors":
                 return self._send(self.page_vendors(conn, user, tenant, sess))
             if re.fullmatch(r"/vendors/[0-9a-f]{32}", path):
-                return self._send(self.page_vendor_statement(conn, user, tenant,
+                return self._send(self.page_vendor_statement(conn, user, tenant, sess,
                                                              path.rsplit("/", 1)[1], q))
             if path == "/daybook":
                 return self._send(self.page_daybook(conn, user, tenant, q))
@@ -425,6 +489,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_gst(conn, user, tenant, q))
             if path == "/reports/gstr3b":
                 return self._send(self.page_gstr3b(conn, user, tenant, q))
+            if path == "/gstr2b":
+                return self._send(self.page_gstr2b(conn, user, tenant, sess, q))
             if path == "/export/gstr1.json":
                 return self.export_gstr1_json(conn, user, tenant, q)
             if path.startswith("/export/"):
@@ -433,6 +499,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_items(conn, user, tenant, sess))
             if path == "/audit":
                 return self._send(self.page_audit(conn, user, tenant))
+            if path == "/users":
+                return self._send(self.page_users(conn, user, tenant, sess, q))
+            if path == "/businesses":
+                return self._send(self.page_businesses(conn, user, tenant, sess))
             if path == "/settings":
                 return self._send(self.page_settings(conn, user, tenant, sess, q))
             if path == "/backup":
@@ -461,6 +531,10 @@ class Handler(BaseHTTPRequestHandler):
                 acct.audit(conn, rows[0]["id"], user["id"], "auth.session_created", "session")
                 return self._redirect("/", {"Set-Cookie": f"sid={token}; HttpOnly; SameSite=Lax; Path=/"})
 
+            invite_match = re.fullmatch(r"/invite/([A-Za-z0-9_-]{20,})", path)
+            if invite_match:
+                return self._accept_invite(conn, invite_match.group(1), form)
+
             sess = self._session(conn)
             if not sess:
                 return self._redirect("/login")
@@ -480,6 +554,30 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/settings":
                 return self._save_settings(conn, user, tenant, form)
+
+            if path == "/switch":
+                return self._switch_business(conn, user, sess, form)
+            if path == "/users/invite":
+                return self._invite_member(conn, user, tenant, form)
+            if path == "/users/role":
+                return self._change_member_role(conn, user, tenant, form)
+            if path == "/users/status":
+                return self._change_member_status(conn, user, tenant, form)
+            if path == "/users/invite/revoke":
+                return self._revoke_invite(conn, user, tenant, form)
+
+            customer_share = re.fullmatch(r"/customers/([0-9a-f]{32})/share", path)
+            if customer_share:
+                return self._create_statement_share(conn, user, tenant, form,
+                                                    "customer", customer_share.group(1))
+            vendor_share = re.fullmatch(r"/vendors/([0-9a-f]{32})/share", path)
+            if vendor_share:
+                return self._create_statement_share(conn, user, tenant, form,
+                                                    "vendor", vendor_share.group(1))
+            if path == "/shares/revoke":
+                return self._revoke_statement_share(conn, user, tenant, form)
+            if path == "/gstr2b/import":
+                return self._gstr2b_import(conn, user, tenant, form)
 
             if path == "/backup":
                 security.require(conn, user["id"], tenant["id"], "backup.run")
@@ -1133,7 +1231,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <button class="btn" type="submit">Save vendor</button></form></div></div>"""
         return layout("Vendors", body, "vendors", user, tenant)
 
-    def page_vendor_statement(self, conn, user, tenant, vendor_id: str, q) -> str:
+    def page_vendor_statement(self, conn, user, tenant, sess, vendor_id: str, q) -> str:
         today = date.today()
         dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
@@ -1154,6 +1252,8 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
                      f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
         rows = rows or '<tr><td colspan="6" class="empty">No transactions in this period</td></tr>'
+        share_card = self._statement_share_card(conn, user, tenant, sess, "vendor", vendor_id,
+                                                dfrom, dto, q)
         body = f"""
 <div class="kpis">
   {kpi("Billed (period)", money.fmt(st["billed"]), "credits to payable")}
@@ -1174,6 +1274,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 {rows}</tbody>
 <tfoot><tr><td colspan="5">Closing payable</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
 </table></div>
+{share_card}
 <p class="small muted">Vendor: {esc(v["name"])} · state {esc(v["state_code"])} · GSTIN {esc(v["gstin"] or "—")}</p>"""
         return layout(f'Vendor — {v["name"]}', body, "vendors", user, tenant)
 
@@ -1583,7 +1684,7 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
         body = f"""
 <form method="get" class="card pad sect">
 <div class="row c4">
-<div class="field"><label>Month</label><input type="month" name="month" value="{esc(month)}"></div>
+<div class="field"><label for="month_filter">Month</label><input id="month_filter" type="month" name="month" value="{esc(month)}"></div>
 <div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
 <div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/export/gstr3b.csv?month={esc(month)}">Export CSV</a></div>
 <div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/reports/gst?from={esc(g["period"]["from"])}&amp;to={esc(g["period"]["to"])}">GST summary</a></div>
@@ -1622,6 +1723,169 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <div class="card pad small muted" style="margin-top:16px">{esc(g["note"])}</div>
 """
         return layout("GSTR-3B", body, "reports/gstr3b", user, tenant)
+
+    def page_gstr2b(self, conn, user, tenant, sess, q, error: str = "") -> str:
+        today = date.today()
+        month = (q.get("month") or [today.strftime("%Y-%m")])[0]
+        try:
+            g = gstr2b_mod.reconcile(conn, tenant["id"], month)
+        except gstr2b_mod.Gstr2bError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<p class="small muted" style="margin:12px 0">Use a month in YYYY-MM format.</p>'
+                    '<a class="btn" href="/gstr2b">Current month</a></div>')
+            return layout("GSTR-2B reconciliation", body, "gstr2b", user, tenant)
+        try:
+            security.require(conn, user["id"], tenant["id"], "gst.reconcile")
+            can_import = True
+        except security.AuthError:
+            can_import = False
+
+        imported = g["import"]
+        notices = []
+        if error:
+            notices.append(f'<div class="err">{esc(error)}</div>')
+        duplicate = (q.get("duplicate") or [""])[0] == "1"
+        imported_count = (q.get("imported") or ["0"])[0]
+        if imported_count and imported_count != "0" and not duplicate:
+            notices.append('<div class="card pad" style="margin-bottom:14px"><span class="badge ok">Imported</span> '
+                           f'{esc(imported_count)} GSTR-2B row(s) added for this month.</div>')
+        if duplicate:
+            notices.append('<div class="card pad" style="margin-bottom:14px"><span class="badge neutral">Duplicate</span> '
+                           f'This exact file was already imported for {esc(month)}. No rows were added.</div>')
+        notice_html = "".join(notices)
+
+        import_card = ""
+        if can_import:
+            import_card = f"""
+<div class="card pad sect">
+<div class="sect-head"><h2 style="margin-bottom:0">Import GSTR-2B working CSV</h2>
+<span class="small muted">Latest active import wins for the month</span></div>
+<form method="post" action="/gstr2b/import">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="month" value="{esc(month)}">
+<input type="hidden" name="filename" id="gstr2b_filename" value="">
+<div class="field"><label for="gstr2b_file">CSV file</label><input type="file" id="gstr2b_file" accept=".csv,text/csv"></div>
+<div class="field"><label for="gstr2b_text">Or paste CSV</label><textarea name="csv_text" id="gstr2b_text" rows="6" placeholder="Supplier GSTIN,Supplier Name,Invoice No,Invoice Date,Taxable Value,IGST,CGST,SGST,Cess,Invoice Value&#10;27AAACL1234C1Z5,Loom House Pvt Ltd,LH-2026-097,2026-08-10,42000.00,0,3780.00,3780.00,0,49560.00"></textarea></div>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<button class="btn" type="submit">Import GSTR-2B</button>
+<span class="small muted">Expected columns: GSTIN, invoice no, invoice date, taxable value, IGST, CGST, SGST. This is a working reconciliation aid, not the portal's official schema.</span>
+</div></form>
+<script>
+document.getElementById('gstr2b_file').addEventListener('change', function (e) {{
+  var f = e.target.files && e.target.files[0]; if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function (ev) {{
+    document.getElementById('gstr2b_text').value = ev.target.result;
+    document.getElementById('gstr2b_filename').value = f.name;
+  }};
+  reader.readAsText(f);
+}});
+</script>
+</div>"""
+        else:
+            import_card = ('<div class="card pad sect"><div class="err">Only owner, admin, manager or '
+                           'accountant can import GSTR-2B files.</div></div>')
+
+        if not imported:
+            summary_html = f"""
+<div class="card pad sect">
+<h2>No GSTR-2B import yet</h2>
+<p class="small muted" style="margin:8px 0 0">Import the working CSV for {esc(month)} to compare portal ITC with posted purchase bills. Nothing is posted or changed in the books.</p>
+</div>"""
+            history = ""
+        else:
+            s = g["summary"]
+            warning_items = "".join(f"<li>{esc(w)}</li>" for w in g["warnings"])
+            warning_card = ""
+            if warning_items:
+                warning_card = (f'<div class="card pad sect"><h2>Exceptions</h2>'
+                                f'<ul class="small" style="margin:8px 0 0 18px;line-height:1.7">{warning_items}</ul></div>')
+            status_badge = {"matched": ("ok", "MATCHED"), "mismatch": ("bad", "CHECK"),
+                            "missing_in_books": ("bad", "MISSING IN BOOKS"),
+                            "unmatched": ("neutral", "UNMATCHED")}
+            line_rows = ""
+            for r in g["rows"]:
+                cls, label = status_badge.get(r["match_status"], ("neutral", r["match_status"]))
+                bill = (f'<a href="/bills/{esc(r["matched_bill_id"])}">{esc(r["bill_no"])}</a>'
+                        if r["matched_bill_id"] else '<span class="muted">—</span>')
+                line_rows += f"""<tr>
+<td><b>{esc(r["supplier_name"] or r["supplier_gstin"] or "—")}</b><div class="small muted">{esc(r["supplier_gstin"] or "GSTIN missing")}</div></td>
+<td>{esc(r["invoice_no"])}<div class="small muted">{esc(r["invoice_date"])}</div></td>
+<td class="num">{money.fmt(r["taxable_paise"])}</td>
+<td class="num">{money.fmt(r["igst_paise"])}</td>
+<td class="num">{money.fmt(r["cgst_paise"])}</td>
+<td class="num">{money.fmt(r["sgst_paise"])}</td>
+<td><span class="badge {cls}">{label}</span><div class="small muted">{esc(r["note"])}</div></td>
+<td>{bill}</td></tr>"""
+            line_rows = line_rows or '<tr><td colspan="8" class="empty">No GSTR-2B rows</td></tr>'
+            book_rows = ""
+            for b in g["books"]:
+                book_rows += f"""<tr>
+<td>{esc(b["bill_no"])}<div class="small muted">{esc(b["bill_date"])}</div></td>
+<td>{esc(b["vendor_name"])}<div class="small muted">{esc(b["vendor_gstin"] or "GSTIN missing")}</div></td>
+<td>{esc(b["vendor_bill_no"] or "—")}</td>
+<td class="num">{money.fmt(b["sub_total_paise"])}</td>
+<td class="num">{money.fmt(b["igst_book"])}</td>
+<td class="num">{money.fmt(b["cgst_book"])}</td>
+<td class="num">{money.fmt(b["sgst_book"])}</td>
+<td class="small muted">{esc(b["note"])}</td></tr>"""
+            book_rows = book_rows or '<tr><td colspan="8" class="empty">No posted bills missing from GSTR-2B</td></tr>'
+            history_rows = "".join(
+                f'<tr><td>{esc(h["created_at"][:19].replace("T", " "))}</td>'
+                f'<td>{esc(h["period"])}</td><td class="num">{h["rows_total"]}</td>'
+                f'<td class="num">{money.fmt(h["tax_paise"])}</td>'
+                f'<td><span class="badge {"ok" if h["status"] == "active" else "neutral"}">{esc(h["status"])}</span></td>'
+                f'<td class="small muted">{esc(h["filename"] or "pasted CSV")}</td></tr>'
+                for h in gstr2b_mod.import_history(conn, tenant["id"], month)) or \
+                '<tr><td colspan="6" class="empty">No imports for this month</td></tr>'
+            summary_html = f"""
+<div class="kpis">
+  {kpi("ITC in GSTR-2B", money.fmt(s["itc_available"]), f'{s["two_b"]["count"]} portal line(s)')}
+  {kpi("ITC in posted bills", money.fmt(s["itc_claimed"]), f'{s["books"]["count"]} bill(s) this month')}
+  {kpi("Matched", str(s["matched"]["count"]), money.fmt(s["matched"]["tax"]) + " tax")}
+  {kpi("Differences", str(s["mismatch"]["count"] + s["missing_in_books"]["count"] + s["missing_in_2b"]["count"]), "mismatch + missing")}
+</div>
+<div class="card sect"><table>
+<thead><tr><th>Reconciliation</th><th class="num">Taxable</th><th class="num">Tax</th><th class="num">Count</th></tr></thead>
+<tbody>
+<tr><td>GSTR-2B import</td><td class="num">{money.fmt(s["two_b"]["taxable"])}</td><td class="num">{money.fmt(s["two_b"]["tax"])}</td><td class="num">{s["two_b"]["count"]}</td></tr>
+<tr><td>Posted purchase bills in month</td><td class="num">{money.fmt(s["books"]["taxable"])}</td><td class="num">{money.fmt(s["books"]["tax"])}</td><td class="num">{s["books"]["count"]}</td></tr>
+<tr><td>Matched lines</td><td class="num">{money.fmt(s["matched"]["taxable"])}</td><td class="num">{money.fmt(s["matched"]["tax"])}</td><td class="num">{s["matched"]["count"]}</td></tr>
+<tr><td>Amount mismatches</td><td class="num">{money.fmt(s["mismatch"]["taxable"])}</td><td class="num">{money.fmt(s["mismatch"]["tax"])}</td><td class="num">{s["mismatch"]["count"]}</td></tr>
+<tr><td>In GSTR-2B, missing in books</td><td class="num">{money.fmt(s["missing_in_books"]["taxable"])}</td><td class="num">{money.fmt(s["missing_in_books"]["tax"])}</td><td class="num">{s["missing_in_books"]["count"]}</td></tr>
+<tr><td>In books, missing in GSTR-2B</td><td class="num">{money.fmt(s["missing_in_2b"]["taxable"])}</td><td class="num">{money.fmt(s["missing_in_2b"]["tax"])}</td><td class="num">{s["missing_in_2b"]["count"]}</td></tr>
+</tbody>
+<tfoot><tr><td>2B tax minus books tax</td><td class="num">—</td><td class="num">{money.fmt(s["difference"])}</td><td class="num">—</td></tr></tfoot>
+</table></div>
+{warning_card}
+<div class="sect-head"><h2>GSTR-2B lines</h2>
+<span class="small muted">Matched by supplier GSTIN + normalised invoice number; amounts are not corrected</span></div>
+<div class="card"><table>
+<thead><tr><th>Supplier</th><th>Invoice</th><th class="num">Taxable</th><th class="num">IGST</th><th class="num">CGST</th><th class="num">SGST</th><th>Status</th><th>Bill</th></tr></thead>
+<tbody>{line_rows}</tbody></table></div>
+<div class="sect-head"><h2>Posted bills missing in GSTR-2B</h2>
+<span class="small muted">Bills dated inside this month that were not matched</span></div>
+<div class="card"><table>
+<thead><tr><th>Bill</th><th>Vendor</th><th>Vendor invoice</th><th class="num">Taxable</th><th class="num">IGST</th><th class="num">CGST</th><th class="num">SGST</th><th>Note</th></tr></thead>
+<tbody>{book_rows}</tbody></table></div>
+<div class="card pad sect"><h2>Import history</h2><table>
+<thead><tr><th>Imported (UTC)</th><th>Month</th><th class="num">Rows</th><th class="num">Tax</th><th>Status</th><th>File</th></tr></thead>
+<tbody>{history_rows}</tbody></table></div>"""
+
+        body = f"""
+<form method="get" class="card pad sect">
+<div class="row c4">
+<div class="field"><label for="month_filter">Month</label><input id="month_filter" type="month" name="month" value="{esc(month)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/export/gstr2b.csv?month={esc(month)}">Export CSV</a></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/reports/gst?from={esc(g["period"]["from"])}&amp;to={esc(g["period"]["to"])}">GST summary</a></div>
+</div></form>
+{notice_html}
+{summary_html}
+{import_card}
+<div class="card pad small muted">GSTR-2B reconciliation is a working aid. It compares the file you imported with posted purchase bills and never auto-posts ITC, edits bills, or files a return. Verify exceptions with your tax professional before claiming ITC.</div>
+"""
+        return layout("GSTR-2B reconciliation", body, "gstr2b", user, tenant)
 
     def page_ledger(self, conn, user, tenant, q) -> str:
         accounts = conn.execute("SELECT * FROM account WHERE tenant_id=? ORDER BY code", (tenant["id"],)).fetchall()
@@ -1751,7 +2015,7 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <button class="btn" type="submit">Save customer</button></form></div></div>"""
         return layout("Customers", body, "customers", user, tenant)
 
-    def page_customer_statement(self, conn, user, tenant, customer_id: str, q) -> str:
+    def page_customer_statement(self, conn, user, tenant, sess, customer_id: str, q) -> str:
         today = date.today()
         dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
@@ -1771,6 +2035,8 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
                      f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
         rows = rows or '<tr><td colspan="6" class="empty">No transactions in this period</td></tr>'
+        share_card = self._statement_share_card(conn, user, tenant, sess, "customer", customer_id,
+                                                dfrom, dto, q)
         body = f"""
 <div class="kpis">
   {kpi("Invoiced (period)", money.fmt(st["invoiced"]), "debits to receivable")}
@@ -1791,6 +2057,7 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 {rows}</tbody>
 <tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
 </table></div>
+{share_card}
 <p class="small muted">Customer: {esc(c["name"])} · state {esc(c["state_code"])} · GSTIN {esc(c["gstin"] or "—")}</p>"""
         return layout(f'Statement — {c["name"]}', body, "customers", user, tenant)
 
@@ -1968,6 +2235,352 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         body = f'<div class="card"><table><thead><tr><th>Time (UTC)</th><th>Action</th><th>Target</th><th>Result</th><th>Meta</th></tr></thead><tbody>{trs}</tbody></table></div>'
         return layout("Audit log", body, "audit", user, tenant)
 
+    def page_users(self, conn, user, tenant, sess, q, error: str = "") -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "user.invite")
+            can_invite = True
+        except security.AuthError:
+            can_invite = False
+        try:
+            security.require(conn, user["id"], tenant["id"], "role.assign")
+            can_assign = True
+        except security.AuthError:
+            can_assign = False
+        if not can_invite and not can_assign:
+            return layout("Team", '<div class="card pad"><div class="err">Only the owner or an admin can manage team members.</div>'
+                                  '<p class="small muted" style="margin:0">Ask the business owner for access.</p></div>',
+                          "users", user, tenant)
+
+        members = security.list_members(conn, tenant["id"])
+        member_rows = ""
+        for m in members:
+            is_self = m["user_id"] == user["id"]
+            is_owner = m["role"] == "owner"
+            if is_owner or is_self or not can_assign:
+                role_cell = (f'<span class="badge neutral">{esc(role_name(m["role"]))}</span>'
+                             + (' <span class="small muted">You</span>' if is_self else ""))
+            else:
+                role_cell = f"""<form method="post" action="/users/role" style="display:flex;gap:6px;align-items:center">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="user_id" value="{esc(m["user_id"])}">
+<select name="role" aria-label="Role for {esc(m['full_name'])}" style="min-width:130px">{role_options(m["role"])}</select>
+<button class="btn small ghost" type="submit">Save</button></form>"""
+            actions = '<span class="small muted">Protected</span>' if is_owner else (
+                '<span class="small muted">You</span>' if is_self else "")
+            if can_assign and not is_owner and not is_self:
+                action_forms = []
+                if m["member_status"] == "active":
+                    action_forms.append(
+                        f'<form method="post" action="/users/status" style="display:inline">'
+                        f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                        f'<input type="hidden" name="user_id" value="{esc(m["user_id"])}">'
+                        f'<input type="hidden" name="status" value="suspended">'
+                        f'<button class="btn small ghost" type="submit">Suspend</button></form>')
+                else:
+                    action_forms.append(
+                        f'<form method="post" action="/users/status" style="display:inline">'
+                        f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                        f'<input type="hidden" name="user_id" value="{esc(m["user_id"])}">'
+                        f'<input type="hidden" name="status" value="active">'
+                        f'<button class="btn small ghost" type="submit">Reactivate</button></form>')
+                if m["member_status"] != "removed":
+                    action_forms.append(
+                        f'<form method="post" action="/users/status" style="display:inline;margin-left:4px">'
+                        f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                        f'<input type="hidden" name="user_id" value="{esc(m["user_id"])}">'
+                        f'<input type="hidden" name="status" value="removed">'
+                        f'<button class="btn small ghost" type="submit">Remove</button></form>')
+                actions = " ".join(action_forms)
+            member_rows += (f'<tr><td><b>{esc(m["full_name"] or "—")}</b><div class="small muted">{esc(m["email"])}</div></td>'
+                            f'<td>{role_cell}</td><td>{member_status_badge(m["member_status"])}</td>'
+                            f'<td>{actions}</td></tr>')
+        member_rows = member_rows or '<tr><td colspan="4" class="empty">No team members</td></tr>'
+
+        invites = security.list_invites(conn, tenant["id"])
+        invite_rows = ""
+        for inv in invites:
+            if inv["status"] == "pending":
+                actions = (f'<form method="post" action="/users/invite/revoke" style="display:inline">'
+                           f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                           f'<input type="hidden" name="invite_id" value="{esc(inv["id"])}">'
+                           f'<button class="btn small ghost" type="submit">Revoke</button></form>')
+            else:
+                actions = '<span class="small muted">—</span>'
+            invite_rows += (f'<tr><td><b>{esc(inv["email"])}</b><div class="small muted">{esc(inv["full_name"] or "")}</div></td>'
+                            f'<td>{esc(role_name(inv["role"]))}</td>'
+                            f'<td><span class="badge {"neutral" if inv["status"] != "pending" else "ok"}">{esc(inv["status"])}</span></td>'
+                            f'<td class="small">{esc(inv["expires_at"][:16].replace("T", " "))}</td>'
+                            f'<td>{actions}</td></tr>')
+        invite_rows = invite_rows or '<tr><td colspan="5" class="empty">No invites yet</td></tr>'
+
+        error_html = f'<div class="err">{esc(error)}</div>' if error else ""
+        notice = (q.get("invited") or [""])[0]
+        notice_html = ('<div class="card pad" style="margin-bottom:14px"><span class="badge ok">Invite created</span> '
+                       'Copy the one-time link from the previous screen and send it to the member.</div>') if notice else ""
+        if (q.get("saved") or [""])[0]:
+            notice_html += ('<div class="card pad" style="margin-bottom:14px"><span class="badge ok">Team updated</span> '
+                            'The change is active and recorded in the audit log.</div>')
+        if (q.get("revoked") or [""])[0]:
+            notice_html += ('<div class="card pad" style="margin-bottom:14px"><span class="badge neutral">Invite revoked</span> '
+                            'The link can no longer be used.</div>')
+        invite_form = ""
+        if can_invite:
+            invite_form = f"""
+<div class="card pad sect">
+<div class="sect-head"><h2 style="margin-bottom:0">Invite a team member</h2>
+<span class="small muted">Link expires in 7 days</span></div>
+{error_html}
+<form method="post" action="/users/invite">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="row c2">
+<div class="field"><label>Work email</label><input type="email" name="email" required maxlength="120" placeholder="name@business.in"></div>
+<div class="field"><label>Full name</label><input name="full_name" maxlength="120" placeholder="As it should appear in the app"></div>
+</div>
+<div class="row c2">
+<div class="field"><label for="invite_role">Role</label><select id="invite_role" name="role">{role_options("readonly")}</select></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Create invite link</button></div>
+</div>
+<p class="small muted" style="margin:0">ARTHIVIO does not send email in this build. The invite link is shown once after creation; copy it and share it securely. Existing ARTHIVIO users join with their current password.</p>
+</form></div>"""
+
+        body = f"""
+{notice_html}
+<div class="kpis">
+  {kpi("Team members", str(len(members)), "active and suspended")}
+  {kpi("Pending invites", str(sum(1 for i in invites if i["status"] == "pending")), "expire after 7 days")}
+</div>
+<div class="card sect"><table>
+<thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>{member_rows}</tbody></table></div>
+<div class="card sect"><table>
+<thead><tr><th>Invite</th><th>Role</th><th>Status</th><th>Expires (UTC)</th><th>Actions</th></tr></thead>
+<tbody>{invite_rows}</tbody></table></div>
+{invite_form}
+<div class="card pad small muted">The owner role is protected and cannot be reassigned here. A suspended or removed member loses access immediately; their sessions are revoked. Every invite and role change is written to the audit log.</div>
+"""
+        return layout("Team", body, "users", user, tenant)
+
+    def page_businesses(self, conn, user, tenant, sess) -> str:
+        rows = security.tenants_for(conn, user["id"])
+        trs = ""
+        for r in rows:
+            current = r["id"] == tenant["id"]
+            action = ('<span class="badge ok">Current</span>' if current else
+                      f'<form method="post" action="/switch" style="display:inline">'
+                      f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                      f'<input type="hidden" name="tenant_id" value="{esc(r["id"])}">'
+                      f'<button class="btn small ghost" type="submit">Switch</button></form>')
+            trs += (f'<tr><td><b>{esc(r["name"])}</b><div class="small muted">{esc(r["slug"])}</div></td>'
+                    f'<td>{esc(role_name(r["role"]))}</td>'
+                    f'<td>{esc(r["gstin"] or "—")}</td><td>{action}</td></tr>')
+        body = f"""
+<div class="card sect"><table>
+<thead><tr><th>Business</th><th>Your role</th><th>GSTIN</th><th></th></tr></thead>
+<tbody>{trs or '<tr><td colspan="4" class="empty">No active businesses</td></tr>'}</tbody></table></div>
+<div class="card pad small muted">A switch changes the business for this session only. Your access is checked again against your active membership.</div>
+"""
+        return layout("Businesses", body, "businesses", user, tenant)
+
+    def page_invite_created(self, user, tenant, result, link: str) -> str:
+        body = f"""
+<div class="card pad sect">
+<div class="sect-head"><h2 style="margin-bottom:0">Invite ready for {esc(result["email"])}</h2>
+<span class="badge ok">{esc(role_name(result["role"]))}</span></div>
+<p class="small">Send this one-time link to the member. It expires on <b>{esc(result["expires_at"][:16].replace("T", " "))} UTC</b> and is shown only once.</p>
+<div class="field"><label>One-time invite link</label>
+<input readonly value="{esc(link)}" onclick="this.select()" style="font-family:ui-monospace,monospace;font-size:13px"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<a class="btn" href="{esc(link)}" target="_blank" rel="noopener">Open invite page</a>
+<a class="btn ghost" href="/users">Back to team</a>
+</div>
+</div>
+<div class="card pad small muted">If the email already had an ARTHIVIO login, the member will be asked for their current password. New users create a password of at least 12 characters. The link can be revoked from the Team page before it is used.</div>
+"""
+        return layout("Invite created", body, "users", user, tenant)
+
+    def page_invite_accept(self, conn, token: str, error: str = "") -> str:
+        try:
+            invite = security.invite_by_token(conn, token)
+        except security.AuthError as e:
+            return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Invite unavailable · {APP_NAME}</title><style>{CSS}</style></head>
+<body><div class="login-wrap"><div class="login card pad">
+<div class="brandline">{LOGO}<div><div style="font-weight:700;letter-spacing:.06em">ARTHIVIO</div>
+<div class="small muted">Team invitation</div></div></div>
+<div class="err">{esc(e.message)}</div>
+<p class="small muted">Ask the business owner for a fresh invite link.</p>
+<a class="btn ghost" href="/login">Go to sign in</a>
+</div></div></body></html>"""
+        existing = invite["existing_user"]
+        err = f'<div class="err">{esc(error)}</div>' if error else ""
+        password_label = "Current password" if existing else "Create password (12+ characters)"
+        password_hint = ("Enter the password for your existing ARTHIVIO login. "
+                         "Your password is not changed.") if existing else "Use at least 12 characters."
+        confirm = "" if existing else """
+<div class="field"><label>Confirm password</label><input type="password" name="confirm" required autocomplete="new-password"></div>"""
+        note = (f'<div class="card pad small" style="background:#F7F9F7;margin-bottom:14px">'
+                f'<b>{esc(invite["email"])}</b> already has an ARTHIVIO login. Enter its current password to join '
+                f'<b>{esc(invite["tenant_name"])}</b> as {esc(role_name(invite["role"]))}.</div>') if existing else (
+                f'<div class="card pad small" style="background:#F7F9F7;margin-bottom:14px">'
+                f'You are joining <b>{esc(invite["tenant_name"])}</b> as {esc(role_name(invite["role"]))}. '
+                f'Use this email as your login.</div>')
+        return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Join {esc(invite["tenant_name"])} · {APP_NAME}</title><style>{CSS}</style></head>
+<body><div class="login-wrap"><div class="login card pad">
+<div class="brandline">{LOGO}<div><div style="font-weight:700;letter-spacing:.06em">ARTHIVIO</div>
+<div class="small muted">Team invitation</div></div></div>
+<h1 style="font-size:23px;margin-bottom:6px">Join {esc(invite["tenant_name"])}</h1>
+<p class="small muted" style="margin-top:0">This invite is for <b>{esc(invite["email"])}</b>.</p>
+{note}{err}
+<form method="post" action="/invite/{esc(token)}">
+<div class="field"><label>Full name</label><input name="full_name" value="{esc(invite["full_name"])}" maxlength="120" required></div>
+<div class="field"><label>{password_label}</label><input type="password" name="password" required autocomplete="{'current-password' if existing else 'new-password'}">
+<div class="small muted" style="margin-top:4px">{password_hint}</div></div>
+{confirm}
+<button class="btn" type="submit" style="width:100%">Accept invite</button>
+</form>
+<p class="small muted" style="margin-bottom:0">Already a member? <a href="/login">Sign in</a>.</p>
+</div></div></body></html>"""
+
+    def page_share_error(self, message: str) -> str:
+        return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Statement unavailable · {APP_NAME}</title><style>{CSS}</style></head>
+<body><div class="login-wrap"><div class="login card pad">
+<div class="brandline">{LOGO}<div><div style="font-weight:700;letter-spacing:.06em">ARTHIVIO</div>
+<div class="small muted">Shared statement</div></div></div>
+<div class="err">{esc(message)}</div>
+<p class="small muted">Ask the business that shared this statement for a fresh link.</p>
+<a class="btn ghost" href="/login">ARTHIVIO sign in</a>
+</div></div></body></html>"""
+
+    def page_statement_share(self, conn, token: str) -> str:
+        resolved = sharing.resolve_statement_share(conn, token)
+        share = resolved["share"]
+        tenant = resolved["tenant"]
+        st = resolved["statement"]
+        is_customer = share["party_type"] == "customer"
+        party = st["customer"] if is_customer else st["vendor"]
+        rows = ""
+        for r in st["rows"]:
+            rows += (f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}</td><td>{esc(r["narration"])}</td>'
+                     f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
+        rows = rows or '<tr><td colspan="6" style="text-align:center;color:#5A685F;padding:18px">No transactions in this period</td></tr>'
+        business_addr = ", ".join(x for x in (tenant["address"], tenant["city"], tenant["state_name"],
+                                              tenant["pincode"]) if x)
+        party_addr = ", ".join(x for x in (party.get("address", ""), state_name(party.get("state_code", ""))) if x)
+        heading = "Statement of account" if is_customer else "Vendor account statement"
+        counterparty = "Customer" if is_customer else "Vendor"
+        closing_label = "Amount due from customer" if is_customer else "Amount payable to vendor"
+        extra_css = """
+.stmt-title{margin:0 0 2px;font-size:18px;font-weight:700;color:#123F2E}
+.stmt-period{font-size:11px;color:#44564F;margin-top:2px}
+.stmt-note{margin-top:10px;font-size:10px;color:#5A685F}
+.stmt-total td{font-weight:700;border-top:2px solid #176B4D}
+.stmt-toolbar{justify-content:space-between;align-items:center}
+.stmt-toolbar .tag{font-size:11px;color:#5A685F;letter-spacing:.03em}
+"""
+        return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<meta name="description" content="Shared statement of account issued by {esc(tenant["name"])} from ARTHIVIO.">
+<title>{esc(heading)} · {esc(tenant["name"])}</title><style>{PRINT_CSS}{extra_css}</style></head>
+<body>
+<div class="toolbar stmt-toolbar"><span class="tag">Shared statement · {esc(tenant["name"])}</span>
+<div><a href="/login">ARTHIVIO</a> &nbsp; <button type="button" onclick="window.print()">Print / Save PDF</button></div></div>
+<main class="sheet">
+  <div class="head">
+    <div><div class="brand">{esc(tenant["name"])}</div>
+      <div class="addr">{esc(business_addr) or "Address not set"}</div>
+      <div class="addr">GSTIN {esc(tenant["gstin"] or "—")} &nbsp;·&nbsp; {esc(tenant["phone"] or "")} {esc(tenant["email"] or "")}</div>
+    </div>
+    <div class="meta"><div class="doc">{esc(heading)}</div>
+      <div class="addr">{esc(share["date_from"])} to {esc(share["date_to"])}</div>
+      <div class="addr">Issued {esc(share["created_at"][:10])}</div>
+    </div>
+  </div>
+  <div class="parties">
+    <div><h4>{counterparty}</h4><b>{esc(party["name"])}</b>
+      <div class="addr">{esc(party_addr) or "Address not recorded"}</div>
+      <div class="addr">GSTIN {esc(party.get("gstin") or "—")} &nbsp;·&nbsp; {esc(party.get("phone") or "")}</div></div>
+    <div><h4>Statement summary</h4>
+      <div class="small">Opening balance: <b>{money.fmt(st["opening"])}</b></div>
+      <div class="small">Closing balance: <b>{money.fmt(st["closing"])}</b></div>
+      <div class="addr">{esc(closing_label)}</div></div>
+  </div>
+  <table>
+    <thead><tr><th>Date</th><th>Reference</th><th>Particulars</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+    <tbody>
+      <tr><td colspan="5" style="color:#5A685F">Opening balance</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
+      {rows}
+    </tbody>
+    <tfoot><tr class="stmt-total"><td colspan="5">Closing balance</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
+  </table>
+  <div class="words"><b>Closing balance in words:</b> {esc(money.amount_in_words(st["closing"]))}</div>
+  <div class="foot">
+    <div class="box"><b>{esc(tenant["name"])}</b><div class="addr">{esc(tenant["bank_name"] or "")} {esc(tenant["bank_account"] or "")} {esc(tenant["bank_ifsc"] or "")}</div>
+      <div class="stmt-note">This is a computer-generated statement from ARTHIVIO. It is shared as a read-only link and expires on {esc(share["expires_at"][:10])}.</div></div>
+    <div class="sign"><span class="line">Authorised signatory</span></div>
+  </div>
+</main>
+</body></html>"""
+
+    def _statement_share_card(self, conn, user, tenant, sess, party_type: str, party_id: str,
+                              dfrom: str, dto: str, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "statement.share")
+        except security.AuthError:
+            return ""
+        token = (q.get("share") or [""])[0]
+        shared = ""
+        if token:
+            link = f"{self._base_url()}/share/statement/{token}"
+            shared = f"""
+<div class="card pad" style="margin:0 0 14px;background:#F7F9F7">
+<div class="sect-head" style="margin-bottom:6px"><b>Share link created</b><span class="badge ok">Shown once</span></div>
+<div class="field" style="margin-bottom:8px"><input readonly value="{esc(link)}" onclick="this.select()" style="font-family:ui-monospace,monospace;font-size:13px"></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn small" href="{esc(link)}" target="_blank" rel="noopener">Open print view</a>
+<span class="small muted" style="align-self:center">Copy this link now. It cannot be shown again.</span></div></div>"""
+        shares = sharing.list_statement_shares(conn, tenant["id"], party_type, party_id)
+        share_rows = ""
+        for s in shares:
+            revoke = ""
+            if s["link_status"] == "active":
+                revoke = (f'<form method="post" action="/shares/revoke" style="display:inline">'
+                          f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                          f'<input type="hidden" name="share_id" value="{esc(s["id"])}">'
+                          f'<input type="hidden" name="party_type" value="{esc(party_type)}">'
+                          f'<input type="hidden" name="party_id" value="{esc(party_id)}">'
+                          f'<input type="hidden" name="from" value="{esc(dfrom)}">'
+                          f'<input type="hidden" name="to" value="{esc(dto)}">'
+                          f'<button class="btn small ghost" type="submit">Revoke</button></form>')
+            cls = "ok" if s["link_status"] == "active" else "neutral"
+            share_rows += (f'<tr><td>{esc(s["date_from"])} → {esc(s["date_to"])}</td>'
+                           f'<td>{esc(s["created_at"][:10])}</td><td>{esc(s["expires_at"][:10])}</td>'
+                           f'<td><span class="badge {cls}">{esc(s["link_status"])}</span></td>'
+                           f'<td class="num">{s["view_count"]}</td><td>{revoke}</td></tr>')
+        share_rows = share_rows or '<tr><td colspan="6" class="empty">No share links yet</td></tr>'
+        return f"""
+<div class="card pad sect">
+<div class="sect-head"><h2 style="margin-bottom:0">Share and print</h2>
+<span class="small muted">Read-only link · no sign-in needed</span></div>
+{shared}
+<form method="post" action="/{party_type}s/{esc(party_id)}/share">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="from" value="{esc(dfrom)}">
+<input type="hidden" name="to" value="{esc(dto)}">
+<div class="row c3">
+<div class="field"><label>Link validity</label><select name="days"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Create share link</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><span class="small muted">Opens a print-ready statement. Revoke any time.</span></div>
+</div></form>
+<table><thead><tr><th>Period</th><th>Created</th><th>Expires</th><th>Status</th><th class="num">Views</th><th></th></tr></thead>
+<tbody>{share_rows}</tbody></table>
+</div>"""
+
     # ---------------- actions ----------------
     def _create_customer(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "customer.manage")
@@ -2040,6 +2653,123 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
             return self._send(self.page_invoice_new(conn, user, tenant, sess, e.message), 400)
         return self._redirect(f'/invoices/{inv["id"]}')
 
+
+    # ---------------- actions: team, sharing, GSTR-2B ----------------
+    def _accept_invite(self, conn, token: str, form):
+        password = first(form, "password")
+        confirm = first(form, "confirm")
+        try:
+            invite = security.invite_by_token(conn, token)
+            if not invite["existing_user"] and password != confirm:
+                raise security.AuthError("PASSWORD_MISMATCH", "The two passwords do not match")
+            result = security.accept_invite(conn, token, first(form, "full_name"), password)
+        except security.AuthError as e:
+            return self._send(self.page_invite_accept(conn, token, e.message), 400)
+        sess_token, _csrf = security.create_session(conn, result["user_id"], result["tenant_id"],
+                                                    self.client_address[0])
+        acct.audit(conn, result["tenant_id"], result["user_id"], "auth.session_created", "session")
+        return self._redirect("/", {"Set-Cookie": f"sid={sess_token}; HttpOnly; SameSite=Lax; Path=/"})
+
+    def _switch_business(self, conn, user, sess, form):
+        tenant_id = first(form, "tenant_id")
+        rows = security.tenants_for(conn, user["id"])
+        if tenant_id not in {r["id"] for r in rows}:
+            return self._error_page(user, {"id": tenant_id, "name": "Business"},
+                                    "You do not have active access to that business.", "/businesses")
+        conn.execute("UPDATE session SET tenant_id=? WHERE id=? AND user_id=?",
+                     (tenant_id, sess["id"], user["id"]))
+        acct.audit(conn, tenant_id, user["id"], "auth.tenant_switched", "tenant", tenant_id)
+        return self._redirect("/")
+
+    def _invite_member(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "user.invite")
+        except security.AuthError as e:
+            return self._send(self.page_users(conn, user, tenant, {"csrf_token": ""}, {}, e.message), 403)
+        try:
+            result = security.invite_member(conn, tenant["id"], first(form, "email"),
+                                            first(form, "full_name"), first(form, "role"),
+                                            user["id"])
+        except security.AuthError as e:
+            return self._send(self.page_users(conn, user, tenant,
+                                              {"csrf_token": form.get("_csrf", [""])[0]}, {}, e.message), 400)
+        link = f"{self._base_url()}/invite/{result['token']}"
+        return self._send(self.page_invite_created(user, tenant, result, link))
+
+    def _change_member_role(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "role.assign")
+            security.change_member_role(conn, tenant["id"], user["id"],
+                                        first(form, "user_id"), first(form, "role"))
+        except security.AuthError as e:
+            return self._send(self.page_users(conn, user, tenant,
+                                              {"csrf_token": form.get("_csrf", [""])[0]}, {}, e.message), 400)
+        return self._redirect("/users?saved=1")
+
+    def _change_member_status(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "role.assign")
+            security.set_member_status(conn, tenant["id"], user["id"],
+                                       first(form, "user_id"), first(form, "status"))
+        except security.AuthError as e:
+            return self._send(self.page_users(conn, user, tenant,
+                                              {"csrf_token": form.get("_csrf", [""])[0]}, {}, e.message), 400)
+        return self._redirect("/users?saved=1")
+
+    def _revoke_invite(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "user.invite")
+            security.revoke_invite(conn, tenant["id"], first(form, "invite_id"), user["id"])
+        except security.AuthError as e:
+            return self._send(self.page_users(conn, user, tenant,
+                                              {"csrf_token": form.get("_csrf", [""])[0]}, {}, e.message), 400)
+        return self._redirect("/users?revoked=1")
+
+    def _create_statement_share(self, conn, user, tenant, form, party_type: str, party_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "statement.share")
+            try:
+                days = int(first(form, "days") or "30")
+            except ValueError:
+                days = 30
+            result = sharing.create_statement_share(
+                conn, tenant["id"], party_type, party_id,
+                first(form, "from"), first(form, "to"), user["id"], days)
+        except (security.AuthError, sharing.ShareError) as e:
+            back = f"/{party_type}s/{party_id}"
+            return self._error_page(user, tenant, e.message, back)
+        qs = urllib.parse.urlencode({"from": result["date_from"], "to": result["date_to"],
+                                     "share": result["token"]})
+        return self._redirect(f"/{party_type}s/{party_id}?{qs}")
+
+    def _revoke_statement_share(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "statement.share")
+            sharing.revoke_statement_share(conn, tenant["id"], first(form, "share_id"), user["id"])
+        except (security.AuthError, sharing.ShareError) as e:
+            return self._error_page(user, tenant, e.message, "/")
+        party_type = first(form, "party_type") or "customer"
+        party_id = first(form, "party_id")
+        back = f"/{party_type}s/{party_id}" if party_id else "/"
+        qs = urllib.parse.urlencode({"from": first(form, "from"), "to": first(form, "to"),
+                                     "revoked": "1"})
+        return self._redirect(f"{back}?{qs}")
+
+    def _gstr2b_import(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "gst.reconcile")
+        month = first(form, "month") or date.today().strftime("%Y-%m")
+        try:
+            result = gstr2b_mod.import_2b(conn, tenant["id"], month,
+                                          first(form, "csv_text"), first(form, "filename"),
+                                          user["id"])
+        except gstr2b_mod.Gstr2bError as e:
+            return self._send(self.page_gstr2b(conn, user, tenant,
+                                               {"csrf_token": form.get("_csrf", [""])[0]},
+                                               {"month": [month]}, e.message), 400)
+        qs = urllib.parse.urlencode({"month": result["period"],
+                                     "imported": result["imported"],
+                                     "duplicate": "1" if result["duplicate"] else "0"})
+        return self._redirect(f"/gstr2b?{qs}")
 
     # ---------------- actions: sales / purchases / books ----------------
     def _error_page(self, user, tenant, message: str, back: str = "/") -> str:
@@ -2511,6 +3241,39 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                 [],
                 ["Period", g["period"]["from"], g["period"]["to"], "", "", "", ""],
                 ["Note", g["note"], "", "", "", "", ""],
+            ]
+        elif key == "gstr2b":
+            month = (q.get("month") or [date.today().strftime("%Y-%m")])[0]
+            try:
+                g = gstr2b_mod.reconcile(conn, tid, month)
+            except gstr2b_mod.Gstr2bError:
+                return self._send("Invalid month; use YYYY-MM", 400)
+            rows = [["Source", "Status", "Supplier", "GSTIN", "Invoice", "Invoice Date",
+                     "Taxable", "IGST", "CGST", "SGST", "Cess", "Tax", "Bill", "Note"]]
+            for r in g["rows"]:
+                rows.append(["GSTR-2B", r["match_status"], r["supplier_name"] or "",
+                             r["supplier_gstin"], r["invoice_no"], r["invoice_date"],
+                             money.to_str(r["taxable_paise"]), money.to_str(r["igst_paise"]),
+                             money.to_str(r["cgst_paise"]), money.to_str(r["sgst_paise"]),
+                             money.to_str(r["cess_paise"]), money.to_str(r["tax_paise"]),
+                             r["bill_no"], r["note"]])
+            for b in g["books"]:
+                rows.append(["Books", "missing_in_2b", b["vendor_name"], b["vendor_gstin"] or "",
+                             b["vendor_bill_no"] or "", b["bill_date"],
+                             money.to_str(b["sub_total_paise"]), money.to_str(b["igst_book"]),
+                             money.to_str(b["cgst_book"]), money.to_str(b["sgst_book"]),
+                             money.to_str(0), money.to_str(b["tax_paise"]), b["bill_no"],
+                             b["note"]])
+            s = g["summary"]
+            rows += [
+                [],
+                ["Summary", "GSTR-2B tax", money.to_str(s["two_b"]["tax"]), "Books tax",
+                 money.to_str(s["books"]["tax"]), "Difference", money.to_str(s["difference"])],
+                ["Summary", "Matched", str(s["matched"]["count"]), "Mismatch",
+                 str(s["mismatch"]["count"]), "Missing in books", str(s["missing_in_books"]["count"])],
+                ["Summary", "Missing in 2B", str(s["missing_in_2b"]["count"]), "", "", "", ""],
+                [],
+                ["Note", "Working reconciliation aid, not a filed return. No ITC was posted or changed."],
             ]
         else:
             return self._send("Unknown export", 404)

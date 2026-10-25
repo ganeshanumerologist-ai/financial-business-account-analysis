@@ -242,3 +242,21 @@ accounting data.
 | Cross-utilisation, RCM, zero-rated/exempt, GSTR-2B | **Not implemented** | head-wise set-off only; disclosed on page and in docs |
 | Multi-user admin UI, PostgreSQL, Next.js | **Not implemented** | future phases |
 
+## 14. Status after Build 0.6 (2026-10-25)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Invite creation and one-time acceptance | **Verified** | `tests/test_team_sharing.py` (7 team tests), `test_22_team_invite_accept_and_role_change` |
+| Existing-user invite without silent account merge | **Verified** | current password required; wrong password leaves membership unchanged |
+| Owner protection and self-change guards | **Verified** | owner role locked, self role/status changes rejected, admin cannot promote to owner |
+| Suspend/remove revokes access | **Verified** | session revoked immediately; `test_admin_can_change_role_and_suspend_revokes_sessions` |
+| Business switcher | **Verified** | active membership checked on switch; `test_25_business_switcher_checks_membership` |
+| Share link scope/expiry/revocation | **Verified** | tenant/party/date scope, 7/30/90 days, revoke and expired states; 4 sharing tests |
+| Public statement privacy | **Verified** | no login, no internal IDs, `noindex/nofollow`, `Cache-Control: no-store`, view count |
+| GSTR-2B CSV parse/import | **Verified** | preamble, aliases, GSTIN/date validation, SHA-256 dedup, supersede, history; 12 GSTR-2B tests |
+| GSTR-2B matching | **Verified** | exact match, mismatch reported not corrected, missing both directions, prior-period match, duplicate warnings |
+| GSTR-2B export | **Verified** | `/export/gstr2b.csv?month=2026-08` HTTP 200; totals/summary in CSV |
+| Email delivery, ownership transfer, per-permission editor | **Not implemented** | links are manual; disclosed in README/architecture |
+| Official GSTR-2B portal schema/integration | **Not implemented** | working CSV only; explicitly not a filed return |
+| PostgreSQL, Next.js | **Not implemented** | future phases |
+
