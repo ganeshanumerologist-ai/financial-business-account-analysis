@@ -165,7 +165,7 @@ A working, testable accounting core (Phases 1–3) is realistic in roughly **6�
 
 ---
 
-## Current status — Build 0.6 (2026-10-25)
+## Current status — Build 0.7 (2026-10-25)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -177,9 +177,10 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.4 | Debit notes, bank matching, export hardening | `RUN-2026-10-24-05` |
 | 0.5 | GSTR-3B working summary and GSTR-1/ledger reconciliation | `RUN-2026-10-24-06` |
 | 0.6 | Team invites/roles, shareable statements, GSTR-2B reconciliation | `RUN-2026-10-25-01` |
+| 0.7 | ITC review annotations, 3B-vs-2B comparison, backup table coverage | `RUN-2026-10-25-02` |
 
-**Next:** GSTR-2B exception follow-up and 3B-vs-2B comparison; partial bank matching; email
-delivery and ownership transfer; then PostgreSQL/concurrency hardening and the Next.js UI.
+**Next:** partial/one-to-many bank matching and bank-charge posting; supplier follow-up ageing;
+email delivery and ownership transfer; then PostgreSQL/concurrency hardening and the Next.js UI.
 Production launch still requires the Phase 10 gate (independent review, penetration test,
 measured restore drill, monitoring and owner approval).
 

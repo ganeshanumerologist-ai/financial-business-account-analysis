@@ -459,6 +459,17 @@ CREATE TABLE IF NOT EXISTS gstr2b_line (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS gstr2b_review (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    line_id TEXT NOT NULL UNIQUE REFERENCES gstr2b_line(id),
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open','follow_up','itc_hold','accepted')),
+    note TEXT NOT NULL DEFAULT '',
+    updated_by TEXT REFERENCES user(id),
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS ix_jl_tenant_account ON journal_line (tenant_id, account_id);
 CREATE INDEX IF NOT EXISTS ix_jl_party ON journal_line (tenant_id, party_id);
 CREATE INDEX IF NOT EXISTS ix_je_tenant_date ON journal_entry (tenant_id, entry_date);
@@ -476,6 +487,7 @@ CREATE INDEX IF NOT EXISTS ix_member_invite_tenant ON member_invite (tenant_id, 
 CREATE INDEX IF NOT EXISTS ix_statement_share_tenant ON statement_share (tenant_id, party_type, party_id);
 CREATE INDEX IF NOT EXISTS ix_gstr2b_import_period ON gstr2b_import (tenant_id, period, status);
 CREATE INDEX IF NOT EXISTS ix_gstr2b_line_import ON gstr2b_line (import_id);
+CREATE INDEX IF NOT EXISTS ix_gstr2b_review_tenant ON gstr2b_review (tenant_id, status);
 """
 
 CHART = [

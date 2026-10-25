@@ -385,7 +385,7 @@ and documentation agree.
 - Cheque printing, payment reminders, Excel export, email delivery
 - PostgreSQL, Next.js UI
 
-## 13. Status after Build 0.6 (2026-10-25)
+## 13. Status after Build 0.7 (2026-10-25)
 
 ### Implemented and verified
 
@@ -398,12 +398,14 @@ and documentation agree.
 | Shareable statements | customer/vendor page → `/share/statement/<token>` | 7/30/90-day read-only bearer link, no-login A4 print view, revoke, expiry, view count, noindex/no-store |
 | GSTR-2B import | `/gstr2b` | working CSV, SHA-256 dedup, latest active import supersedes prior, import history, per-month view |
 | GSTR-2B matching | `/gstr2b?month=YYYY-MM` | supplier GSTIN + normalised invoice, matched/mismatch/missing-in-books/missing-in-2B, warnings, no auto-posting or bill edits |
-| GSTR-2B export | `/export/gstr2b.csv?month=YYYY-MM` | 2B rows, missing bills, summary and working-aid note; `report.export` |
+| ITC review | `/gstr2b?month=YYYY-MM`, `POST /gstr2b/review` | one state per line (open/follow-up/ITC hold/accepted), note, audit trail, active-import only, `gst.reconcile` |
+| 3B vs 2B comparison | `/gstr2b?month=YYYY-MM` | 3B eligible/gross ITC, debit-note reversal, 2B ITC, difference, review buckets, warnings; no posting |
+| GSTR-2B export | `/export/gstr2b.csv?month=YYYY-MM` | 2B rows, missing bills, review state/note, comparison summary and working-aid note; `report.export` |
 
 ### Still not implemented
 
 - Email delivery of invites/statements; ownership transfer; per-permission editor; SSO
-- Official GSTR-2B JSON/portal integration, supplier follow-up and ITC hold/release
+- Official GSTR-2B JSON/portal integration, supplier email automation, exception ageing and actual ITC claim/reversal posting
 - GST portal upload, official GSTR-1/3B schemas, cross-utilisation, RCM/zero-rated/exempt/import ITC
 - Partial/one-to-many bank matching; auto-posting bank charges/interest
 - e-invoice/IRN, e-way bill, TDS/TCS, cheque printing, payment reminders, Excel export

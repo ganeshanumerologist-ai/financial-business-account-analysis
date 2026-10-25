@@ -272,7 +272,10 @@ curl https://api.github.com/repos/ganeshanumerologist-ai/financial-business-acco
 Build 0.6 added five fixed implementation defects during review: B-021 (duplicate GSTR-2B
 redirect), B-022 (invite-acceptance orphan risk), B-023 (bearer-page cache headers), B-024
 (accessibility contrast/labels) and B-025 (contradictory duplicate-import notice). Their details
-are in the Build 0.6 section below.
+are in the Build 0.6 section below. Build 0.7 adds B-026: backup row-count verification was
+missing nine persistent tables added in Builds 0.4-0.6, including bank, debit-note, invite, share
+and GSTR-2B data. The table list now covers every persistent table except ephemeral sessions and
+the backup-run log, with a schema-coverage test.
 
 ---
 
@@ -493,11 +496,41 @@ by the `assertNotIn("Imported 0", body)` check in `test_24_gstr2b_import_and_exp
 
 | ID | Gap | Status | Notes |
 |---|---|---|---|
-| G-04 | No GST returns or exports | **PARTIAL** | GSTR-1/3B/2B working aids exist; portal upload, official schemas, cross-utilisation and ITC hold/release remain open |
+| G-04 | No GST returns or exports | **PARTIAL** | GSTR-1/3B/2B working aids exist; portal upload, official schemas, cross-utilisation and actual ITC claim/reversal remain open |
 | G-09 | No bank reconciliation or cheque workflow | **PARTIAL** | unchanged from Build 0.4 |
 | G-11 | No GST portal filing | **OPEN** | all GST outputs are labelled preparation aids |
 | G-12 | GSTR-3B set-off is head-wise only | **OPEN (deliberate)** | IGST credit is not cross-utilised |
 | G-13 | No email delivery for invites/statements | **OPEN (deliberate)** | one-time links are copied manually; no SMTP/paid API added |
 | G-14 | No ownership transfer or permission editor | **OPEN** | owner role is protected; roles are fixed presets |
 | G-15 | No official GSTR-2B portal format | **OPEN (deliberate)** | documented working CSV only; differences are not auto-corrected |
+
+## Build 0.7 status - 2026-10-25
+
+### B-026 - Backup verification skipped nine persistent tables (fixed)
+
+**Symptom:** backup verification reported "tables present: 20" even though the live schema had 31
+tables. A backup could therefore pass row-count verification while bank imports, debit notes,
+invites, statement shares or GSTR-2B data were missing or truncated.
+**Cause:** `backup.TABLES` was written for the original Build 0.1 schema and was not extended when
+Builds 0.4-0.6 added persistent tables.
+**Fix:** `backup.TABLES` now lists all 29 persistent tables, including `bank_import`,
+`bank_statement_line`, `debit_note`, `debit_note_line`, `member_invite`, `statement_share`,
+`gstr2b_import`, `gstr2b_line` and `gstr2b_review`. Only `session` (ephemeral) and `backup_run`
+(changes when the backup is recorded) are excluded from source row-count comparison. A new
+schema-coverage test compares `TABLES` with `sqlite_master`, so a future additive table cannot
+silently escape verification. Fresh backup and restore drill: 29 tables, 5/5 checks, **PASS**.
+
+### Gap status after Build 0.7
+
+| ID | Gap | Status | Notes |
+|---|---|---|---|
+| G-04 | No GST returns or exports | **PARTIAL** | 3B-vs-2B working comparison and ITC review annotations exist; portal upload, official schemas, cross-utilisation and actual ITC claim/reversal remain open |
+| G-09 | No bank reconciliation or cheque workflow | **PARTIAL** | partial/one-to-many matching and cheque workflow remain open |
+| G-11 | No GST portal filing | **OPEN** | all GST outputs are labelled preparation aids |
+| G-12 | GSTR-3B set-off is head-wise only | **OPEN (deliberate)** | IGST credit is not cross-utilised |
+| G-13 | No email delivery for invites/statements | **OPEN (deliberate)** | links are copied manually |
+| G-14 | No ownership transfer or permission editor | **OPEN** | roles remain fixed presets |
+| G-15 | No official GSTR-2B portal format | **OPEN (deliberate)** | documented working CSV only |
+| G-16 | ITC review state is not an ITC claim or reversal | **OPEN (deliberate)** | `itc_hold`/`accepted` are internal annotations; no journal is posted |
+| G-17 | No supplier/email follow-up or exception ageing | **OPEN** | notes are manual; no outbound email or age buckets |
 

@@ -254,12 +254,12 @@ Define how ARTHIVIO will be verified so that no financial or security claim is m
 |---|---|
 | Test plan authored | ✅ DONE |
 | Tests executable | ✅ YES (stdlib + temporary SQLite) |
-| Test cases defined | 156 automated application tests plus 12 audit-time checks |
-| Test cases executed | 156 application tests in `RUN-2026-10-25-01` |
-| Test cases passed | 156 |
+| Test cases defined | 162 automated application tests plus 12 audit-time checks |
+| Test cases executed | 162 application tests in `RUN-2026-10-25-02` |
+| Test cases passed | 162 |
 | Test cases failed | 0 |
 | Test cases blocked | 0 |
-| Application tests executed | **156** |
+| Application tests executed | **162** |
 | Last verified | 2026-10-25, Python 3.14.6, Windows |
 
 See `docs/TEST_RESULTS.md` for the literal run evidence and `docs/BUG_REPORT.md` for defects.
@@ -273,5 +273,13 @@ See `docs/TEST_RESULTS.md` for the literal run evidence and `docs/BUG_REPORT.md`
 - `T-601`–`T-604`: HTTP E2E for team invite acceptance, share/print/revoke, GSTR-2B import/export
   and business switching.
 
-Operational checks in the same run: live GSTR-2B August 2026 reconciliation, public statement
-creation/print/revoke, backup integrity + restore, and Lighthouse accessibility/SEO audits.
+### Build 0.7 additions
+
+- `T-701`–`T-705`: ITC review status + note + audit, superseded-import rejection, tenant scope,
+  invalid status rejection, and 3B-vs-2B gap comparison.
+- `T-706`: HTTP review POST, redirect, rendered status, comparison card and CSV review columns.
+- `T-707`: Lighthouse accessibility/best-practices/SEO on the GSTR-2B review page.
+- `T-708`: backup table list covers every persistent schema table (B-026 regression guard).
+
+Operational checks in the same run: live GSTR-2B August 2026 reconciliation and ITC acceptance,
+public statement creation/print/revoke, backup integrity + restore, and Lighthouse audits.

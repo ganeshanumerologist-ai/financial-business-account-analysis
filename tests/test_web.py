@@ -595,6 +595,27 @@ class WebTest(unittest.TestCase):
         self.assertIn("Duplicate", body)
         self.assertNotIn("Imported 0", body)
 
+        conn = db.connect(self.db_path)
+        line_id = conn.execute(
+            "SELECT id FROM gstr2b_line WHERE tenant_id=? ORDER BY invoice_no LIMIT 1",
+            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+        status, body, final = self.post("/gstr2b/review", {
+            "_csrf": token, "month": "2026-08", "line_id": line_id,
+            "status": "itc_hold", "note": "Supplier clarification pending"})
+        self.assertEqual(status, 200)
+        self.assertIn("Review saved", body)
+        self.assertIn("ITC on hold", body)
+        self.assertIn("Supplier clarification pending", body)
+        self.assertIn("GSTR-3B ITC vs GSTR-2B", body)
+        self.assertIn("reviewed=1", final)
+
+        status, csv_body = self.get("/export/gstr2b.csv?month=2026-08")
+        self.assertEqual(status, 200)
+        self.assertIn("ITC review", csv_body)
+        self.assertIn("itc_hold", csv_body)
+        self.assertIn("GSTR-3B eligible ITC", csv_body)
+
         status, body, _ = self.post("/gstr2b/import", {
             "_csrf": token, "month": "2026-08", "csv_text": "not,a,valid\nfile\n",
             "filename": "bad.csv"})

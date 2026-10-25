@@ -50,6 +50,13 @@ class TestBackup(unittest.TestCase):
         self.assertEqual(runs[0]["status"], "verified")
         self.assertEqual(runs[0]["sha256"], result["sha256"])
 
+    def test_backup_table_list_covers_all_persistent_tables(self):
+        conn = sqlite3.connect(self.db_path)
+        actual = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+        conn.close()
+        self.assertEqual(set(backup.TABLES), actual - {"session", "backup_run"})
+
     def test_restore_verification_matches_source(self):
         result = backup.create_backup(self.db_path, os.path.join(self.tmp, "backups"))
         check = backup.verify_backup(result["path"], self.db_path)

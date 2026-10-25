@@ -208,3 +208,21 @@ The frontend receives **no** secrets — only a public API base URL.
 - **Known residual risks:** no email verification, no rate limit dedicated to invite tokens beyond
   token entropy, no ownership-transfer workflow, no per-permission editor, no SSO, and no
   independent penetration test. A leaked invite/share link remains usable until expiry/revocation.
+
+## 13. Build 0.7 addendum - ITC review and backup coverage
+
+- **Review authority:** `POST /gstr2b/review` requires `gst.reconcile`, CSRF, an active session and
+  membership of the active business. `review_line()` re-checks that the line belongs to that tenant
+  and that its import is still active; superseded lines cannot be edited. Cross-tenant line IDs
+  return `LINE_NOT_FOUND`.
+- **Audit:** each review save writes `gstr2b.review` with the previous state, new state and note.
+  Notes are length-limited to 500 characters and HTML-escaped on render.
+- **No financial side effect:** review writes only `gstr2b_review` and `audit_log`. It cannot post a
+  journal, edit a bill, change a 2B amount or alter GSTR-3B. `itc_hold` is a label, not a legal ITC
+  reversal; `accepted` is not an ITC claim.
+- **Backup integrity:** the verified-table list now covers every persistent table (29), including
+  bank, debit-note, invite, share and GSTR-2B tables. Ephemeral sessions and the backup-run log are
+  excluded from source row-count comparison; a schema-coverage test guards future additions.
+- **Residual risks:** review notes may contain commercially sensitive free text and are visible to
+  every member who can open the GSTR-2B page; there is no reviewer-maker/checker separation, no
+  supplier notification and no independent penetration test.

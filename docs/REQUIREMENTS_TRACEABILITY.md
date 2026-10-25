@@ -239,10 +239,10 @@ accounting data.
 | Month-scoped reporting | **Verified** | month bounds, leap February, month filter, empty month and cross-tenant tests |
 | GSTR-3B CSV export | **Verified** | `/export/gstr3b.csv?month=2026-10` HTTP 200, `test_21_gstr3b_page_and_csv` |
 | GST portal upload / official GSTR-3B JSON | **Not implemented** | working CSV only; no filing claim |
-| Cross-utilisation, RCM, zero-rated/exempt, GSTR-2B | **Not implemented** | head-wise set-off only; disclosed on page and in docs |
+| Cross-utilisation, RCM, zero-rated/exempt, official GSTR-2B | **Not implemented** | head-wise set-off only; a separate working 3B-vs-2B comparison exists; disclosed on page and in docs |
 | Multi-user admin UI, PostgreSQL, Next.js | **Not implemented** | future phases |
 
-## 14. Status after Build 0.6 (2026-10-25)
+## 14. Status after Build 0.7 (2026-10-25)
 
 | Requirement area | Status | Evidence |
 |---|---|---|
@@ -253,10 +253,12 @@ accounting data.
 | Business switcher | **Verified** | active membership checked on switch; `test_25_business_switcher_checks_membership` |
 | Share link scope/expiry/revocation | **Verified** | tenant/party/date scope, 7/30/90 days, revoke and expired states; 4 sharing tests |
 | Public statement privacy | **Verified** | no login, no internal IDs, `noindex/nofollow`, `Cache-Control: no-store`, view count |
-| GSTR-2B CSV parse/import | **Verified** | preamble, aliases, GSTIN/date validation, SHA-256 dedup, supersede, history; 12 GSTR-2B tests |
+| GSTR-2B CSV parse/import | **Verified** | preamble, aliases, GSTIN/date validation, SHA-256 dedup, supersede, history; 17 GSTR-2B tests |
 | GSTR-2B matching | **Verified** | exact match, mismatch reported not corrected, missing both directions, prior-period match, duplicate warnings |
-| GSTR-2B export | **Verified** | `/export/gstr2b.csv?month=2026-08` HTTP 200; totals/summary in CSV |
+| ITC review workflow | **Verified** | open/follow-up/hold/accepted, note, audit, active-import-only, tenant scope, `gst.reconcile` |
+| 3B vs 2B comparison | **Verified** | books eligible/gross/reversal vs 2B, gap, review buckets, warnings; no posting |
+| GSTR-2B export | **Verified** | `/export/gstr2b.csv?month=2026-08` HTTP 200; rows, review columns and comparison in CSV |
 | Email delivery, ownership transfer, per-permission editor | **Not implemented** | links are manual; disclosed in README/architecture |
-| Official GSTR-2B portal schema/integration | **Not implemented** | working CSV only; explicitly not a filed return |
+| Official GSTR-2B portal schema/integration, actual ITC claim | **Not implemented** | working CSV and annotations only; explicitly not a filed return |
 | PostgreSQL, Next.js | **Not implemented** | future phases |
 

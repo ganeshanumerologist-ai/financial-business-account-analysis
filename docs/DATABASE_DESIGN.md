@@ -297,3 +297,16 @@ dropped, renamed or rewritten.
 
 Indexes cover tenant + period/status, tenant + party, and tenant + invoice lookup. Invite/share
 tokens are never stored in plaintext. GSTR-2B imports are superseded rather than deleted.
+
+## 12. Build 0.7 additive table (2026-10-25)
+
+Added with `CREATE TABLE IF NOT EXISTS`; existing 2B import and line rows were not rewritten.
+
+| Table | Purpose | Key constraints |
+|---|---|---|
+| `gstr2b_review` | Current ITC review annotation for one 2B line | `line_id UNIQUE` FK to `gstr2b_line`, tenant FK, status CHECK (`open`/`follow_up`/`itc_hold`/`accepted`), note text, `updated_by` FK, timestamp |
+
+A line without a review row is presented as `open`. The unique `line_id` keeps one current state;
+history is retained in `audit_log` (`gstr2b.review`, previous/new state and note). Index
+`ix_gstr2b_review_tenant` supports tenant/status summaries. The table stores no ITC amount: all
+displayed tax values come from the immutable 2B line and posted books.

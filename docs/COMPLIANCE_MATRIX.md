@@ -32,7 +32,7 @@
 | Place of supply | CGST+SGST vs IGST determination | Inter/intra-state supply | ✅ Working (Build 0.2) | State-code rules and tests; professional review |
 | Invoice series | Sequential, per FY, no unauthorised gaps | All | ✅ Working (Build 0.1) | Transactional numbering; gap report still to add |
 | GSTR-1 / 3B working papers | Data export for filing | GST entity | ✅ Working aids (Build 0.5) | Not filed; add portal schema and professional review |
-| GSTR-2B reconciliation | ITC matching (2B is a source, not proof) | GST entity | ✅ Working aid (Build 0.6) | Working CSV only; never auto-posts ITC |
+| GSTR-2B reconciliation | ITC matching (2B is a source, not proof) | GST entity | ✅ Working aid (Build 0.7) | Working CSV only; review states never auto-post ITC or change books |
 | e-Invoice (IRN) | Only via official API, with credentials | Above threshold, if applicable | ⛔ Out of scope (Phase 9) | Official onboarding, sandbox first |
 | e-Way bill | Only via official portal/API | Goods movement as applicable | ⛔ Out of scope | Verify access |
 | TDS/TCS | Deduction, deposit, certificates | Applicable payments | ⛔ Out of scope | Professional design |

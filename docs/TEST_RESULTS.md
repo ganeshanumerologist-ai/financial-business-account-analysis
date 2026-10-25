@@ -504,7 +504,8 @@ rows.
 - GSTR-3B is a **preparation aid, not a filed return**. No GST portal upload, no official JSON
   schema, no challan or acknowledgment.
 - Set-off is head-wise only: IGST credit is not cross-utilised against CGST/SGST.
-- RCM, zero-rated, nil-rated/exempt, import ITC and GSTR-2B reconciliation are not modelled.
+- RCM, zero-rated, nil-rated/exempt and import ITC are not modelled. GSTR-3B does not consume
+  GSTR-2B; the separate working comparison on `/gstr2b` reports the gap without posting it.
 - The ledger reconciliation check is expected to flag any manual journal or GST payment posted
   to the tax control accounts; that is a review signal, not automatic correction.
 - Multi-user invitation UI, PostgreSQL, Next.js, load/penetration testing.
@@ -519,7 +520,8 @@ rows.
 | `python -m app.server` + browser checks | `/users` rendered; `/gstr2b?month=2026-08` imported and matched; duplicate-file redirect returned the existing period |
 | Live GSTR-2B August 2026 | 1 portal line, ITC 7,560.00, posted bills 7,560.00, matched 1, difference 0.00, bill BILL-00003 |
 | Live GSTR-2B CSV | `/export/gstr2b.csv?month=2026-08` HTTP 200 with 2B rows and summary |
-| Backup drill | `backups/arthivio-20261025-081038.db`, SHA-256 `6176a27dc31fb590b67ee075936defe017ef819cd1e6f69937978e6ff5a6eea1`, 5/5 checks, restore **PASS** |\n| Lighthouse | GSTR-2B **100 / 100 / 100**, Team **100 / 100 / 100**, public statement **100 / 100 / 100** (accessibility / best practices / SEO); no failed audits |
+| Backup drill | `backups/arthivio-20261025-081038.db`, SHA-256 `6176a27dc31fb590b67ee075936defe017ef819cd1e6f69937978e6ff5a6eea1`, 5/5 checks, restore **PASS** |
+| Lighthouse | GSTR-2B **100 / 100 / 100**, Team **100 / 100 / 100**, public statement **100 / 100 / 100** (accessibility / best practices / SEO); no failed audits |
 
 New tests added in this run:
 
@@ -579,4 +581,39 @@ integration (none exists).
   PostgreSQL, Next.js, load or penetration testing.
 - The statement share is a bearer link: anyone who has it can view that one statement until it
   expires or is revoked.
+
+## 12. Application run `RUN-2026-10-25-02` - ITC review and GSTR-3B vs GSTR-2B
+
+### 12.1 What was actually executed
+
+| Command | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **162 tests, OK**, 11.2 s, Python 3.14.6, Windows |
+| Browser, `/gstr2b?month=2026-08` | August 2026 showed 1 open review and a 3B-vs-2B comparison of 7,560.00 vs 7,560.00, difference 0.00 |
+| Browser, `POST /gstr2b/review` | set `accepted` with note `Matched to BILL-00003`; redirected with `reviewed=1`; page showed open reviews 0, accepted 7,560.00, amount badge **AMOUNT OK**; books and 2B amounts unchanged |
+| HTTP E2E in `test_24` | review POST + redirect, rendered state/note/comparison, and CSV columns for review and 3B-vs-2B |
+| Live CSV fetch | `/export/gstr2b.csv?month=2026-08` returned 16 columns, `accepted` + `Matched to BILL-00003`, review totals and the comparison summary |
+| Lighthouse, GSTR-2B page | **100 / 100 / 100** accessibility / best practices / SEO; no failed audits |
+| Backup drill | `backups/arthivio-20261025-101352.db`, SHA-256 `2130445b0292468c2aa258adebb4e8d731d7936e4094a3a09184443fc310a340`, 29 tables, 5/5 checks, restore **PASS**; backup contains the review row and audit event |
+
+### 12.2 New tests and the backup fix
+
+- `tests/test_gstr2b.py` (17, +5) - review status/note/audit, ITC-hold summary and warning,
+  superseded-import rejection, tenant isolation, invalid status, and the 3B-vs-2B gap comparison.
+- `tests/test_backup.py` (6, +1) - schema coverage: `backup.TABLES` must equal every persistent
+  table except `session` and `backup_run` (B-026).
+- B-026 fixed a real verification gap: the backup table list had stayed at the Build 0.1 schema
+  and omitted nine persistent tables (bank, debit-note, invite, share and GSTR-2B data). The fresh
+  backup now verifies 29 tables and the restore drill passes.
+- `tests/test_web.py` `test_24_gstr2b_import_and_export` now posts a review, checks the rendered
+  state and comparison card, and checks the new CSV columns.
+
+### 12.3 Explicitly NOT verified
+
+- No official GSTR-2B portal JSON/schema, GST portal upload, actual ITC claim or ITC reversal
+  posting. `accepted` and `itc_hold` are internal working-paper annotations only.
+- No supplier email automation, exception ageing or statement/invite email delivery.
+- The comparison is monthly and amount-based; it does not model head-wise ITC set-off, RCM,
+  zero-rated/exempt supplies, import ITC or GSTR-3B filing.
+- No PostgreSQL, Next.js, load or penetration testing.
 

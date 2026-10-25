@@ -74,6 +74,12 @@ th{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mu
 tbody tr:hover{background:#FCFBF7}
 .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 tfoot td{font-weight:650;background:#FBFAF6}
+.table-wrap{overflow-x:auto}
+.review-cell{min-width:210px}
+.review-form summary{cursor:pointer;color:var(--emerald);font-size:12px;font-weight:600;margin-top:4px}
+.review-form[open] summary{margin-bottom:6px}
+.review-form form{display:grid;gap:5px;min-width:190px}
+.review-form select,.review-form input{font-size:12.5px;padding:6px 8px}
 .btn{display:inline-flex;align-items:center;gap:8px;background:var(--emerald);color:#fff;border:0;border-radius:10px;
   padding:10px 16px;font-size:14.5px;font-weight:600;cursor:pointer}
 .btn:hover{background:var(--emerald-700);text-decoration:none;color:#fff}
@@ -578,6 +584,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._revoke_statement_share(conn, user, tenant, form)
             if path == "/gstr2b/import":
                 return self._gstr2b_import(conn, user, tenant, form)
+            if path == "/gstr2b/review":
+                return self._gstr2b_review(conn, user, tenant, form)
 
             if path == "/backup":
                 security.require(conn, user["id"], tenant["id"], "backup.run")
@@ -1740,6 +1748,8 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
         except security.AuthError:
             can_import = False
 
+        comparison = (gstr2b_mod.itc_comparison(conn, tenant["id"], month, g)
+                      if g["import"] else None)
         imported = g["import"]
         notices = []
         if error:
@@ -1752,6 +1762,9 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
         if duplicate:
             notices.append('<div class="card pad" style="margin-bottom:14px"><span class="badge neutral">Duplicate</span> '
                            f'This exact file was already imported for {esc(month)}. No rows were added.</div>')
+        if (q.get("reviewed") or [""])[0] == "1":
+            notices.append('<div class="card pad" style="margin-bottom:14px"><span class="badge ok">Review saved</span> '
+                           'The ITC review state was updated; the books and 2B amounts were not changed.</div>')
         notice_html = "".join(notices)
 
         import_card = ""
@@ -1803,6 +1816,32 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
             status_badge = {"matched": ("ok", "MATCHED"), "mismatch": ("bad", "CHECK"),
                             "missing_in_books": ("bad", "MISSING IN BOOKS"),
                             "unmatched": ("neutral", "UNMATCHED")}
+            review_cls = {"open": "neutral", "follow_up": "bad",
+                          "itc_hold": "bad", "accepted": "ok"}
+
+            def review_control(r):
+                head = (f'<span class="badge {review_cls.get(r["review_status"], "neutral")}">'
+                        f'{esc(r["review_label"])}</span>')
+                if r["review_note"]:
+                    head += (f'<div class="small muted" style="margin-top:3px">'
+                             f'{esc(r["review_note"])}</div>')
+                if not can_import:
+                    return head
+                options = "".join(
+                    f'<option value="{s}" {"selected" if r["review_status"] == s else ""}>'
+                    f'{esc(gstr2b_mod.REVIEW_LABELS[s])}</option>'
+                    for s in gstr2b_mod.REVIEW_STATUSES)
+                return (head + f"""
+<details class="review-form"><summary>Update review</summary>
+<form method="post" action="/gstr2b/review">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="line_id" value="{esc(r['id'])}">
+<input type="hidden" name="month" value="{esc(month)}">
+<select name="status" aria-label="ITC review status for invoice {esc(r['invoice_no'])}">{options}</select>
+<input name="note" maxlength="500" value="{esc(r['review_note'])}" placeholder="Follow-up note">
+<button class="btn small ghost" type="submit">Save review</button>
+</form></details>""")
+
             line_rows = ""
             for r in g["rows"]:
                 cls, label = status_badge.get(r["match_status"], ("neutral", r["match_status"]))
@@ -1816,8 +1855,9 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
 <td class="num">{money.fmt(r["cgst_paise"])}</td>
 <td class="num">{money.fmt(r["sgst_paise"])}</td>
 <td><span class="badge {cls}">{label}</span><div class="small muted">{esc(r["note"])}</div></td>
+<td class="review-cell">{review_control(r)}</td>
 <td>{bill}</td></tr>"""
-            line_rows = line_rows or '<tr><td colspan="8" class="empty">No GSTR-2B rows</td></tr>'
+            line_rows = line_rows or '<tr><td colspan="9" class="empty">No GSTR-2B rows</td></tr>'
             book_rows = ""
             for b in g["books"]:
                 book_rows += f"""<tr>
@@ -1838,12 +1878,37 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
                 f'<td class="small muted">{esc(h["filename"] or "pasted CSV")}</td></tr>'
                 for h in gstr2b_mod.import_history(conn, tenant["id"], month)) or \
                 '<tr><td colspan="6" class="empty">No imports for this month</td></tr>'
+            comparison_html = ""
+            if comparison:
+                cmp_cls = "ok" if comparison["status"] == "ok" else "bad"
+                cmp_label = "AMOUNT OK" if comparison["status"] == "ok" else "AMOUNT CHECK"
+                comparison_html = f"""
+<div class="card sect">
+<div class="sect-head"><h2>GSTR-3B ITC vs GSTR-2B</h2>
+<span class="badge {cmp_cls}">{cmp_label}</span></div>
+<table>
+<thead><tr><th>ITC comparison</th><th class="num">Tax</th><th class="num">Lines</th></tr></thead>
+<tbody>
+<tr><td>GSTR-3B eligible ITC (net of debit notes)</td><td class="num">{money.fmt(comparison["books_itc"])}</td><td class="num">—</td></tr>
+<tr><td>GSTR-3B ITC before debit-note reversal</td><td class="num">{money.fmt(comparison["books_itc_gross"])}</td><td class="num">—</td></tr>
+<tr><td>Debit-note ITC reversal</td><td class="num">{money.fmt(comparison["books_itc_reversal"])}</td><td class="num">—</td></tr>
+<tr><td>GSTR-2B ITC</td><td class="num">{money.fmt(comparison["two_b_itc"])}</td><td class="num">{s["two_b"]["count"]}</td></tr>
+<tr><td><b>2B minus 3B eligible ITC</b></td><td class="num"><b>{money.fmt(comparison["difference"])}</b></td><td class="num">—</td></tr>
+<tr><td>Accepted in review</td><td class="num">{money.fmt(comparison["accepted"]["tax"])}</td><td class="num">{comparison["accepted"]["count"]}</td></tr>
+<tr><td>On ITC hold</td><td class="num">{money.fmt(comparison["hold"]["tax"])}</td><td class="num">{comparison["hold"]["count"]}</td></tr>
+<tr><td>Supplier follow-up</td><td class="num">{money.fmt(comparison["follow_up"]["tax"])}</td><td class="num">{comparison["follow_up"]["count"]}</td></tr>
+<tr><td>Open review</td><td class="num">{money.fmt(comparison["open_review"]["tax"])}</td><td class="num">{comparison["open_review"]["count"]}</td></tr>
+</tbody></table>
+<div class="small muted" style="margin-top:8px">3B eligible ITC is net of debit notes; GSTR-2B is gross for the month. This is a working comparison, not a filed return.</div>
+</div>"""
             summary_html = f"""
 <div class="kpis">
   {kpi("ITC in GSTR-2B", money.fmt(s["itc_available"]), f'{s["two_b"]["count"]} portal line(s)')}
   {kpi("ITC in posted bills", money.fmt(s["itc_claimed"]), f'{s["books"]["count"]} bill(s) this month')}
   {kpi("Matched", str(s["matched"]["count"]), money.fmt(s["matched"]["tax"]) + " tax")}
   {kpi("Differences", str(s["mismatch"]["count"] + s["missing_in_books"]["count"] + s["missing_in_2b"]["count"]), "mismatch + missing")}
+  {kpi("Open reviews", str(s["review"]["open"]["count"]), "need a decision")}
+  {kpi("ITC on hold", money.fmt(s["review"]["itc_hold"]["tax"]), f'{s["review"]["itc_hold"]["count"]} line(s)')}
 </div>
 <div class="card sect"><table>
 <thead><tr><th>Reconciliation</th><th class="num">Taxable</th><th class="num">Tax</th><th class="num">Count</th></tr></thead>
@@ -1857,11 +1922,12 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
 </tbody>
 <tfoot><tr><td>2B tax minus books tax</td><td class="num">—</td><td class="num">{money.fmt(s["difference"])}</td><td class="num">—</td></tr></tfoot>
 </table></div>
+{comparison_html}
 {warning_card}
 <div class="sect-head"><h2>GSTR-2B lines</h2>
 <span class="small muted">Matched by supplier GSTIN + normalised invoice number; amounts are not corrected</span></div>
-<div class="card"><table>
-<thead><tr><th>Supplier</th><th>Invoice</th><th class="num">Taxable</th><th class="num">IGST</th><th class="num">CGST</th><th class="num">SGST</th><th>Status</th><th>Bill</th></tr></thead>
+<div class="card table-wrap"><table>
+<thead><tr><th>Supplier</th><th>Invoice</th><th class="num">Taxable</th><th class="num">IGST</th><th class="num">CGST</th><th class="num">SGST</th><th>Status</th><th>ITC review</th><th>Bill</th></tr></thead>
 <tbody>{line_rows}</tbody></table></div>
 <div class="sect-head"><h2>Posted bills missing in GSTR-2B</h2>
 <span class="small muted">Bills dated inside this month that were not matched</span></div>
@@ -2771,6 +2837,18 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                                      "duplicate": "1" if result["duplicate"] else "0"})
         return self._redirect(f"/gstr2b?{qs}")
 
+    def _gstr2b_review(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "gst.reconcile")
+        month = first(form, "month") or date.today().strftime("%Y-%m")
+        try:
+            gstr2b_mod.review_line(conn, tenant["id"], first(form, "line_id"),
+                                   first(form, "status"), first(form, "note"), user["id"])
+        except gstr2b_mod.Gstr2bError as e:
+            return self._send(self.page_gstr2b(conn, user, tenant,
+                                               {"csrf_token": form.get("_csrf", [""])[0]},
+                                               {"month": [month]}, e.message), 400)
+        return self._redirect(f"/gstr2b?{urllib.parse.urlencode({'month': month, 'reviewed': '1'})}")
+
     # ---------------- actions: sales / purchases / books ----------------
     def _error_page(self, user, tenant, message: str, back: str = "/") -> str:
         return self._send(layout("Cannot post",
@@ -3249,22 +3327,24 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
             except gstr2b_mod.Gstr2bError:
                 return self._send("Invalid month; use YYYY-MM", 400)
             rows = [["Source", "Status", "Supplier", "GSTIN", "Invoice", "Invoice Date",
-                     "Taxable", "IGST", "CGST", "SGST", "Cess", "Tax", "Bill", "Note"]]
+                     "Taxable", "IGST", "CGST", "SGST", "Cess", "Tax", "Bill", "Note",
+                     "ITC review", "Review note"]]
             for r in g["rows"]:
                 rows.append(["GSTR-2B", r["match_status"], r["supplier_name"] or "",
                              r["supplier_gstin"], r["invoice_no"], r["invoice_date"],
                              money.to_str(r["taxable_paise"]), money.to_str(r["igst_paise"]),
                              money.to_str(r["cgst_paise"]), money.to_str(r["sgst_paise"]),
                              money.to_str(r["cess_paise"]), money.to_str(r["tax_paise"]),
-                             r["bill_no"], r["note"]])
+                             r["bill_no"], r["note"], r["review_status"], r["review_note"]])
             for b in g["books"]:
                 rows.append(["Books", "missing_in_2b", b["vendor_name"], b["vendor_gstin"] or "",
                              b["vendor_bill_no"] or "", b["bill_date"],
                              money.to_str(b["sub_total_paise"]), money.to_str(b["igst_book"]),
                              money.to_str(b["cgst_book"]), money.to_str(b["sgst_book"]),
                              money.to_str(0), money.to_str(b["tax_paise"]), b["bill_no"],
-                             b["note"]])
+                             b["note"], "n/a", ""])
             s = g["summary"]
+            comp = gstr2b_mod.itc_comparison(conn, tid, month, g)
             rows += [
                 [],
                 ["Summary", "GSTR-2B tax", money.to_str(s["two_b"]["tax"]), "Books tax",
@@ -3272,8 +3352,15 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                 ["Summary", "Matched", str(s["matched"]["count"]), "Mismatch",
                  str(s["mismatch"]["count"]), "Missing in books", str(s["missing_in_books"]["count"])],
                 ["Summary", "Missing in 2B", str(s["missing_in_2b"]["count"]), "", "", "", ""],
+                ["Review", "Open", str(s["review"]["open"]["count"]), "Follow-up",
+                 str(s["review"]["follow_up"]["count"]), "ITC hold",
+                 str(s["review"]["itc_hold"]["count"]), "Accepted", str(s["review"]["accepted"]["count"])],
+                ["Compare", "GSTR-3B eligible ITC", money.to_str(comp["books_itc"]),
+                 "GSTR-2B ITC", money.to_str(comp["two_b_itc"]),
+                 "Difference", money.to_str(comp["difference"]), comp["status"], ""],
                 [],
-                ["Note", "Working reconciliation aid, not a filed return. No ITC was posted or changed."],
+                ["Note", "Working reconciliation aid, not a filed return. Review states are internal; "
+                         "no ITC was posted or changed."],
             ]
         else:
             return self._send("Unknown export", 404)

@@ -137,7 +137,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-803 | GSTR-1 Working Paper | invoices | Period-wise outward supplies | 9 | Working CSV/JSON (Build 0.3) |
 | R-804 | GSTR-3B Working Paper | invoices, credit notes, bills, debit notes | Output − eligible ITC, head-wise | 9 | Working (Build 0.5) |
 | R-805 | HSN/SAC Summary | invoice/purchase lines | Qty + value + tax per code | 3 | Working (GSTR-1 HSN section, Build 0.3) |
-| R-806 | ITC Reconciliation (2B) | imported 2B + purchase | Matched / mismatched / missing | 9 | Working (Build 0.6, working CSV) |
+| R-806 | ITC Reconciliation (2B) | imported 2B + purchase | Matched / mismatched / missing + ITC review + 3B eligible ITC | 9 | Working (Build 0.7, working CSV; no ITC posting) |
 | R-807 | Tax Ledger | journal_line (tax accounts) | Opening + payable − paid = closing | 3 | Not implemented |
 
 ⚠️ Tax reports require professional review; none may be presented as a filed return.
@@ -188,7 +188,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 Implemented counts include only reports with a route and a passing automated check; partial
 working papers (for example opening/closing statement balances) are noted in the group tables but
 not counted as complete. Build 0.6 adds GSTR-2B reconciliation (R-806) and statement sharing for
-R-305/R-403.
+R-305/R-403; Build 0.7 adds per-line ITC review and a GSTR-3B-vs-2B comparison inside R-806.
 
 The spec's ≈150 target will be reached by extending groups 1–10; the 66 catalogued here are the ones with a defined formula and a clear user. Reports without a defined source and formula are not catalogued — they would be decoration, not information.
 

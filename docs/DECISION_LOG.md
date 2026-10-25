@@ -220,7 +220,7 @@ No code will be written before this answer.
 | Status | Decided |
 | Context | A backup that has never been opened is not a backup. The audit rules require evidence, not claims. |
 | Decision | `app/backup.py` uses SQLite's online backup API, then opens the copy read-only and checks: (1) `PRAGMA integrity_check`, (2) `PRAGMA foreign_key_check`, (3) every tenant's journal debits equal credits, (4) row counts match the live source. Only then is the run stored as `verified` with its SHA-256. Restores stay manual and are re-verified with `scripts/restore_verify.py`. |
-| Consequence | Failed or tampered backups are recorded as `failed` and never presented as safe. There is no one-click destructive restore in this build. |
+| Consequence | Failed or tampered backups are recorded as `failed` and never presented as safe. There is no one-click destructive restore in this build. The row-count list is schema-complete for persistent business tables (29 at Build 0.7), excluding only ephemeral sessions and the backup-run log; a test compares it with `sqlite_master` so additive tables cannot escape verification. |
 
 
 ## D-011 - GSTR-1 export is a labelled working aid, not a filing
@@ -330,4 +330,21 @@ month without a 2B line gives `missing_in_2b`. Differences are reported with exp
 figures and warnings; bills are never edited, ITC is never auto-posted, and no return is filed or
 uploaded. Duplicate 2B invoice numbers and multiple posted bills with the same vendor invoice are
 surfaced as warnings rather than silently resolved.
+
+## D-020 - ITC review is an annotation, not an ITC claim or accounting entry
+
+**Date:** 2026-10-25. **Status:** accepted for Build 0.7.
+
+Each active GSTR-2B line can carry one current ITC review state: `open`, `follow_up`, `itc_hold`
+or `accepted`, with a 500-character note, the reviewing user and a timestamp. A line with no row
+is treated as `open`. Only the latest active import can be reviewed; superseded lines are
+read-only. Every change is audited with the previous and new state. Review states are internal
+working-paper annotations: `itc_hold` does not post an ITC reversal, `accepted` does not claim
+ITC, and no review action edits a bill, journal, GSTR-2B amount or GSTR-3B figure.
+
+The monthly comparison shows GSTR-3B eligible ITC (net of debit notes), the gross 3B figure,
+debit-note reversal, GSTR-2B ITC, the difference, and review amounts by state. The difference is
+reported, never forced to zero. The comparison is explicitly a preparation aid, not a filed
+return, and it does not assert that a portal ITC claim was made. Review actions require
+`gst.reconcile`; read-only roles see the state but cannot change it.
 

@@ -374,11 +374,12 @@ The route is `/reports/gstr3b?month=YYYY-MM`; CSV is `/export/gstr3b.csv?month=Y
 
 - No GST portal upload, official GSTR-3B JSON, challan or acknowledgment.
 - No cross-utilisation of IGST credit against CGST/SGST; no RCM, zero-rated, nil/exempt or
-  import-ITC modelling; no GSTR-2B reconciliation.
+  import-ITC modelling. GSTR-3B itself does not consume GSTR-2B; a separate working comparison
+  on the GSTR-2B page shows the monthly gap.
 - Ledger checks compare document tax with the tax control accounts. A manual GST payment or
   adjustment posted to those accounts will show as a difference for review, not be auto-corrected.
 
-## 16. Implementation status (2026-10-25, Build 0.6)
+## 16. Implementation status (2026-10-25, Build 0.7)
 
 ### 16.1 Team invitations, roles and business switching
 
@@ -417,11 +418,23 @@ builds warnings for duplicate invoice numbers and multiple matching bills. The p
 `/gstr2b?month=YYYY-MM`; CSV is `/export/gstr2b.csv?month=YYYY-MM`. It never edits bills, posts
 ITC or files a return. GSTR-2B is a working aid, not the portal's official schema.
 
-### 16.4 Deliberate limits at Build 0.6
+### 16.4 ITC review and GSTR-3B comparison
+
+`gstr2b_review` stores one current review row per 2B line: `open`, `follow_up`, `itc_hold` or
+`accepted`, a 500-character note, actor and timestamp. Missing rows read as `open`; only the
+active import can be reviewed, and every save is audited with the previous and new state. The
+GSTR-2B page shows the review state and an inline form (permission `gst.reconcile`), plus summary
+counts and tax by state. `itc_comparison()` reads the month's GSTR-3B working data and compares
+its eligible ITC (net of debit notes), gross ITC and debit-note reversal with GSTR-2B ITC. The
+difference, matched/mismatch/missing amounts and review holds are displayed and exported; no amount
+is posted, netted off or forced to zero. Review states are working-paper annotations only.
+
+### 16.5 Deliberate limits at Build 0.7
 
 - No email delivery: invite and share links are copied and sent manually.
 - No ownership transfer, per-permission editor or SSO.
-- No official GSTR-2B JSON/portal integration, supplier follow-up workflow or ITC claim hold.
+- No official GSTR-2B JSON/portal integration, automated supplier follow-up, exception ageing or
+  actual ITC claim/reversal posting. `itc_hold` is a workflow label, not a legal ITC reversal.
 - No partial bank matching or auto-posting of bank charges/interest.
 - The statement link is a bearer link: anyone with it can view that one statement until it
   expires or is revoked.

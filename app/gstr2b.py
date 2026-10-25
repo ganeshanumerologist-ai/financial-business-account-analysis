@@ -41,6 +41,15 @@ ALIASES: dict[str, set[str]] = {
 }
 
 
+REVIEW_STATUSES = ("open", "follow_up", "itc_hold", "accepted")
+REVIEW_LABELS = {
+    "open": "Open",
+    "follow_up": "Supplier follow-up",
+    "itc_hold": "ITC on hold",
+    "accepted": "Accepted",
+}
+
+
 class Gstr2bError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -247,6 +256,51 @@ def import_history(conn: sqlite3.Connection, tenant_id: str, period: str | None 
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
+def review_line(conn: sqlite3.Connection, tenant_id: str, line_id: str, status: str,
+                note: str = "", updated_by: str | None = None) -> dict:
+    """Set the ITC review state for one active GSTR-2B line.
+
+    This is deliberately a review annotation only: it never changes the imported
+    line, a purchase bill, ITC or a tax return.
+    """
+    if status not in REVIEW_STATUSES:
+        raise Gstr2bError("BAD_REVIEW_STATUS", "Choose a valid ITC review status")
+    note = (note or "").strip()[:500]
+    now = _now()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        line = conn.execute(
+            "SELECT l.*, i.status AS import_status FROM gstr2b_line l"
+            " JOIN gstr2b_import i ON i.id=l.import_id"
+            " WHERE l.id=? AND l.tenant_id=?", (line_id, tenant_id),
+        ).fetchone()
+        if not line:
+            raise Gstr2bError("LINE_NOT_FOUND", "GSTR-2B line not found")
+        if line["import_status"] != "active":
+            raise Gstr2bError("SUPERSEDED_IMPORT",
+                              "This GSTR-2B import has been superseded; review the active import")
+        previous = conn.execute(
+            "SELECT status FROM gstr2b_review WHERE line_id=? AND tenant_id=?",
+            (line_id, tenant_id),
+        ).fetchone()
+        conn.execute(
+            "INSERT INTO gstr2b_review (id, tenant_id, line_id, status, note, updated_by,"
+            " updated_at) VALUES (?,?,?,?,?,?,?)"
+            " ON CONFLICT(line_id) DO UPDATE SET status=excluded.status, note=excluded.note,"
+            " updated_by=excluded.updated_by, updated_at=excluded.updated_at",
+            (db.new_id(), tenant_id, line_id, status, note, updated_by, now),
+        )
+        acct.audit(conn, tenant_id, updated_by, "gstr2b.review", "gstr2b_line", line_id,
+                   meta={"status": status, "previous": previous["status"] if previous else "open",
+                         "note": note})
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return {"line_id": line_id, "status": status, "note": note,
+            "label": REVIEW_LABELS[status], "updated_at": now}
+
+
 def _bill_tax(bill, tenant_state: str) -> tuple[int, int, int]:
     tax = bill["tax_paise"] or 0
     if bill["place_of_supply_state"] == tenant_state:
@@ -274,12 +328,17 @@ def reconcile(conn: sqlite3.Connection, tenant_id: str, period: str) -> dict:
                     "mismatch": {"count": 0, "taxable": 0, "tax": 0, "difference": 0},
                     "missing_in_books": {"count": 0, "taxable": 0, "tax": 0},
                     "missing_in_2b": {"count": 0, "taxable": 0, "tax": 0},
+                    "review": {s: {"count": 0, "tax": 0} for s in REVIEW_STATUSES},
                     "itc_available": 0, "itc_claimed": 0, "difference": 0},
                 "warnings": ["No active GSTR-2B import for this month."]}
 
     lines = [dict(r) for r in conn.execute(
         "SELECT * FROM gstr2b_line WHERE import_id=? ORDER BY invoice_date, invoice_no",
         (imported["id"],)).fetchall()]
+    reviews = {r["line_id"]: dict(r) for r in conn.execute(
+        "SELECT r.*, u.full_name AS reviewer_name FROM gstr2b_review r"
+        " LEFT JOIN user u ON u.id=r.updated_by WHERE r.tenant_id=?",
+        (tenant_id,)).fetchall()}
     vendors = {((r["gstin"] or "").strip().upper()): dict(r) for r in conn.execute(
         "SELECT * FROM vendor WHERE tenant_id=?", (tenant_id,)).fetchall()}
     bills_by_vendor: dict[str, list] = {}
@@ -355,6 +414,12 @@ def reconcile(conn: sqlite3.Connection, tenant_id: str, period: str) -> dict:
         line["igst_book"] = _bill_tax(bill, tenant["state_code"])[0] if bill else 0
         line["cgst_book"] = _bill_tax(bill, tenant["state_code"])[1] if bill else 0
         line["sgst_book"] = _bill_tax(bill, tenant["state_code"])[2] if bill else 0
+        review = reviews.get(line["id"])
+        line["review_status"] = review["status"] if review else "open"
+        line["review_note"] = review["note"] if review else ""
+        line["review_label"] = REVIEW_LABELS[line["review_status"]]
+        line["reviewed_at"] = review["updated_at"] if review else ""
+        line["reviewer_name"] = review["reviewer_name"] if review else ""
         conn.execute(
             "UPDATE gstr2b_line SET match_status=?, matched_bill_id=?, note=? WHERE id=?",
             (status, line["matched_bill_id"], note, line["id"]))
@@ -400,6 +465,15 @@ def reconcile(conn: sqlite3.Connection, tenant_id: str, period: str) -> dict:
     mismatch["difference"] = sum(
         ((b["bill"]["tax_paise"] if b["bill"] else 0) - b["tax_paise"])
         for b in rows if b["match_status"] == "mismatch")
+    review = {s: {"count": 0, "tax": 0} for s in REVIEW_STATUSES}
+    for row in rows:
+        bucket = review[row["review_status"]]
+        bucket["count"] += 1
+        bucket["tax"] += row["tax_paise"]
+    if review["open"]["count"]:
+        warnings.append(f"{review['open']['count']} GSTR-2B line(s) still need ITC review.")
+    if review["itc_hold"]["count"]:
+        warnings.append(f"{review['itc_hold']['count']} line(s) marked ITC on hold.")
     return {
         "period": {"month": period, "from": date_from, "to": date_to},
         "import": imported,
@@ -408,8 +482,56 @@ def reconcile(conn: sqlite3.Connection, tenant_id: str, period: str) -> dict:
         "summary": {
             "two_b": two_b, "books": books, "matched": matched, "mismatch": mismatch,
             "missing_in_books": missing_books, "missing_in_2b": missing_2b,
+            "review": review,
             "itc_available": two_b["tax"], "itc_claimed": books["tax"],
             "difference": two_b["tax"] - books["tax"],
         },
         "warnings": list(dict.fromkeys(warnings)),
+    }
+
+
+def itc_comparison(conn: sqlite3.Connection, tenant_id: str, period: str,
+                   result: dict | None = None) -> dict:
+    """Compare the month's GSTR-3B eligible ITC with the imported GSTR-2B.
+
+    The comparison is a working paper: it shows the gap, matched/mismatch and
+    review hold amounts, and never posts ITC or changes a return.
+    """
+    result = result or reconcile(conn, tenant_id, period)
+    three_b = acct.gstr3b_data(conn, tenant_id, period)
+    s = result["summary"]
+    two_b_itc = s["two_b"]["tax"]
+    books_itc = three_b["itc"]["net_total"]
+    difference = two_b_itc - books_itc
+    hold = s["review"]["itc_hold"]
+    open_review = s["review"]["open"]
+    follow_up = s["review"]["follow_up"]
+    accepted = s["review"]["accepted"]
+    warnings = []
+    if difference:
+        warnings.append(
+            f"GSTR-2B ITC differs from GSTR-3B eligible ITC by {difference / 100:+.2f}.")
+    if hold["count"]:
+        warnings.append(
+            f"{hold['count']} line(s) with {hold['tax'] / 100:.2f} ITC are on hold; "
+            "do not claim them until resolved.")
+    if open_review["count"]:
+        warnings.append(f"{open_review['count']} GSTR-2B line(s) are still open for review.")
+    return {
+        "period": result["period"],
+        "two_b_itc": two_b_itc,
+        "books_itc": books_itc,
+        "books_itc_gross": three_b["itc"]["gross_total"],
+        "books_itc_reversal": three_b["itc"]["reversal_total"],
+        "difference": difference,
+        "status": "ok" if difference == 0 else "check",
+        "matched_tax": s["matched"]["tax"],
+        "mismatch_tax": s["mismatch"]["tax"],
+        "missing_in_books_tax": s["missing_in_books"]["tax"],
+        "missing_in_2b_tax": s["missing_in_2b"]["tax"],
+        "hold": hold,
+        "follow_up": follow_up,
+        "accepted": accepted,
+        "open_review": open_review,
+        "warnings": warnings,
     }

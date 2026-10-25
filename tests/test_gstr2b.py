@@ -162,5 +162,60 @@ class TestReconcile(Gstr2bBase):
         self.assertEqual(result["books"], [])
 
 
+class TestReviewAndComparison(Gstr2bBase):
+    def test_review_status_audit_and_hold(self):
+        self.import_csv(CSV_MATCH)
+        line_id = gstr2b.reconcile(self.conn, self.t, "2026-08")["rows"][0]["id"]
+        saved = gstr2b.review_line(self.conn, self.t, line_id, "itc_hold", "Supplier query", None)
+        self.assertEqual(saved["status"], "itc_hold")
+        result = gstr2b.reconcile(self.conn, self.t, "2026-08")
+        row = result["rows"][0]
+        self.assertEqual(row["review_status"], "itc_hold")
+        self.assertEqual(row["review_note"], "Supplier query")
+        self.assertEqual(result["summary"]["review"]["itc_hold"]["count"], 1)
+        self.assertEqual(result["summary"]["review"]["itc_hold"]["tax"], 180000)
+        comp = gstr2b.itc_comparison(self.conn, self.t, "2026-08", result)
+        self.assertEqual(comp["hold"]["tax"], 180000)
+        self.assertEqual(comp["status"], "ok")
+        self.assertTrue(any("on hold" in w for w in comp["warnings"]))
+        audit = self.conn.execute(
+            "SELECT action, meta FROM audit_log WHERE action='gstr2b.review'").fetchone()
+        self.assertIsNotNone(audit)
+        self.assertIn("itc_hold", audit["meta"])
+
+    def test_review_rejects_superseded_line(self):
+        first = self.import_csv(CSV_MATCH)
+        old_line = gstr2b.reconcile(self.conn, self.t, "2026-08")["rows"][0]["id"]
+        self.import_csv(CSV_MISMATCH)
+        with self.assertRaises(gstr2b.Gstr2bError) as ctx:
+            gstr2b.review_line(self.conn, self.t, old_line, "accepted", "", None)
+        self.assertEqual(ctx.exception.code, "SUPERSEDED_IMPORT")
+
+    def test_review_is_tenant_scoped(self):
+        self.import_csv(CSV_MATCH)
+        line_id = gstr2b.reconcile(self.conn, self.t, "2026-08")["rows"][0]["id"]
+        t2 = db.create_tenant(self.conn, "Other Co", "other", state_code="27")
+        with self.assertRaises(gstr2b.Gstr2bError) as ctx:
+            gstr2b.review_line(self.conn, t2, line_id, "accepted", "", None)
+        self.assertEqual(ctx.exception.code, "LINE_NOT_FOUND")
+
+    def test_review_rejects_invalid_status(self):
+        self.import_csv(CSV_MATCH)
+        line_id = gstr2b.reconcile(self.conn, self.t, "2026-08")["rows"][0]["id"]
+        with self.assertRaises(gstr2b.Gstr2bError) as ctx:
+            gstr2b.review_line(self.conn, self.t, line_id, "claimed", "", None)
+        self.assertEqual(ctx.exception.code, "BAD_REVIEW_STATUS")
+
+    def test_comparison_reports_gap(self):
+        self.import_csv(CSV_MISSING)
+        result = gstr2b.reconcile(self.conn, self.t, "2026-08")
+        comp = gstr2b.itc_comparison(self.conn, self.t, "2026-08", result)
+        self.assertEqual(comp["two_b_itc"], 90000)
+        self.assertEqual(comp["books_itc"], 180000)
+        self.assertEqual(comp["difference"], -90000)
+        self.assertEqual(comp["status"], "check")
+        self.assertTrue(comp["warnings"])
+
+
 if __name__ == "__main__":
     unittest.main()
