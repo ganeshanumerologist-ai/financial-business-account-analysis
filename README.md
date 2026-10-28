@@ -102,6 +102,17 @@ binding stays on `127.0.0.1` when `ARTHIVIO_HOST` is not set.
 
 ---
 
+## Public demo deployment
+
+The repo includes a `Dockerfile` and `render.yaml` for a free Render web service. After the owner
+signs in to Render with GitHub, the Blueprint creates a stable public URL:
+
+[Deploy the demo on Render](https://render.com/deploy?repo=https://github.com/ganeshanumerologist-ai/financial-business-account-analysis)
+
+Free Render services sleep after inactivity and use an ephemeral filesystem, so the synthetic demo
+books are reseeded after a restart. Do not enter real financial data. Persistent storage requires a
+paid disk or a VPS; see `docs/DEPLOYMENT.md`.
+
 ## What actually works
 
 | Area | Behaviour | Evidence |

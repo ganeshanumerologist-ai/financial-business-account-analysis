@@ -1,0 +1,23 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.py[cod]
+*.log
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data
+backups
+uploads
+tmp
+.pytest_cache
+.ruff_cache
+.mypy_cache
+login and passw.txt
+secrets
+.env
+.env.*

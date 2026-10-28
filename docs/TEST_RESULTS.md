@@ -1199,7 +1199,7 @@ response in an existing share-link test; all 222 tests passed.
 | Live `/api/v1/analytics/insights` | HTTP 200, `engine=deterministic_rules_v1`, `generative_ai=false`, 8 observations |
 | Live `/export/workbook.xlsx` | HTTP 200, 57,873 bytes through the public tunnel, correct OOXML content type; opened with `openpyxl`: 20 sheets, 3 native charts, KPI source paise present |
 | Live `/export/powerbi.zip` | HTTP 200, 15,149 bytes through the public tunnel; 9 files including manifest, facts, dimensions, metric catalog and Power Query starter; manifest says actuals-only and integer paise |
-| Public phone demo | `https://79473bb9990fbe.lhr.life/login` returned HTTP 200 through `localhost.run`; demo login and `/reports/analytics` returned HTTP 200 (42,729 bytes). A real Chromium session loaded both ECharts canvases with no console errors. The Serveo free tunnel expired, so it is not relied on. |
+| Public phone demo | a temporary localhost.run URL returned HTTP 200 through `localhost.run`; demo login and `/reports/analytics` returned HTTP 200 (42,729 bytes). A real Chromium session loaded both ECharts canvases with no console errors. The Serveo free tunnel expired, so it is not relied on. |
 
 The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 502 was caused by the app server being down, not by the tunnel; after the server was back, `ssh -4 -R 80:127.0.0.1:8000 nokey@localhost.run` served the login, analytics page, insights JSON and downloads. Serveo also worked but its free tunnel expired. The public URL is temporary and may rotate.
 
@@ -1246,6 +1246,18 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
   run a real phone viewport, screen-reader, contrast, cross-browser, 4K or pixel-diff test.
 - No live accounting row was written by the verification. The live database received normal sign-in
   session/audit rows and read-only exports; the multipart import test used the temporary test DB.
-- No load, concurrency or penetration test was performed. No commit or push was made; `git` is not
-  installed on this machine.
+- No load, concurrency or penetration test was performed. The Build 0.12 code was committed and
+  pushed to GitHub as `56aca9d` after this run.
 
+## 26. Deployment smoke test (2026-10-28)
+
+- Docker is not installed on this machine, so the image was **not** built locally. The
+  `Dockerfile` and `render.yaml` are committed but the actual Render build/deploy is still
+  pending owner GitHub/Render authorization.
+- The container runtime path was exercised without Docker: a temporary `ARTHIVIO_DB`,
+  `python scripts/seed_demo.py`, then `ARTHIVIO_HOST=0.0.0.0 PORT=8010 python -m app.server`.
+- Seed result: 11 invoices, 30 journal entries, trial balance balanced.
+- `GET /health` returned 200; demo login and `/reports/analytics` returned 200.
+- Added `Dockerfile`, `.dockerignore`, `render.yaml` and `docs/DEPLOYMENT.md`.
+- Not verified: Render build, cold-start time, free-plan sleep/wake, persistent disk, TLS/custom
+  domain or production security. The free plan is demo-only and its SQLite data is ephemeral.

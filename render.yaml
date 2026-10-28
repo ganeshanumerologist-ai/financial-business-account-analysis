@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: arthivio-demo
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ARTHIVIO_HOST
+        value: 0.0.0.0
+      - key: ARTHIVIO_DB
+        value: /app/data/arthivio.db
+      - key: ARTHIVIO_DEMO_AUTOLOGIN
+        value: "0"
