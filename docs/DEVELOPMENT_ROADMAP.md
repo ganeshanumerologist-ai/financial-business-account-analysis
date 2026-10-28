@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
-| Status | Draft for owner approval |
+| Version | 1.1 |
+| Date | 2026-10-28 |
+| Status | In delivery; Build 0.12 verified, full Phase 6/8/10 gates remain |
 | Rule | Each phase ends with a gate. No gate = no progression. |
 
 Effort bands are indicative for a single developer working part-time with AI assistance. They are **not commitments**.
@@ -93,7 +93,7 @@ Effort bands are indicative for a single developer working part-time with AI ass
 | | |
 |---|---|
 | Goal | Insight that equals the ledger |
-| Build | Report engine with defined source/formula · the 66 catalogued reports · dashboards · ECharts visualisations · drill-down · exports · freshness indicators · empty states · EN/HI · responsive 360→4K · WCAG AA |
+| Build | Report engine with defined source/formula, the 66 catalogued reports, dashboards, ECharts visualisations, drill-down, exports, freshness indicators, empty states, EN/HI, responsive 360-4K and WCAG AA. **Build 0.12 delivered:** analytics pilot, two ECharts actuals views (monthly and expense composition), 20-sheet `.xlsx` actuals workbook, static Power BI pack, freshness and empty states. **Still missing:** the remaining 66-report screens, saved dashboards, full drill-down, EN/HI and the ~150-template library. |
 | Gate | REP-001…007 pass; every displayed total = independent recalculation; accessibility and responsive checks recorded |
 | Effort | 4–6 weeks |
 | Risks | Performance on large books · silent filter leakage · chart legibility at 4K |
@@ -111,14 +111,20 @@ Effort bands are indicative for a single developer working part-time with AI ass
 
 | | |
 |---|---|
-| Build | Grounded Q&A over authorised records · trend explanation · anomaly digest · forecast with explicit bands |
+| Build | Grounded Q&A over authorised records, trend explanation, anomaly digest and forecast with explicit bands. **Build 0.12 delivered:** deterministic grounded observations with written basis, metric keys, drill-down and an explicit no-provider label. **Not delivered:** generative Q&A, anomaly model and forecast. |
 | Gate | No invented figures · every claim cites records · tenant isolation proven · consent recorded · deterministic engine remains the source of totals |
 | Effort | 2–4 weeks |
 | Do not | Send tenant data externally without consent and review |
 
 ---
 
-## Phase 9 — External integrations
+> **Planning note:** the detailed proposal for the analytics data mart, full report/chart library,
+> `.xlsx` import/export, Power BI model and grounded AI layer is in
+> `docs/ANALYTICS_AI_EXCEL_POWERBI_PLAN.md`. Phase A, real `.xlsx` export/import, the static Power BI
+> pack, ECharts and deterministic grounded insights are delivered. Phase B and the generative
+> AI/Power BI Service parts remain proposed work, not delivered scope.
+
+## Phase 9 - External integrations
 
 e-Invoice, e-Way bill, payments, bank feeds, notifications — each only after verified access. Gate per integration: sandbox success recorded, timeout/duplicate handling proven, secrets in env.
 
@@ -165,7 +171,7 @@ A working, testable accounting core (Phases 1–3) is realistic in roughly **6�
 
 ---
 
-## Current status — Build 0.7 (2026-10-25)
+## Current status - Build 0.11 (2026-10-27)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -178,11 +184,20 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.5 | GSTR-3B working summary and GSTR-1/ledger reconciliation | `RUN-2026-10-24-06` |
 | 0.6 | Team invites/roles, shareable statements, GSTR-2B reconciliation | `RUN-2026-10-25-01` |
 | 0.7 | ITC review annotations, 3B-vs-2B comparison, backup table coverage | `RUN-2026-10-25-02` |
+| 0.8 | Reference-matched public product home page, detailed SVG dashboard preview, local opt-in no-signin demo | `RUN-2026-10-25-03` |
+| 0.9 | Tally-style grouped top navigation, cash book, bank book | `RUN-2026-10-25-04` |
+| 0.10 | Ledger hub with account creation and Dr/Cr balances, opening balances posted against Opening Balance Equity, separate Cash/Bank/Journal entries, permission-controlled reversal, multiple bank accounts, all reports in one menu, Account 360 profiles with linked debtor/creditor sub-ledgers, expanded single account type/group selector, rich product master | `RUN-2026-10-26-01`, `RUN-2026-10-26-02`, `RUN-2026-10-26-03` |
+| 0.11 | Bulk opening-balance CSV import under Books → Ledgers, validate-before-post preview, all-or-nothing posting, per-row opening journals, import notes and audit; white workspace topbar with neutral charcoal ink and four per-user light palettes (Ocean, Emerald, Violet, Sunset) under Settings → Appearance, with themed login and print pages and no navy app chrome; public landing hero slightly lightened and given four dark page-level colour choices through a visible picker; account archive/merge with a required reason, zero-balance archive, balanced merge reclassification, restore, system/party/bank guard rails and audit; analytics Phase A foundation (read-only views, 19-metric actual-only registry, JSON overview API, Analytics Overview pilot) | `RUN-2026-10-26-04`, `RUN-2026-10-26-05`, `RUN-2026-10-26-06`, `RUN-2026-10-27-01`, `RUN-2026-10-27-02`, `RUN-2026-10-27-03` |
+| 0.12 | Real 20-sheet actuals `.xlsx` workbook with native charts and KPI paise trace; server-side `.xlsx` import for opening balances, bank statements and GSTR-2B; static Power BI import ZIP with manifest/facts/dimensions/Power Query starter; ECharts 5.5.1 vendored locally for actual monthly and expense-composition views; deterministic grounded insights with AI Insights page, JSON API and workbook sheet (no generative provider); 245 tests | `RUN-2026-10-28-01` |
 
-**Next:** partial/one-to-many bank matching and bank-charge posting; supplier follow-up ageing;
-email delivery and ownership transfer; then PostgreSQL/concurrency hardening and the Next.js UI.
-Production launch still requires the Phase 10 gate (independent review, penetration test,
-measured restore drill, monitoring and owner approval).
+**Next:** finish analytics Phase B (remaining 66-report screens, saved dashboards, full drill-down,
+filters, EN/HI labels and the ~150-template library). The static Power BI pack can become an optional
+Service model only after an explicit Desktop-vs-Service scope and licensing decision; a generative
+AI provider needs consent, privacy and cost approval and must keep deterministic totals with
+citations. In parallel: bank-account deactivate, partial/one-to-many bank matching, bank-charge
+posting, supplier follow-up ageing, email delivery and ownership transfer. Production launch still
+requires the Phase 10 gate (independent review, penetration test, measured restore drill, monitoring
+and owner approval).
 
 ## Standing rules for every phase
 

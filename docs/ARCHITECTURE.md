@@ -14,7 +14,7 @@
 | Layer | Choice | Version (target) | Why |
 |---|---|---|---|
 | Frontend | Next.js (App Router) + TypeScript | 15.x / TS 5.x | Component UI, high-DPI vector rendering, future report density, spec §20 fit |
-| Styling | Plain CSS modules + design tokens (no heavy UI kit) | — | Full control over the ivory/emerald/gold palette; avoid licensing and bloat |
+| Styling | Plain CSS modules + design tokens (no heavy UI kit) | — | Full control over the light electric-blue/cyan workspace family and four per-user palettes; avoid licensing and bloat |
 | Charts | Apache ECharts | 5.x | Maintained, canvas/SVG, crisp at 4K, large datasets |
 | Backend | FastAPI | 0.11x | Typed API, automatic OpenAPI, Python ecosystem for finance logic |
 | Validation | Pydantic v2 | 2.x | Strict schemas, decimal support |
@@ -120,7 +120,8 @@ Defence in depth: application-level scoping now, **PostgreSQL Row-Level Security
 ## 6. Frontend architecture
 
 - Server components for data-heavy pages; client islands only for interactivity (filters, forms).
-- Design tokens in one place: ivory `#F7F5EF`, emerald `#176B4D`, sage `#DCE8D9`, gold `#C6A15B`, ink `#183E35`.
+- Design tokens live in `THEME_CSS`: page/surface, neutral charcoal ink `#212529`, primary/strong/soft/pale/line/ink, chart colours, success and danger. Four light palettes are available — Ocean Blue (default), Emerald Green, Royal Violet and Warm Sunset. The signed-in `<html>` carries `data-theme`, the topbar is white and no app palette uses navy.
+- A user's palette is stored in `user.theme` (additive column, default `ocean`) and changed only from **Settings → Appearance** through `POST /preferences/theme`; the save is CSRF-protected and audited as `user.theme_updated`. A non-sensitive `ui_theme` cookie keeps the chosen palette on the sign-in page. Printed invoices and statements use the same theme tokens through `THEME_CSS` + `PRINT_CSS`. The public landing page has separate `LANDING_THEMES` dark tokens and its own compact picker; it reads the same cookie, sets it through a validated `/home?theme=` redirect, and never reads `user.theme` or tenant data. `Vary: Cookie` and a revalidating cache header keep the themed page correct.
 - Typography scale with a minimum 16 px body, 1.5 line-height; contrast checked to WCAG AA.
 - Charts: ECharts with `devicePixelRatio` respected → sharp on 4K/8K, no raster backgrounds.
 - No city photography, no unverifiable statistics (spec §4, §5; defects B-004, B-005).
@@ -187,17 +188,34 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (2026-10-24, Build 0.1)
+## 11. Implementation status (current Build 0.12)
 
 | Module | Responsibility | State |
 |---|---|---|
 | `app/money.py` | integer paise, half-up rounding, largest-remainder allocation | Implemented, tested |
-| `app/db.py` | schema, chart of accounts, per-tenant sequences, WAL connection | Implemented, tested |
+| `app/db.py` | schema, chart of accounts, per-tenant sequences, WAL connection, analytics views | Implemented, tested |
 | `app/accounting.py` | posting, reversals, invoicing, ledger, TB, P&L, balance sheet, customer statements | Implemented, tested |
+| `app/analytics.py` | read-only metric registry, actuals snapshot, monthly series, breakdowns, API payloads | Implemented, tested |
+| `app/opening_import.py` | bulk opening-balance CSV parsing, preview/validation and all-or-nothing posting | Implemented, tested |
+| `app/xlsx_import.py` | safe `.xlsx` to neutral CSV conversion for existing import validators | Implemented, tested |
+| `app/excel.py` | real `.xlsx` actuals workbook, native charts, KPI paise trace | Implemented, tested |
+| `app/bi.py` | static Power BI import ZIP, facts/dimensions, manifest, Power Query starter | Implemented, tested |
+| `app/insights.py` | deterministic grounded observations with basis, metric keys and drill-down | Implemented, tested |
 | `app/security.py` | scrypt hashing, sessions, CSRF token, RBAC, tenant authorisation, lockout | Implemented, tested |
 | `app/server.py` | HTTP routing, server-rendered UI, cookie/CSRF handling | Implemented, HTTP-tested |
 | `app/demo.py`, `scripts/seed_demo.py` | synthetic demo books | Implemented |
 | `dev.ps1` | test → seed → run | Implemented |
+
+### 11.1 Analytics contract (Build 0.11)
+
+`app/analytics.py` is read-only. It exposes 19 actual-only metrics from existing deterministic
+functions and the `v_analytics_journal` / `v_analytics_monthly` views. `/api/v1/analytics/catalog`
+and `/api/v1/analytics/overview` require a signed-in member with `report.view`, are tenant-scoped
+and return `no-store` JSON. `/reports/analytics` is the pilot screen. Build 0.12 adds an Excel
+workbook, a static Power BI ZIP, a local ECharts view and deterministic grounded insights, all
+consuming the same actuals contract; there is still no cache or second ledger. No generative AI
+provider and no Power BI Service dataset are connected. Every future adapter must reconcile to
+these totals.
 
 Deviations from the original plan, both recorded in `docs/DECISION_LOG.md`:
 
@@ -238,7 +256,7 @@ vendor ?? bill ??? AP ?? vendor payment ??? cash/bank
 | Ageing | Derived from outstanding balances and document dates; buckets current / 31-60 / 61-90 / 90+. |
 | GST | Working summary from GST control accounts plus sales/purchase registers. Explicitly not a filed return. |
 | Backup | `app/backup.py` online backup + four checks (integrity, foreign keys, balanced journals, row counts) before a run is marked verified. |
-| UI | Grouped navigation (Overview / Sales / Purchases / Books / Reports / Masters); every list links to its source document. |
+| UI | Grouped navigation (Dashboard / Transactions / Entries / Books / Reports / Masters / Settings); the Ledger hub lists every account and opens its full posted ledger, while Cash/Bank/Journal entry pages stay separate; every list links to its source document. |
 
 Known architectural limits: single-process HTTP server, SQLite single-writer, no background
 jobs, no PDF renderer, no bank-feed integration. These are deployment decisions, not
@@ -347,7 +365,7 @@ the single source of truth.
 
 - No partial-amount or one-to-many bank matching; no auto-posting of bank charges/interest.
 - No GSTR-2/2B purchase reconciliation; GSTR-3B was added in §15.
-- CSV only; bank API feeds, Excel import and cheque printing are future work.
+- Manual CSV/`.xlsx` import is implemented; bank API feeds and cheque printing remain future work.
 
 ## 15. Implementation status (2026-10-24, Build 0.5)
 
@@ -379,7 +397,7 @@ The route is `/reports/gstr3b?month=YYYY-MM`; CSV is `/export/gstr3b.csv?month=Y
 - Ledger checks compare document tax with the tax control accounts. A manual GST payment or
   adjustment posted to those accounts will show as a difference for review, not be auto-corrected.
 
-## 16. Implementation status (2026-10-25, Build 0.7)
+## 16. Implementation status (2026-10-25, Build 0.8)
 
 ### 16.1 Team invitations, roles and business switching
 
@@ -429,7 +447,27 @@ its eligible ITC (net of debit notes), gross ITC and debit-note reversal with GS
 difference, matched/mismatch/missing amounts and review holds are displayed and exported; no amount
 is posted, netted off or forced to zero. Review states are working-paper annotations only.
 
-### 16.5 Deliberate limits at Build 0.7
+### 16.5 Public home page and loopback demo
+
+`server.landing_page()` is a standalone public document served at `GET /` when no session exists
+and at `GET /home` always. It uses a dark hero with slightly lighter navy tones, inline SVG
+cityscape art and a labelled synthetic dashboard preview. It mirrors the reference layout:
+dashboard navigation, hero, six feature cards, five reasons and a trust strip. It does not read
+tenant data or include the workspace stylesheet. A compact palette button in the header offers four
+**dark** landing variants - Ocean, Emerald, Violet and Sunset - through `/home?theme=<key>`; the
+server validates the key, sets the non-sensitive `ui_theme` cookie and redirects, and invalid values
+fall back to Ocean. This page-level choice does not write `user.theme`. Signed-in `GET /` renders
+the dashboard with a white topbar, neutral charcoal ink and one of the four per-user light palettes;
+no signed-in app chrome uses navy. The landing page stays dark in every variant and never follows
+the workspace's light palette.
+
+`GET /demo` is gated by `ARTHIVIO_DEMO_AUTOLOGIN=1` and a loopback source check. It creates a
+normal server session for `ARTHIVIO_DEMO_EMAIL` through `security.create_session`, writes an
+`auth.demo_login` audit event, and redirects to `/`. Disabled or non-loopback requests receive a
+plain 404. `dev.ps1 -Demo` sets the flag; without it the runner removes the variable. This is a
+local convenience, not a hosted authentication bypass.
+
+### 16.6 Deliberate limits at Build 0.8
 
 - No email delivery: invite and share links are copied and sent manually.
 - No ownership transfer, per-permission editor or SSO.
@@ -438,3 +476,92 @@ is posted, netted off or forced to zero. Review states are working-paper annotat
 - No partial bank matching or auto-posting of bank charges/interest.
 - The statement link is a bearer link: anyone with it can view that one statement until it
   expires or is revoked.
+- `/demo` is loopback-only and must not be exposed on a public interface. It is a synthetic-data
+  convenience, not a hosted demo account, SSO or signup flow.
+- The home page follows the supplied visual reference, including its customer/uptime metrics, but
+  those figures are marked `*` and footnoted as illustrative marketing values, not verified
+  production claims. It has no customer logos or testimonials, and none of the reference metrics
+  should be published as fact without evidence.
+
+### 16.7 Account archive and merge (Build 0.11)
+
+`account.status`, `archived_at`, `archived_by` and `merged_into_id` are additive columns. The
+posting guard `_assert_accounts` now requires `status='active'`, so every posting path (invoice,
+bill, receipt, payment, credit/debit note, manual journal and opening balance) rejects an archived
+ledger before writing a line. Account selectors filter archived ledgers out of new postings, Bank
+Book, opening import and product revenue choices; the ledger hub keeps them in a separate archived
+list so history stays reachable.
+
+`accounting.archive_account()` requires a reason and an all-time zero balance. It refuses system and
+control codes, customer/vendor-linked ledgers (including legacy `customer.account_id` /
+`vendor.account_id` pointers without an `account_profile` row) and income ledgers referenced by
+products. It never posts a journal. `restore_account()` clears the archive metadata and writes
+`account.restore`; it does not reverse a merge journal.
+
+`accounting.merge_accounts()` validates active source/target, same accounting type, party
+compatibility, bank-to-bank compatibility and no future-dated source activity. It computes the
+source's net balance, posts one balanced `source_type='merge'` journal dated today to the target (with
+the same `party_id` on both lines when the ledger is party-linked), verifies the source is zero, then
+archives it with `merged_into_id`. A merge that needs a journal is blocked by a locked period in the
+normal posting path. Products using the source income code and the customer/vendor account pointer
+are repointed in the same transaction. The audit row stores the reason, source/target codes, transfer
+amount, journal entry and repointing counts. The source's historical lines are never rewritten or
+moved, and a merge is not a one-click undo; restore reopens the source but a balance correction
+requires an explicit manual journal.
+
+The UI adds one archive/merge page reached from the ledger profile card. It shows the all-time
+balance, compatible targets, the archived/merged state and the restore form; existing ledger,
+Cash Book, Bank Book and report layouts are otherwise unchanged. `tests/test_account_archive.py` and
+`test_web.test_39` cover the service and HTTP paths.
+
+
+## 17. Build 0.12: Excel, Power BI pack, ECharts and grounded insights (2026-10-28)
+
+### 17.1 Bounded adapters over the ledger
+
+The accounting engine remains the only source of authoritative totals. Build 0.12 adds four
+read-only adapters, all fed by the existing deterministic functions and analytics contract:
+
+- `app/excel.py` builds a real `.xlsx` actuals workbook in memory with `openpyxl`. It has 20 sheets,
+  three native Excel charts and exact integer-paise KPI source values beside the displayed INR
+  amounts. It never writes a journal.
+- `app/bi.py` builds a static Power BI import ZIP: actuals facts, account/party dimensions, metric
+  catalog, a Power Query starter, README and a manifest with SHA-256 hashes. It is not a `.pbix`,
+  Service dataset, RLS model or refresh package.
+- `app/insights.py` computes deterministic observations over the actuals snapshot. Each observation
+  carries a written basis, metric keys, a drill-down target and a source. The response declares
+  `engine=deterministic_rules_v1`, `generative_ai=false`, `actuals_only=true` and
+  `forecast_included=false`.
+- `app/static/echarts.min.js` is vendored ECharts 5.5.1 with its Apache-2.0 notice. The monthly and expense-composition views
+  consume the same actuals series and have fallback tables; there is no runtime CDN call.
+
+### 17.2 `.xlsx` import boundary
+
+`app/xlsx_import.py` converts the first worksheet (or a named sheet) to neutral CSV text using
+`openpyxl` in read-only, `data_only=True` mode. It handles real dates and decimals, skips blank rows,
+strips trailing empty columns, uses cached formula values only and rejects malformed or oversized
+files (8 MB, 50,000 non-empty rows). The converted text is then passed to the existing
+opening-balance, bank-statement or GSTR-2B validators. Those validators keep their preview, atomic
+posting, duplicate detection and audit rules; the converter never posts and never evaluates formulas.
+
+### 17.3 HTTP and security boundary
+
+- `GET /export/workbook.xlsx` and `GET /export/powerbi.zip` require a signed-in member with
+  `report.export`, are tenant-scoped and send `Cache-Control: no-store`.
+- `GET /api/v1/analytics/insights` requires `report.view`; invalid dates return JSON `BAD_DATE`/
+  `BAD_PERIOD`, unauthenticated requests return `401`.
+- Multipart uploads are parsed in-process without the removed `cgi` module. File parts are held only
+  for the request; no upload is written to disk or object storage. CSRF remains required on every
+  POST.
+- The server's default bind is still `127.0.0.1`; `ARTHIVIO_HOST` is an explicit opt-in.
+
+### 17.4 Deliberate limits
+
+- No generative AI provider, no external prompt, no forecast, no AI-authored workbook.
+- No Power BI Service dataset, token API, RLS model, scheduled refresh or `.pbix`.
+- `.xlsx` import is limited to the three existing import flows; it is not a general importer and
+  does not preserve formatting or multiple-sheet relationships.
+- The full 66-report library, saved dashboards, EN/HI labels, full drill-down and ~150-template
+  target remain open. ECharts currently powers two actuals views: monthly and expense composition.
+- No mobile viewport, screen-reader, contrast, cross-browser, 4K or load test was run for this
+  release; the public phone URL is an access check only.

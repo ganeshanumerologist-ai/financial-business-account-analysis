@@ -6,6 +6,7 @@
 *.key
 secrets/
 credentials.json
+login and passw.txt
 
 # ---- Databases / user data ----
 *.db

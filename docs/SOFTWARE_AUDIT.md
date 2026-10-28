@@ -10,6 +10,8 @@
 | Mode | Read-only. No application files were created, modified or deleted during the audit. |
 | Overall result | **BLOCKED — no application source code exists in the workspace** |
 
+> **Historical baseline (2026-10-24).** This audit describes the empty workspace before implementation. It is preserved as history and is **not** the current status. For Build 0.12 evidence, see `docs/TEST_RESULTS.md` section 25 and `docs/FEATURE_INVENTORY.md` section 20.
+
 ---
 
 ## 1. Executive summary
@@ -213,7 +215,11 @@ Observations relevant to the coming build (recorded, **not acted on** — no red
 
 The governing spec §4 states: *"Do not use a large city image as the main visual element"* and *"Do not use black-and-blue combination"*, while §5 states: *"Do not publish unsupported customer counts, uptime percentages, certifications or performance claims"*.
 
-The mockups therefore **cannot be implemented literally**. Recorded as B-004 and B-005. Resolution direction (owner decision, not yet implemented): keep the layout language, replace the photographic hero with a data-visualisation hero, and remove or clearly label all statistical claims as illustrative.
+The mockups therefore **cannot be implemented literally** as a photographic hero plus unqualified
+claims. Recorded as B-004 and B-005. Build 0.8 owner direction (D-022) implements the reference
+layout with a hand-built inline SVG cityscape instead of a stock photo, the reference
+navy/electric-blue/cyan/green palette, and the customer/country/uptime figures marked `*` and
+visibly footnoted as illustrative marketing values.
 
 ### 6.3 Master instruction file location
 

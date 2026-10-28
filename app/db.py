@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS user (
     password_hash TEXT NOT NULL,
     full_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','locked','disabled')),
+    theme TEXT NOT NULL DEFAULT 'ocean',
     created_at TEXT NOT NULL
 );
 
@@ -83,8 +84,64 @@ CREATE TABLE IF NOT EXISTS account (
     code TEXT NOT NULL,
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('asset','liability','equity','income','expense')),
+    group_code TEXT NOT NULL DEFAULT '',
     is_postable INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+    archived_at TEXT,
+    archived_by TEXT,
+    merged_into_id TEXT,
     UNIQUE (tenant_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS account_profile (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    account_id TEXT NOT NULL UNIQUE REFERENCES account(id),
+    legal_name TEXT NOT NULL DEFAULT '',
+    contact_person TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    website TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    state_code TEXT NOT NULL DEFAULT '',
+    pincode TEXT NOT NULL DEFAULT '',
+    country TEXT NOT NULL DEFAULT 'India',
+    gstin TEXT NOT NULL DEFAULT '',
+    pan TEXT NOT NULL DEFAULT '',
+    cin TEXT NOT NULL DEFAULT '',
+    organisation_type TEXT NOT NULL DEFAULT '',
+    industry TEXT NOT NULL DEFAULT '',
+    credit_days INTEGER NOT NULL DEFAULT 0,
+    credit_limit_paise INTEGER NOT NULL DEFAULT 0,
+    party_type TEXT NOT NULL DEFAULT '',
+    party_id TEXT,
+    loan_lender TEXT NOT NULL DEFAULT '',
+    loan_account_no TEXT NOT NULL DEFAULT '',
+    loan_sanction_date TEXT NOT NULL DEFAULT '',
+    loan_maturity_date TEXT NOT NULL DEFAULT '',
+    interest_rate_bp INTEGER NOT NULL DEFAULT 0,
+    tenure_months INTEGER NOT NULL DEFAULT 0,
+    emi_paise INTEGER NOT NULL DEFAULT 0,
+    security_details TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT REFERENCES user(id),
+    updated_by TEXT REFERENCES user(id)
+);
+
+CREATE TABLE IF NOT EXISTS bank_account (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    account_id TEXT NOT NULL REFERENCES account(id),
+    bank_name TEXT NOT NULL,
+    account_number TEXT NOT NULL,
+    ifsc TEXT NOT NULL DEFAULT '',
+    branch TEXT NOT NULL DEFAULT '',
+    holder_name TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, account_id)
 );
 
 CREATE TABLE IF NOT EXISTS journal_entry (
@@ -123,8 +180,12 @@ CREATE TABLE IF NOT EXISTS customer (
     name TEXT NOT NULL,
     phone TEXT,
     gstin TEXT,
+    email TEXT NOT NULL DEFAULT '',
     address TEXT NOT NULL DEFAULT '',
     state_code TEXT NOT NULL DEFAULT '27',
+    account_id TEXT REFERENCES account(id),
+    credit_days INTEGER NOT NULL DEFAULT 0,
+    credit_limit_paise INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
@@ -134,7 +195,12 @@ CREATE TABLE IF NOT EXISTS vendor (
     name TEXT NOT NULL,
     phone TEXT,
     gstin TEXT,
+    email TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
     state_code TEXT NOT NULL DEFAULT '27',
+    account_id TEXT REFERENCES account(id),
+    credit_days INTEGER NOT NULL DEFAULT 0,
+    credit_limit_paise INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
@@ -151,6 +217,11 @@ CREATE TABLE IF NOT EXISTS item (
     stock_milli INTEGER NOT NULL DEFAULT 0,
     track_stock INTEGER NOT NULL DEFAULT 1,
     revenue_code TEXT NOT NULL DEFAULT '4000',
+    category TEXT NOT NULL DEFAULT '',
+    brand TEXT NOT NULL DEFAULT '',
+    barcode TEXT NOT NULL DEFAULT '',
+    mrp_paise INTEGER NOT NULL DEFAULT 0,
+    margin_bp INTEGER NOT NULL DEFAULT 0,
     UNIQUE (tenant_id, sku)
 );
 
@@ -473,6 +544,7 @@ CREATE TABLE IF NOT EXISTS gstr2b_review (
 CREATE INDEX IF NOT EXISTS ix_jl_tenant_account ON journal_line (tenant_id, account_id);
 CREATE INDEX IF NOT EXISTS ix_jl_party ON journal_line (tenant_id, party_id);
 CREATE INDEX IF NOT EXISTS ix_je_tenant_date ON journal_entry (tenant_id, entry_date);
+CREATE INDEX IF NOT EXISTS ix_bank_account_tenant ON bank_account (tenant_id);
 CREATE INDEX IF NOT EXISTS ix_inv_tenant_date ON invoice (tenant_id, invoice_date);
 CREATE INDEX IF NOT EXISTS ix_bill_tenant_date ON bill (tenant_id, bill_date);
 CREATE INDEX IF NOT EXISTS ix_payment_tenant_date ON payment (tenant_id, payment_date);
@@ -491,30 +563,34 @@ CREATE INDEX IF NOT EXISTS ix_gstr2b_review_tenant ON gstr2b_review (tenant_id, 
 """
 
 CHART = [
-    ("1000", "Cash", "asset"),
-    ("1010", "Bank", "asset"),
-    ("1100", "Accounts Receivable", "asset"),
-    ("1200", "Inventory", "asset"),
-    ("1500", "Fixed Assets", "asset"),
-    ("2000", "Accounts Payable", "liability"),
-    ("2100", "GST Output - CGST", "liability"),
-    ("2101", "GST Output - SGST", "liability"),
-    ("2102", "GST Output - IGST", "liability"),
-    ("2200", "GST Input - CGST", "asset"),
-    ("2201", "GST Input - SGST", "asset"),
-    ("2202", "GST Input - IGST", "asset"),
-    ("3000", "Owner's Equity", "equity"),
-    ("3100", "Retained Earnings", "equity"),
-    ("4000", "Sales Revenue", "income"),
-    ("4100", "Service Revenue", "income"),
-    ("5000", "Cost of Goods Sold", "expense"),
-    ("5100", "Purchases", "expense"),
-    ("5900", "Rounding Off", "expense"),
-    ("6000", "Rent", "expense"),
-    ("6010", "Salaries", "expense"),
-    ("6020", "Utilities", "expense"),
-    ("6030", "Professional Fees", "expense"),
+    ("1000", "Cash", "asset", "cash"),
+    ("1010", "Bank", "asset", "bank"),
+    ("1100", "Accounts Receivable", "asset", "receivable"),
+    ("1200", "Inventory", "asset", "inventory"),
+    ("1500", "Fixed Assets", "asset", "fixed_asset"),
+    ("2000", "Accounts Payable", "liability", "payable"),
+    ("2100", "GST Output - CGST", "liability", "duties_taxes"),
+    ("2101", "GST Output - SGST", "liability", "duties_taxes"),
+    ("2102", "GST Output - IGST", "liability", "duties_taxes"),
+    ("2200", "GST Input - CGST", "asset", "gst_input"),
+    ("2201", "GST Input - SGST", "asset", "gst_input"),
+    ("2202", "GST Input - IGST", "asset", "gst_input"),
+    ("3000", "Owner's Equity", "equity", "capital"),
+    ("3100", "Retained Earnings", "equity", "retained_earnings"),
+    ("4000", "Sales Revenue", "income", "sales"),
+    ("4100", "Service Revenue", "income", "service_income"),
+    ("5000", "Cost of Goods Sold", "expense", "cost_of_goods_sold"),
+    ("5100", "Purchases", "expense", "purchase"),
+    ("5900", "Rounding Off", "expense", "other_expense"),
+    ("6000", "Rent", "expense", "other_expense"),
+    ("6010", "Salaries", "expense", "employee_expense"),
+    ("6020", "Utilities", "expense", "other_expense"),
+    ("6030", "Professional Fees", "expense", "other_expense"),
 ]
+
+# Existing databases are backfilled once from this map. New accounts carry the
+# group chosen at creation, so the map is never used to overwrite user choices.
+CHART_GROUPS = {code: group for code, _name, _type, group in CHART}
 
 
 def now() -> str:
@@ -536,12 +612,69 @@ def connect(path: str) -> sqlite3.Connection:
     return conn
 
 
+POST_MIGRATION_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_account_profile_tenant ON account_profile (tenant_id);
+CREATE INDEX IF NOT EXISTS ix_account_status ON account (tenant_id, status);
+CREATE INDEX IF NOT EXISTS ix_customer_account ON customer (tenant_id, account_id);
+CREATE INDEX IF NOT EXISTS ix_vendor_account ON vendor (tenant_id, account_id);
+"""
+
+# Read-only analytics views. They are additive and contain no authoritative
+# totals of their own: every value is derived from posted journal rows.
+ANALYTICS_VIEWS = """
+CREATE VIEW IF NOT EXISTS v_analytics_journal AS
+SELECT e.tenant_id,
+       e.id AS entry_id,
+       e.entry_no,
+       e.entry_date,
+       substr(e.entry_date, 1, 7) AS period_month,
+       e.source_type,
+       e.source_id,
+       e.status,
+       e.reversal_of,
+       l.id AS line_id,
+       l.line_no,
+       l.account_id,
+       a.code AS account_code,
+       a.name AS account_name,
+       a.type AS account_type,
+       a.group_code,
+       l.party_id,
+       l.debit_paise,
+       l.credit_paise,
+       (l.debit_paise - l.credit_paise) AS signed_paise,
+       l.memo
+FROM journal_entry e
+JOIN journal_line l ON l.entry_id = e.id AND l.tenant_id = e.tenant_id
+JOIN account a ON a.id = l.account_id AND a.tenant_id = l.tenant_id;
+
+CREATE VIEW IF NOT EXISTS v_analytics_monthly AS
+SELECT tenant_id,
+       period_month,
+       account_type,
+       SUM(debit_paise) AS debit_paise,
+       SUM(credit_paise) AS credit_paise,
+       SUM(CASE WHEN account_type = 'income'
+                THEN credit_paise - debit_paise ELSE 0 END) AS income_paise,
+       SUM(CASE WHEN account_type = 'expense'
+                THEN debit_paise - credit_paise ELSE 0 END) AS expense_paise,
+       SUM(debit_paise - credit_paise) AS signed_paise
+FROM v_analytics_journal
+GROUP BY tenant_id, period_month, account_type;
+"""
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _ensure_columns(conn)
+    # These indexes touch columns added by _ensure_columns on an existing database,
+    # so they must run after the additive migration, never inside SCHEMA.
+    conn.executescript(POST_MIGRATION_INDEXES)
+    conn.executescript(ANALYTICS_VIEWS)
 
 
 COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
+    "user": [("theme", "TEXT NOT NULL DEFAULT 'ocean'")],
     "tenant": [
         ("gstin", "TEXT NOT NULL DEFAULT ''"),
         ("address", "TEXT NOT NULL DEFAULT ''"),
@@ -555,8 +688,35 @@ COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("bank_ifsc", "TEXT NOT NULL DEFAULT ''"),
         ("invoice_terms", "TEXT NOT NULL DEFAULT ''"),
     ],
-    "customer": [("address", "TEXT NOT NULL DEFAULT ''")],
-    "item": [("hsn", "TEXT")],
+    "account": [
+        ("group_code", "TEXT NOT NULL DEFAULT ''"),
+        ("status", "TEXT NOT NULL DEFAULT 'active'"),
+        ("archived_at", "TEXT"),
+        ("archived_by", "TEXT"),
+        ("merged_into_id", "TEXT"),
+    ],
+    "customer": [
+        ("address", "TEXT NOT NULL DEFAULT ''"),
+        ("email", "TEXT NOT NULL DEFAULT ''"),
+        ("account_id", "TEXT"),
+        ("credit_days", "INTEGER NOT NULL DEFAULT 0"),
+        ("credit_limit_paise", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+    "vendor": [
+        ("email", "TEXT NOT NULL DEFAULT ''"),
+        ("address", "TEXT NOT NULL DEFAULT ''"),
+        ("account_id", "TEXT"),
+        ("credit_days", "INTEGER NOT NULL DEFAULT 0"),
+        ("credit_limit_paise", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+    "item": [
+        ("hsn", "TEXT"),
+        ("category", "TEXT NOT NULL DEFAULT ''"),
+        ("brand", "TEXT NOT NULL DEFAULT ''"),
+        ("barcode", "TEXT NOT NULL DEFAULT ''"),
+        ("mrp_paise", "INTEGER NOT NULL DEFAULT 0"),
+        ("margin_bp", "INTEGER NOT NULL DEFAULT 0"),
+    ],
 }
 
 
@@ -569,7 +729,22 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         for name, ddl in columns:
             if name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+    _backfill_account_groups(conn)
     conn.commit()
+
+
+def _backfill_account_groups(conn: sqlite3.Connection) -> None:
+    """Give known seed ledgers their group without touching custom ledgers."""
+    for code, group_code in CHART_GROUPS.items():
+        conn.execute(
+            "UPDATE account SET group_code=? WHERE code=? AND (group_code IS NULL OR group_code='')",
+            (group_code, code),
+        )
+    # Bank ledgers created before group codes existed are still banks.
+    conn.execute(
+        "UPDATE account SET group_code='bank' WHERE (group_code IS NULL OR group_code='')"
+        " AND id IN (SELECT account_id FROM bank_account)"
+    )
 
 
 def next_number(conn: sqlite3.Connection, tenant_id: str, doc_type: str, prefix: str) -> str:
@@ -595,7 +770,7 @@ def next_number(conn: sqlite3.Connection, tenant_id: str, doc_type: str, prefix:
 def seed_chart(conn: sqlite3.Connection, tenant_id: str) -> dict[str, str]:
     """Insert the default chart; return {code: account_id}."""
     out: dict[str, str] = {}
-    for code, name, typ in CHART:
+    for code, name, typ, group_code in CHART:
         existing = conn.execute(
             "SELECT id FROM account WHERE tenant_id=? AND code=?", (tenant_id, code)
         ).fetchone()
@@ -604,8 +779,9 @@ def seed_chart(conn: sqlite3.Connection, tenant_id: str) -> dict[str, str]:
             continue
         aid = new_id()
         conn.execute(
-            "INSERT INTO account (id, tenant_id, code, name, type) VALUES (?,?,?,?,?)",
-            (aid, tenant_id, code, name, typ),
+            "INSERT INTO account (id, tenant_id, code, name, type, group_code)"
+            " VALUES (?,?,?,?,?,?)",
+            (aid, tenant_id, code, name, typ, group_code),
         )
         out[code] = aid
     return out

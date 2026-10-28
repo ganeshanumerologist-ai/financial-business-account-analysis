@@ -2,13 +2,25 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
-| Status | Catalogue only — **0 reports implemented** |
+| Version | 1.2 |
+| Date | 2026-10-28 |
+| Status | **19 of 66 catalogued reports have a working screen or export** (Build 0.12 adds export/BI surfaces, not new catalogued report screens) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
 Every report must declare: source data, formula, applicability, permissions, filters, drill-down, export, EN/HI labels, freshness, missing-data warning, and actual-vs-estimate separation.
+
+> **Build 0.11/0.12 pilot:** `/reports/analytics` is a cross-cutting **Analytics Overview** (actual
+> monthly revenue/expense, expense composition, top customers/vendors, balance checks, freshness,
+> locally vendored ECharts monthly and expense-composition views and deterministic grounded insights). It is **not
+> counted** in the 19/66 figure until it gets a catalogue ID and the full per-report metadata,
+> export and drill-down set above. It is not a substitute for the missing reports.
+>
+> **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
+> trial balance, P&L, balance sheet, ageing, cash/bank, inventory and GST working sheets, and the
+> static Power BI ZIP (`/export/powerbi.zip`) packages actuals facts and dimensions. These are
+> export/BI surfaces; they do not change the 19/66 screen count, and neither is the full ~150-template
+> report/chart library.
 
 ---
 
@@ -22,7 +34,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | Currency | Display currency + rate source |
 | Permission | Permission key required to view/export |
 | Drill-down | Link from every total to contributing lines |
-| Export | CSV / Excel / PDF (permission-checked) |
+| Export | CSV and/or `.xlsx` where implemented, PDF through print (permission-checked); per-report coverage is still incomplete |
 | Freshness | As-of timestamp + staleness threshold |
 | Empty state | Explicit "no data", never fabricated values |
 | Labels | EN + HI |
@@ -119,8 +131,8 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-701 | Cash Book | journal_line (cash accounts) | Opening + receipts − payments | 2 | Not implemented |
-| R-702 | Bank Book | journal_line (bank accounts) | Opening + receipts − payments | 2 | Not implemented |
+| R-701 | Cash Book | journal_line (cash accounts) | Opening + receipts − payments | 2 | Working (Build 0.9) |
+| R-702 | Bank Book | journal_line (each linked bank account) | Opening + receipts - payments | 2 | Working (Build 0.10, multi-bank) |
 | R-703 | Bank Reconciliation Statement | statement + ledger | Difference = timing + errors (explained) | 3 | Working (Build 0.4) |
 | R-704 | Receivables Risk | AR + ageing + history | Overdue value, exposure, trend | 6 | Not implemented |
 | R-705 | Cash Flow Forecast | AR/AP due dates + history | Projected inflows/outflows (**labelled forecast**) | 6 | Not implemented |
@@ -179,16 +191,18 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | 4 Purchase | 6 | 2 | 2 |
 | 5 Inventory | 8 | 0 | 0 |
 | 6 Costing/manufacturing | 5 | 0 | 0 |
-| 7 Cash/credit/risk | 6 | 1 | 1 |
+| 7 Cash/credit/risk | 6 | 3 | 3 |
 | 8 Tax/compliance | 7 | 6 | 6 |
 | 9 Strategy/process | 5 | 0 | 0 |
 | 10 AI/forecast | 4 | 0 | 0 |
-| **Total** | **66** | **17** | **17** |
+| **Total** | **66** | **19** | **19** |
 
 Implemented counts include only reports with a route and a passing automated check; partial
 working papers (for example opening/closing statement balances) are noted in the group tables but
 not counted as complete. Build 0.6 adds GSTR-2B reconciliation (R-806) and statement sharing for
-R-305/R-403; Build 0.7 adds per-line ITC review and a GSTR-3B-vs-2B comparison inside R-806.
+R-305/R-403; Build 0.7 adds per-line ITC review and a GSTR-3B-vs-2B comparison inside R-806;
+Build 0.9 adds cash book (R-701) and bank book (R-702). Build 0.10 makes the bank book selectable
+for every linked bank account, but adds no new catalogue row or report count.
 
 The spec's ≈150 target will be reached by extending groups 1–10; the 66 catalogued here are the ones with a defined formula and a clear user. Reports without a defined source and formula are not catalogued — they would be decoration, not information.
 

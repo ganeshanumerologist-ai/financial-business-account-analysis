@@ -54,6 +54,25 @@ def parse_qty(value) -> int:
     return int(q * 1000)
 
 
+def parse_percent(value) -> int:
+    """Parse a percentage into basis points (18% -> 1800, 18.5% -> 1850)."""
+    if isinstance(value, float):
+        raise MoneyError("float percentage is not allowed; send a string")
+    text = str(value).strip().replace("%", "").replace(",", "")
+    if not text:
+        return 0
+    try:
+        dec = Decimal(text)
+    except InvalidOperation as exc:
+        raise MoneyError(f"invalid percentage: {value!r}") from exc
+    q = dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if q != dec:
+        raise MoneyError(f"percentage has more than 2 decimal places: {value!r}")
+    if q < 0 or q > 10000:
+        raise MoneyError("percentage must be between 0 and 10000")
+    return int(q * 100)
+
+
 def mul_qty_price(qty_milli: int, price_paise: int) -> int:
     """qty(3dp) x price(2dp) -> paise, half-up."""
     if qty_milli < 0 or price_paise < 0:

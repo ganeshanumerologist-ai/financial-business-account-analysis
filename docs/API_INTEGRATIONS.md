@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
-| Status | Draft — **no integration is connected** |
+| Version | 1.1 |
+| Date | 2026-10-28 |
+| Status | Draft - **no external provider is connected; internal imports and analytics API are implemented** |
 | Policy | No paid APIs, no credentials, no fabrication |
 
-> Current state: **0 integrations configured. 0 credentials stored. 0 API calls made by the product.** Everything below is planned work with prerequisites.
+> Current state: **0 external integrations configured. 0 provider credentials stored. 0 outbound API calls made by the product.** Manual CSV/`.xlsx` import and the internal session-authenticated analytics/Power BI export surface are implemented; everything below labelled planned still needs external access, credentials or owner decisions.
 
 ---
 
@@ -33,11 +33,11 @@
 | INT-03 | GST portal (GSTR working data) | Export/reconcile filing data | 9 | ⛔ Not connected | Filing authorisation; no direct filing in scope initially |
 | INT-04 | Payment gateway (UPI/cards) | Collect payments | 9 | ⛔ Not connected | Provider account + fees (owner cost approval), PCI scope review |
 | INT-05 | UPI QR (non-statutory) | Display a payment QR | 9 | ⛔ Not connected | Provider/UPI ID; must be labelled non-statutory |
-| INT-06 | Bank statement import | Reconciliation feed | 3 | ⛔ Not connected | CSV/Excel import (manual, no bank credentials) |
+| INT-06 | Bank statement import | Reconciliation feed | 3 | **Manual CSV/`.xlsx` implemented**; no bank API | Manual file only; no bank credentials |
 | INT-07 | Bank API (account information) | Automated bank feed | 10 | ⛔ Not connected | Bank approval, consent framework, security review |
 | INT-08 | Email/SMS notifications | Reminders, alerts | 6 | ⛔ Not connected | Provider account (may cost) |
 | INT-09 | WhatsApp Business API | Invoice/reminder delivery | 9 | ⛔ Not connected | Meta verification + provider |
-| INT-10 | AI provider (LLM) | Explanations/insights | 8 | ⛔ Not connected | Consent, data-protection review, cost approval |
+| INT-10 | AI provider (LLM) | Explanations/insights | 8 | **No provider; deterministic grounded insights implemented** | Consent, data-protection review, cost approval |
 | INT-11 | Tally/other accounting import | Migration | 3 | ⛔ Not connected | Format research |
 | INT-12 | Barcode hardware (USB/BT scanner) | Input device | 4 | ⛔ Not connected | No API; keyboard-wedge input handling |
 
@@ -77,7 +77,7 @@
 | Consent | Explicit, recorded; configurable off by default |
 | Critical rule | AI must not compute authoritative financial totals — deterministic engine does that |
 | Failure modes | Hallucinated figures, data leakage |
-| Mitigation | Ground answers in retrieved records; cite source IDs; label estimates |
+| Mitigation | Ground answers in retrieved records; cite source IDs; label estimates. Build 0.12 ships a deterministic `engine=deterministic_rules_v1` fallback with `generative_ai=false`; no external model is called |
 
 ---
 
@@ -89,11 +89,22 @@
 | Credential storage/rotation | ❌ Not implemented |
 | Webhook receiver with signature verification | ❌ Not implemented |
 | Retry/backoff/idempotency framework | ❌ Not implemented |
-| Integration audit logging | ❌ Not implemented |
+| Integration audit logging | Not implemented for external calls; accounting/import actions use the existing audit log |
 | Sandbox test harness | ❌ Not implemented |
-| CSV bank statement import | ❌ Not implemented |
+| Internal analytics JSON API | Session-authenticated, tenant-scoped, `report.view`; `/api/v1/analytics/catalog`, `/api/v1/analytics/overview` and `/api/v1/analytics/insights`; no external token yet | Implemented (internal only) |
+| CSV/`.xlsx` bank statement import | Implemented manually; SHA-256 dedup and matching; no bank feed |
 
 ---
+
+### 4.1 Build 0.12 internal surfaces (not external integrations)
+
+| Surface | Status |
+|---|---|
+| `/export/workbook.xlsx` | Real `.xlsx` actuals workbook; session + `report.export`; no external service |
+| `/export/powerbi.zip` | Static import ZIP for Power BI Desktop; no Service connection, token or refresh |
+| `/api/v1/analytics/insights` | Deterministic grounded observations; session + `report.view`; no model provider |
+| `/static/echarts.min.js` | Locally vendored chart asset; no CDN or third-party request |
+| `.xlsx` upload | Opening balances, bank statements and GSTR-2B; server-side conversion; no cloud storage |
 
 ## 5. Sequencing rationale
 

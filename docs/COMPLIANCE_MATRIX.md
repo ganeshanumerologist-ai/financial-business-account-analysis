@@ -4,12 +4,18 @@
 |---|---|
 | Version | 1.0 |
 | Date | 2026-10-24 |
-| Status | Draft — informational, not legal advice |
+| Status | Draft — informational, not legal advice. Baseline created during the read-only audit; current implementation evidence is in `docs/REQUIREMENTS_TRACEABILITY.md` and `docs/FEATURE_INVENTORY.md`. |
 | Jurisdiction basis | India (default), international expansion TBD |
 
 > **No compliance claim is made.** Nothing here states that ARTHIVIO is compliant with any law, standard or certification. Each row records applicability, current implementation status, and the action required. Legal/tax review is required before any regulated output.
 
 ---
+
+> **Status note (2026-10-25):** This matrix started as a read-only audit baseline. It is not a
+> certification or legal opinion. Some rows that say "not implemented" may now have a working
+> local feature; use `docs/REQUIREMENTS_TRACEABILITY.md` and `docs/FEATURE_INVENTORY.md` for the
+> current, evidence-backed state. No GST filing, ITC claim, e-invoice or compliance certification
+> is claimed.
 
 ## 1. Claim policy
 
@@ -32,7 +38,7 @@
 | Place of supply | CGST+SGST vs IGST determination | Inter/intra-state supply | ✅ Working (Build 0.2) | State-code rules and tests; professional review |
 | Invoice series | Sequential, per FY, no unauthorised gaps | All | ✅ Working (Build 0.1) | Transactional numbering; gap report still to add |
 | GSTR-1 / 3B working papers | Data export for filing | GST entity | ✅ Working aids (Build 0.5) | Not filed; add portal schema and professional review |
-| GSTR-2B reconciliation | ITC matching (2B is a source, not proof) | GST entity | ✅ Working aid (Build 0.7) | Working CSV only; review states never auto-post ITC or change books |
+| GSTR-2B reconciliation | ITC matching (2B is a source, not proof) | GST entity | ✅ Working aid (Build 0.7) | Working CSV/`.xlsx` only; review states never auto-post ITC or change books |
 | e-Invoice (IRN) | Only via official API, with credentials | Above threshold, if applicable | ⛔ Out of scope (Phase 9) | Official onboarding, sandbox first |
 | e-Way bill | Only via official portal/API | Goods movement as applicable | ⛔ Out of scope | Verify access |
 | TDS/TCS | Deduction, deposit, certificates | Applicable payments | ⛔ Out of scope | Professional design |

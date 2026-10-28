@@ -128,7 +128,7 @@ Spec §4 mandates: *"Do not use a large city image as the main visual element"*,
 |---|---|
 | Severity | **High** |
 | Area | Legal / marketing integrity |
-| Status | Open |
+| Status | Open ? mitigated in the local prototype |
 
 **Description**
 Both mockups display: **"50,000+ Happy Businesses"**, **"120+ Countries"**, **"99.99% Uptime"**, **"Trusted by Businesses Worldwide"**, and a logos/"Retail · Manufacturing · …" trust bar. Spec §5 forbids publishing unsupported customer counts, uptime percentages or performance claims; §2.8 forbids fabricating results.
@@ -143,6 +143,8 @@ Both mockups display: **"50,000+ Happy Businesses"**, **"120+ Countries"**, **"9
 **Impact:** If shipped, these are unsubstantiated marketing assertions — a legal/trust risk, and a direct violation of the governing instructions.
 
 **Recommended fix:** remove the numeric claims entirely for launch, or replace with explicitly labelled illustrative placeholders in non-public drafts. Never publish uptime or customer counts without measured evidence.
+
+**Build 0.8 mitigation:** the public home page reproduces the reference layout, but the three numeric claims are marked `50,000+*`, `120+*` and `99.99%*` and carry a visible footnote: *illustrative marketing metrics, not verified production figures*. This is acceptable only for the local prototype; do not publish these numbers until measured evidence exists.
 
 ---
 
@@ -534,3 +536,15 @@ silently escape verification. Fresh backup and restore drill: 29 tables, 5/5 che
 | G-16 | ITC review state is not an ITC claim or reversal | **OPEN (deliberate)** | `itc_hold`/`accepted` are internal annotations; no journal is posted |
 | G-17 | No supplier/email follow-up or exception ageing | **OPEN** | notes are manual; no outbound email or age buckets |
 
+
+## Build 0.8 status - 2026-10-25
+
+No new accounting defect was found. The build adds a public home page and a local demo route.
+
+### Gap status after Build 0.8
+
+| ID | Gap | Status | Notes |
+|---|---|---|---|
+| G-18 | No hosted or authenticated public demo | **OPEN (deliberate)** | `/demo` is opt-in, loopback-only and synthetic; it is not exposed beyond `127.0.0.1` |
+| G-19 | Home page has no signup or pricing flow | **OPEN** | CTAs open the local demo or sign-in; no account creation, email verification or billing was added |
+| G-20 | No automated visual-regression suite | **OPEN** | home page verified manually and with Lighthouse; no screenshot diffing tool is installed |

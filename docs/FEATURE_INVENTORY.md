@@ -2,18 +2,22 @@
 
 Baseline inventory built from the governing specification, verified against the actual workspace.
 
-**Verification status of the workspace: 0 application features exist.** Every row below is therefore `NOT IMPLEMENTED` — verified by recursive directory listing (see `docs/SOFTWARE_AUDIT.md` §2), not assumed.
+> **Current status is Build 0.12, not the empty baseline below.** Sections 1–13 preserve the
+> original 2026-10-24 audit of an empty workspace so the starting point stays honest. The
+> implemented and verified features are recorded in the later build sections, most recently
+> **§18 (Build 0.11 account archive/merge plus bulk opening-balance import, four user-selectable light workspace palettes and a dark landing-page colour picker)**. Use §18
+> for the current feature list, not the baseline table in this header.
 
 | Field | Value |
 |---|---|
-| Inventory date | 2026-10-24 |
+| Baseline inventory date | 2026-10-24 |
+| Current build | **0.12 (2026-10-28)** |
 | Spec source | `ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md` (763 lines) |
-| Implemented features | **0** |
-| Verified working features | **0** |
 | Specified features tracked | 142 tracked line items across 13 modules (counted from this file, not estimated) |
 | Status vocabulary | `NOT IMPLEMENTED` · `PARTIAL` · `IMPLEMENTED` · `VERIFIED` |
 
-> A feature only reaches `VERIFIED` when implementation + tests + documentation agree. Nothing has reached even `IMPLEMENTED`.
+> A feature only reaches `VERIFIED` when implementation + tests + documentation agree. Current
+> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-10-27-02` (215 tests, OK).
 
 ---
 
@@ -385,12 +389,14 @@ and documentation agree.
 - Cheque printing, payment reminders, Excel export, email delivery
 - PostgreSQL, Next.js UI
 
-## 13. Status after Build 0.7 (2026-10-25)
+## 13. Status after Build 0.8 (2026-10-25)
 
 ### Implemented and verified
 
 | Feature | Where | Evidence |
 |---|---|---|
+| Public product home page | `/` (signed out), `/home` | reference-matched static inline SVG/CSS, detailed synthetic preview, labelled illustrative metrics, responsive, Lighthouse 100/100/100 |
+| Local no-signin demo | `/demo` | opt-in `ARTHIVIO_DEMO_AUTOLOGIN=1`, loopback-only, normal session + `auth.demo_login` audit |
 | Team admin | `/users` | member list with role/status, invite form, pending invites, revoke, role save, suspend/reactivate/remove |
 | One-time invites | `/users/invite` → `/invite/<token>` | SHA-256 token hash only, 7-day expiry, new-user password or existing-user current password, auto-login after acceptance |
 | Protected authority | `/users` and `security.py` | owner role cannot be assigned/changed, self role/status changes rejected, suspended/removed sessions revoked |
@@ -410,3 +416,173 @@ and documentation agree.
 - Partial/one-to-many bank matching; auto-posting bank charges/interest
 - e-invoice/IRN, e-way bill, TDS/TCS, cheque printing, payment reminders, Excel export
 - PostgreSQL, Next.js UI, load/concurrency/penetration testing
+
+## 14. Status after Build 0.9 (2026-10-25)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Tally-style grouped navigation | every authenticated page | direct Dashboard plus Transactions, Books, Reports, Tax Returns, Masters and Settings dropdowns; native `<details>` keyboard support, active-parent highlight, responsive bar |
+| Grouped transaction links | Transactions menu | Sales: Invoices, Receipts, Credit Notes; Purchases: Bills, Debit Notes, Vendors |
+| Grouped books links | Books menu | Day Book, Journal, Ledger, Cash Book, Bank Book, Bank Reconciliation |
+| Grouped reports and tax links | Reports / Tax Returns menus | Trial Balance, P&L, Balance Sheet, AR/AP Ageing; GST Summary & GSTR-1, GSTR-3B Working, GSTR-2B Reconciliation |
+| Cash Book | `/reports/cash-book` | posted-ledger view for account 1000: opening, receipts, payments, closing; date filter |
+| Bank Book | `/reports/bank-book` | posted-ledger view for account 1010: opening, receipts, payments, closing; date filter |
+
+### Still not implemented
+
+- Multi-bank-account selection, contra entries, cheque printing, bank-charge auto-posting
+- Screen-reader and cross-browser regression matrix for the new menus
+- All gaps listed in §13 remain open
+
+## 15. Status after Build 0.10 (2026-10-25)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Ledger hub | `/ledger` | all accounts grouped by Assets, Liabilities, Equity, Income and Expenses with Dr/Cr balances; click any account for its full ledger |
+| Add ledger account | `/ledger` | **Add ledger account** opens the full Account 360 form; creates a validated postable account, rejects duplicate codes, audits `account.create`, and opens the new ledger |
+| Opening balance | `/ledger?account=<id>` | optional Dr/Cr amount and date set at account creation or later; posts a balanced journal against the automatically created `3200 Opening Balance Equity`; date must be on or before first activity; one posted opening per account; replacement requires reversal; `opening_balance.set` audited |
+| Separate entry pages | `/entries/cash`, `/entries/bank`, `/entries/journal` | Cash Entry and Bank Entry preselect the control account; Journal Entry accepts any balanced multi-line entry; posting redirects to the affected ledger |
+| Journal correction | `/journal?reverse=<id>` | manual journals can be reversed only with permission and a required reason; the original is marked reversed, a mirrored entry is posted, and both stay in the ledger and audit trail |
+| Multiple bank accounts | `/bank-accounts` | bank name, account number, IFSC, branch and holder create a new asset ledger plus linked bank book, reconciliation and audit event |
+| Multi-bank books | `/reports/bank-book`, `/bank-recon` | account selector lists the legacy 1010 account and every new bank account; each has its own opening, movement, closing and reconciliation |
+| Reports in one menu | Reports dropdown | Trial Balance, P&L, Balance Sheet, Receivables/Payables Ageing, GST Summary & GSTR-1, GSTR-3B Working and GSTR-2B Reconciliation |
+| Permission model | `account.manage` | owner, admin and accountant can manage accounts and bank accounts; read-only cannot |
+| Dashboard cash | dashboard KPI | cash plus every linked bank account, not just 1000/1010 |
+
+### Still not implemented
+
+- Bank-account deactivate, contra entries, cheque printing and bank-charge auto-posting
+- Partial/one-to-many bank matching and automatic bank feeds
+- Account archiving or merging at the time of this section; see §18 for the implemented flow. Merged duplicates and bulk chart reclassification remain outside this section.
+- Cross-browser, screen-reader and pixel-regression testing for the two-column ledger layout
+- GSTR portal filing/upload and actual ITC claims remain out of scope
+
+## 16. Status after Account 360 (2026-10-26)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Account 360 creation | `/ledger/account/new` | one Account type / group selector plus company/contact, address, GSTIN/PAN/CIN, organisation/industry, credit terms, bank, loan and notes captured in one atomic transaction; `TestAccountProfile`, `test_web.test_32` |
+| Real account groups | Ledger sidebar and account form | `account.group_code` stores debtor/creditor/bank/loan/tax/suspense/capital/drawings/retained-earnings/P&L/sales/purchase/depreciation and other classifications; group must be compatible with the debit/credit type; changing group updates the hint and suggested opening side; seed chart backfilled; `test_validation_and_atomic_rollback`, `test_web.test_32`, `test_web.test_35`, browser check `RUN-2026-10-26-03` |
+| Party sub-ledgers | customer/vendor link | debtor/creditor accounts create or link a customer/vendor; invoices, bills, receipts, payments, credit notes and debit notes post to the linked ledger when present; opening balance is party-tagged; `test_linked_debtor_ledger_gets_invoice_and_receipt`, `test_linked_creditor_ledger_gets_bill_and_payment` |
+| Profile editing | `/ledger/account/<id>/edit` | descriptive fields and party/bank profile can be updated with `account.manage`; code/type/group and posted amounts never change; `account.update` audited; `test_web.test_32` |
+| Bank and loan details | account form and ledger card | bank name/number/IFSC/branch/holder and lender/loan account/sanction/maturity/interest/tenure/EMI/security; bank ledger links to Bank Book; `test_web.test_33` |
+| Product master | `/items` | category, brand, barcode, HSN/SAC, MRP, cost, margin, GST, sale price, stock, tracking and default sales ledger; blank price computed from cost + margin; `test_web.test_34` |
+| Account edit security | `/accounts/update` | server-side `account.manage`, tenant-scoped account lookup, validated IFSC/account/bank fields, audit entry | `test_web.test_32`, `TestSecurity` |
+| Backup coverage | `account_profile` | row-count verification includes the new table | `test_backup_table_list_covers_all_persistent_tables` |
+| Existing-database upgrade | `app/db.py` | columns are added before the indexes that reference them; a pre-Account-360 database upgrades without losing rows and `init_db` is idempotent | `TestAdditiveMigration` (2) |
+
+### Still not implemented
+
+- Account deletion remains not implemented; archive/merge were added in §18
+- Automatic bank feeds, bank charges/interest posting, cheque printing and contra entries
+- Multi-address/multi-contact party records and credit-insurance limits
+- Purchase-price history, batch/expiry, serial numbers, barcode printing and stock valuation layers
+- Cross-browser, screen-reader and pixel-regression testing for the account form
+- GSTR outputs remain working aids, not filed returns or ITC claims
+
+## 17. Status after bulk opening-balance import, workspace palettes and landing colours (Build 0.11, 2026-10-27)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Bulk opening-balance import | `/ledger/opening-balances`, also **Books → Ledgers → Bulk Opening Balances** | pasted or file-picked CSV with `code, side, amount` and optional `as_of, note`; previews every row before writing; posts all ready rows or nothing |
+| CSV template | `/ledger/opening-balances/template.csv` | downloadable two-row starter file with the required headers; `test_36` |
+| Validation | preview page | rejects missing/duplicate columns, empty files, duplicate codes, unknown/non-postable accounts, the Opening Balance Equity account, malformed/non-positive amounts, invalid Dr/Cr, future dates, dates after first activity, locked periods and accounts that already have an opening; `TestOpeningImport` |
+| Atomic posting and audit | opening-import service | one outer transaction; each row creates its own balanced `source_type='opening'` journal against Opening Balance Equity; per-row `opening_balance.set` plus `opening_balance.bulk_import` audit; simulated second-row failure rolled the whole import back; `test_07_failure_after_first_entry_rolls_back_the_whole_import` |
+| Import notes | CSV `note` column | appended to journal narration and copied into the `opening_balance.set` audit metadata; amounts unchanged |
+| Tenant isolation | opening-import service | codes are looked up only inside the signed-in tenant; a code that exists only in another business is rejected as not found; `test_08_codes_are_tenant_scoped_and_template_is_parseable` |
+| Browser check | temporary copy of live books | page rendered; nav sub-option present; two-row preview showed `2/2 ready` and the Post all button; live books untouched; `RUN-2026-10-26-04` |
+| Per-user colour themes | **Settings → Appearance**, `POST /preferences/theme` | four light palettes — Ocean Blue, Emerald Green, Royal Violet, Warm Sunset; saved in additive `user.theme`, CSRF-protected and audited as `user.theme_updated`; white topbar and no navy app chrome; `test_37`, `test_38`, `RUN-2026-10-26-06` |
+| Themed print and login | invoice print, sign-in page, shared statement | invoice print follows the signed-in user's palette; the non-sensitive `ui_theme` cookie carries the choice to `/login` and the landing page; the public statement page uses `THEME_CSS` with the Ocean default because it has no signed-in user context; `test_38` |
+| Public landing colours | `/home`, landing header palette button | Dark hero is slightly lighter than the original navy; four dark variants (Ocean, Emerald, Violet, Sunset) via `/home?theme=<key>`; the server validates the key, sets `ui_theme`, redirects and falls back to Ocean; page-level only, never writes `user.theme`; `test_37`, `test_38`, `RUN-2026-10-27-01` |
+
+### Still not implemented
+
+- In-place re-import/merge of an existing opening; corrections still require reversal and a replacement
+- Thousands-of-rows performance testing, file-picker automation and cross-browser checks
+- Cross-browser, automated contrast and pixel-regression checks for the workspace palettes and the four dark landing variants
+- Account deletion remains not implemented; archive/merge were added in §18
+- Automatic suspense clearing, period closing and year-end closing
+- GSTR outputs remain working aids, not filed returns or ITC claims
+
+## 18. Status after account archive/merge (Build 0.11, 2026-10-27)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Archive an obsolete ledger | `/ledger/account/<id>/archive`, `POST /accounts/archive` | requires `account.manage`, a reason and an all-time zero balance; writes `account.archive`; keeps all posted history; blocks new postings; system/control, party-linked and product-used sales ledgers are refused |
+| Merge duplicate ledgers | `/ledger/account/<id>/archive`, `POST /accounts/merge` | same accounting type only; posts one balanced `source_type='merge'` reclassification journal for the net balance, archives the source and records `account.merge`; bank-to-bank and same-party rules enforced; source history and journal lines stay untouched |
+| Restore an archived ledger | `/ledger/account/<id>/archive`, `POST /accounts/restore` | clears the archive state with an optional reason and writes `account.restore`; makes the ledger postable again; does not auto-reverse a merge journal |
+| Archived visibility | Ledger hub and account selectors | archived accounts leave active posting, Bank Book, opening-import and item-revenue choices but remain in a separate archived ledger list with full history and the merged target |
+| Repointing | merge service | products using a merged income ledger are repointed to the target sales ledger; a same-party merge repoints the customer/vendor account pointer |
+| Guard rails and audit | `app/accounting.py` | system/control codes, party pointers (including legacy pointers without `account_profile`), product sales-ledger references, future activity, mixed types and bank/non-bank targets are rejected before any write; every archive/merge/restore writes an audit row with the reason |
+| Tests | `tests/test_account_archive.py`, `tests/test_web.py` | 6 service cases plus `test_39` HTTP archive/merge/restore and blocked-posting flow; `RUN-2026-10-27-02` |
+
+### Still not implemented
+
+- Account deletion (deliberately destructive; archive is the supported path)
+- One-click undo of a merge; restore reopens the source but the reclassification journal remains
+- Moving imported bank-statement lines or posted document lines between merged ledgers
+- Bulk chart reclassification across many accounts at once
+- Bank-account deactivate, partial/one-to-many bank matching and bank-charge auto-posting
+- Cross-browser, screen-reader and pixel-regression checks for the archive/merge page
+- GSTR outputs remain working aids, not filed returns or ITC claims
+
+
+## 19. Status after analytics foundation and pilot (Build 0.11, 2026-10-27)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Read-only analytics views | `v_analytics_journal`, `v_analytics_monthly` | Created after schema migration; `tests/test_analytics.py::test_analytics_views_reconcile_to_journal_rows` |
+| Metric registry | `/api/v1/analytics/catalog` | 19 actual-only metrics with label, unit, source, written formula, `report.view` permission and drill-down; `test_catalog_is_actuals_only_and_has_stable_metric_keys` |
+| Actuals snapshot | `/api/v1/analytics/overview` | revenue, expenses, profit, assets, liabilities, equity, cash+bank, AR/AP, inventory, open counts, overdue, GST output/input/net, trial-balance/balance-sheet checks, freshness; `test_snapshot_matches_pnl_and_balanced_checks` |
+| Monthly series | API payload and Analytics Overview | zero-filled monthly revenue/expense/profit actuals; totals equal posted journals; `test_monthly_series_zero_fills_missing_months` |
+| Expense and party analysis | API payload and Analytics Overview | expense-account composition; top customers by posted net sales; top vendors by posted purchases; `test_expense_breakdown_and_customer_ranking` |
+| Tenant and date safety | API service | every query is tenant-scoped; bad dates and reversed periods return JSON `BAD_DATE`/`BAD_PERIOD`; `test_tenant_isolation_and_date_validation` |
+| API security | server | sign-in required; `report.view`; JSON `401`/`403`/`400`; `no-store`, `nosniff`, `DENY`, `same-origin`; `test_web.test_40` |
+| Analytics Overview screen | `/reports/analytics` under the single Reports dropdown | date filter, KPI cards, grouped monthly bars, expense shares, top-party tables, balance checks, freshness, actual-only wording; live desktop Chromium check and JSON check in `RUN-2026-10-27-03` |
+| Phone/LAN access | `ARTHIVIO_HOST` | default remains `127.0.0.1`; `ARTHIVIO_HOST=0.0.0.0` enables trusted-LAN access; documented in README; no app logic change |
+
+### Still not implemented
+
+- AI insights, grounded Q&A, anomaly detection and forecasts
+- True `.xlsx` export/import and AI-generated workbooks; CSV remains the only spreadsheet path
+- Power BI dataset, Power Query templates, `.pbix` starter, RLS and scheduled refresh; the JSON API is session-only
+- Full chart engine, saved dashboard layouts, drill-down from every total, EN/HI labels and the 66-report completion
+- External/token-authenticated analytics API, pagination and JSON/CSV export package for BI tools
+- Mobile, tablet, screen-reader, automated contrast, cross-browser and 4K verification
+
+
+## 20. Status after Excel, Power BI pack and grounded insights (Build 0.12, 2026-10-28)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Real `.xlsx` actuals workbook | `/export/workbook.xlsx`, `app/excel.py` | 20 sheets, 3 native Excel charts, exact integer-paise KPI source beside displayed INR; `tests/test_excel.py` (6), `test_web.test_41` |
+| Real `.xlsx` import | opening balances, bank statements, GSTR-2B | server-side `openpyxl` to neutral CSV, then existing validators; 8 MB/50,000-row guard; cached formula values only; `tests/test_xlsx_import.py` (5), `test_web.test_45` |
+| Power BI import pack | `/export/powerbi.zip`, `app/bi.py` | actuals facts, dimensions, metric catalog, Power Query starter, manifest SHA-256; `tests/test_bi.py` (4), `test_web.test_42` |
+| Interactive actuals charts | `/reports/analytics`, `app/static/echarts.min.js` | locally vendored ECharts 5.5.1, no CDN; monthly revenue/expense/profit and expense-composition donut; `test_web.test_43` |
+| Grounded deterministic insights | `/api/v1/analytics/insights`, `app/insights.py` | written basis, metric keys, drill-down, source; `generative_ai=false`; `tests/test_insights.py` (3), `test_web.test_44` |
+| AI Insights visibility | Analytics page and workbook sheet | explicit no-provider label; observations are rule-based and actuals-only; no fabricated narrative |
+| Static BI / export security | server | `report.export` or `report.view`; tenant-scoped; `no-store`; CSRF on imports |
+
+### Still not implemented
+
+- Generative AI provider, grounded Q&A, anomaly model, forecasts and AI-authored workbook formulas
+- Power BI Service dataset, `.pbix`, token API, RLS model and scheduled refresh
+- General `.xlsx` importer (only three flows), formula evaluation and multi-sheet relationships
+- Full 66-report library, saved dashboards, drill-down from every total, EN/HI labels and ~150-template target
+- Mobile/tablet, screen-reader, automated contrast, cross-browser, 4K and load testing
+- Bank-account deactivate, partial/one-to-many bank matching, bank-charge auto-posting
+- Email delivery, ownership transfer, SSO and per-permission editor

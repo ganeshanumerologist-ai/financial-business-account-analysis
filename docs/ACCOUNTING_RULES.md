@@ -2,13 +2,17 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
+| Version | 1.1 |
+| Date | 2026-10-28 |
 | Status | Draft for owner + professional review |
 | Applies to | Phase 2 onward |
 | Jurisdiction default | India (configurable per legal entity) |
 
-> These rules are the specification the engine must satisfy. They are **not yet implemented**, and they are **not** a substitute for review by a qualified accountant or tax professional. Tax specifics marked ⚠️ must be validated against current official sources before any tax output is produced.
+> These rules are the specification the engine must satisfy. The core double-entry, posting,
+> reversal, ledger and reporting rules are implemented through Build 0.12 and covered by the
+> automated tests; they are still **not** a substitute for review by a qualified accountant or tax
+> professional. Tax specifics marked ⚠️ must be validated against current official sources before
+> any tax output is produced.
 
 ---
 
@@ -129,10 +133,125 @@ Dr  Bank                           3,717.00
 | Fiscal period | Defined by start/end dates; no overlapping periods |
 | Status | `open` → `locked` → `closed`; reopening requires an audited, authorised action |
 | Posting to locked/closed | Rejected at the service layer, with a clear error |
-| Opening balances | Entered once per account per period; re-entry requires a correction workflow, not an overwrite |
+| Opening balances | Entered once when an account is brought into the books and carried forward by the normal closing process; re-entry requires reversal and a replacement journal, never an overwrite |
 | Closing | `closing = opening + Σ debits − Σ credits` (signed), asserted per account and per period |
 | Carry-forward | Closing balance of period N becomes opening of N+1 for balance-sheet accounts; P&L accounts close to retained earnings per policy |
 | Timezone | Business dates are `DATE`; a posting near midnight must not shift periods due to UTC conversion |
+
+### Implemented opening-balance workflow (Build 0.10)
+
+- The **Set opening balance** form on an account ledger posts one balanced journal:
+  - Debit opening: `Dr selected account` / `Cr Opening Balance Equity`;
+  - Credit opening: `Dr Opening Balance Equity` / `Cr selected account`.
+- `Opening Balance Equity` is created lazily with the next free code from `3200` upward. An existing
+  account with a different name is never reused as the contra account.
+- The amount is integer paise, the side is explicit (defaulted from the account's normal balance),
+  and the date cannot be in the future.
+- The opening date must be on or before the account's first posted transaction. This prevents a
+  later "opening" figure from being inserted after activity has already changed the balance.
+- One posted opening entry is allowed per account. Replacing it requires a permission-controlled
+  reversal with a reason, then a new opening journal; both entries remain in the ledger and audit
+  trail.
+- Every set writes `opening_balance.set`; the regular period lock, tenant scope and balanced-posting
+  checks still apply. Opening entries are never direct edits to the account row.
+- An opening figure on an income or expense account is accepted for migration, but normal year-end
+  closing still applies; it is not a substitute for a prior-period P&L close.
+- When the account is linked to a customer or vendor, the opening line carries the same `party_id`
+  as later documents, so the party statement and the control account agree.
+
+### Bulk opening-balance import (Build 0.11; `.xlsx` added in Build 0.12)
+
+- The CSV or server-side `.xlsx` import is a **validation and convenience layer**, not a second accounting path. `.xlsx` is converted to neutral CSV first; formulas are never evaluated, cached values are used, and the same preview/posting rules below still apply. Every row
+  still becomes one balanced journal through the same opening-balance service:
+  - a debit row posts `Dr selected account` / `Cr Opening Balance Equity`;
+  - a credit row posts `Dr Opening Balance Equity` / `Cr selected account`.
+- The importer does not require total debits to equal total credits. Each row is balanced on its own,
+  and the net difference is carried by Opening Balance Equity. A file with only debit openings is
+  valid; the equity account simply carries the corresponding credit.
+- **Preview writes nothing.** Posting is allowed only when every row passes: known and postable
+  account in the same tenant, unique code within the file, amount greater than zero, Dr/Cr side,
+  valid non-future date, not in a locked period, on or before first posted activity, no existing
+  opening, and not the Opening Balance Equity account itself.
+- Posting is **all-or-nothing** in one outer transaction. If a later row fails, earlier rows are
+  rolled back too, including a freshly created Opening Balance Equity account. A partial import is
+  never left behind.
+- A missing code is rejected; the importer never invents an account. An existing opening is rejected;
+  correction requires a permission-controlled reversal with a reason and a replacement import.
+- `account.manage` is required. The per-account `opening_balance.set` audit remains, plus one
+  `opening_balance.bulk_import` event with the filename, row count, Dr/Cr totals and created entry
+  IDs. The CSV file itself is not stored.
+- A CSV `note` is appended to the journal narration and copied into the per-account audit metadata;
+  it never changes amounts, dates or sides.
+- No schema or account-row change is made. The journal entries, lines and audit log remain the
+  record, and the normal period lock, reversal, tenant-scope and balanced-posting checks still apply.
+
+### Account archive and merge (Build 0.11)
+
+- **Archive is not deletion.** An archived ledger keeps its code, name and every posted
+  `journal_entry`/`journal_line`. It becomes non-postable and is removed from new-posting selectors,
+  Bank Book, opening-import and product revenue choices. Its full ledger and history remain
+  reachable from the ledger hub's archived list.
+- Archiving requires `account.manage`, a reason and an **all-time balance of exactly zero**. No
+  journal is posted by the archive action. The account row gains `status='archived'`,
+  `archived_at`, `archived_by` and a null `merged_into_id`; `account.archive` is audited.
+- System/control ledgers are locked from archive/merge: cash 1000, receivable 1100, inventory 1200,
+  payable 2000, GST control accounts 2100-2102 and 2200-2202, COGS 5000, purchases 5100, rounding
+  5900, and the Opening Balance Equity group. These codes are used by posting and report logic.
+- A customer/vendor-linked ledger cannot be archived. It can only be merged into another ledger
+  linked to the same party, so the party pointer and statement stay consistent. A legacy
+  `customer.account_id`/`vendor.account_id` pointer is treated the same as an `account_profile`
+  party link.
+- An income ledger referenced by a product cannot be archived until the product is repointed.
+- **Merge never edits history.** The source's net balance is moved to a target of the same
+  `account.type` by one balanced `source_type='merge'` journal dated today:
+  - debit-normal source: `Dr target` / `Cr source`;
+  - credit-normal source: `Dr source` / `Cr target`.
+  Both lines carry the same `party_id` when the source is party-linked, so the party statement nets
+  to the same balance. The source is then archived with `merged_into_id` set. A zero-balance merge
+  posts no journal.
+- Merge is refused for different types, different parties, bank-to-non-bank, system/control source
+  or target, an archived source/target, a source with future-dated activity, or a locked date
+  period (the journal posting path enforces the lock). Products using a merged income code and the
+  customer/vendor account pointer are repointed in the same transaction.
+- **Restore** clears the archive metadata and makes the ledger postable again. It does **not**
+  reverse a merge journal. If a merge must be corrected, restore the source and post an explicit
+  manual journal; the original merge entry and its audit remain visible.
+- The trial balance, P&L and balance sheet remain derived from posted lines, so archiving a
+  zero-balance ledger changes no total and merging moves a balance without changing the overall
+  equation.
+
+### Account classification and party sub-ledgers (Build 0.10)
+
+- `account.type` remains the accounting rule: assets and expenses are normally debit; liabilities,
+  equity and income are normally credit. `account.group_code` classifies **where** the account sits
+  in the chart (debtor, creditor, bank, loan, sales, purchase, and so on) and never overrides the
+  type's normal side.
+- The new-account form presents one **Account type / group** selector and derives the internal type
+  from the group. The available groups include cash, bank, Sundry Debtors / Accounts Receivable,
+  Sundry Creditors / Accounts Payable, inventory, fixed assets, investments, loans and advances, GST
+  input, loans, duties and taxes (GST/TDS), provisions, suspense, capital, drawings, retained
+  earnings, Profit & Loss A/c, opening-balance equity, sales, service and other income, purchase,
+  direct expenses, COGS, employee costs, finance costs, depreciation and other expenses.
+- A group must belong to a compatible type. For example `receivable` is asset, `payable` is
+  liability, `sales` is income and `purchase` is expense; incompatible combinations are rejected.
+- Suspense is a temporary liability holding account for unidentified or unreconciled amounts; it is
+  not automatically cleared and must be reviewed before closing. Profit & Loss A/c is an equity
+  classification for workflows that keep a separate P&L account; it does not replace the P&L report
+  or create year-end closing entries.
+- Creating a `receivable` or `payable` account also creates or links one customer or vendor
+  sub-ledger. If that party already has a linked ledger, the account form attaches to it instead of
+  creating a duplicate. Linking by name preserves phone, GSTIN, address and credit terms that were
+  left blank on the account form; clearing a field later requires an explicit profile edit.
+- Invoices, bills, receipts, payments, credit notes and debit notes post to the linked party ledger
+  when one exists; otherwise they keep using the control account (1100 receivable or 2100 payable).
+  The party statement and the linked ledger are therefore two views of the same posted lines.
+- Descriptive data (company name, GSTIN, address, credit terms, bank or loan details) lives in
+  `account_profile`. Editing it changes no posted amount, cannot change code/type/group, and is
+  audited as `account.update`.
+- Product margin, MRP, HSN/SAC and GST are item-master attributes, not ledger attributes. A single
+  sales ledger can contain many products with different margins and tax rates.
+- Opening balance on a party ledger is tagged with the party id so it is not silently missing from
+  the customer/vendor statement.
 
 ---
 

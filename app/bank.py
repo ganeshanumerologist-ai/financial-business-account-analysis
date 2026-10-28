@@ -244,11 +244,96 @@ def _row_hash(account_id: str, row: dict) -> str:
 # --------------------------------------------------------------------------
 
 def bank_accounts(conn: sqlite3.Connection, tenant_id: str) -> list[dict]:
+    """All bank ledger accounts, including the legacy 1010 account.
+
+    New bank accounts carry their full bank details in ``bank_account``. The
+    original 1010 account predates that table and still works with the details
+    stored in business settings.
+    """
     rows = conn.execute(
-        "SELECT * FROM account WHERE tenant_id=? AND code=? AND type='asset' ORDER BY code",
+        """
+        SELECT a.id, a.tenant_id, a.code, a.name, a.type, a.is_postable,
+               b.id AS bank_account_id, b.bank_name, b.account_number, b.ifsc,
+               b.branch, b.holder_name
+        FROM account a
+        LEFT JOIN bank_account b ON b.account_id = a.id AND b.tenant_id = a.tenant_id
+        WHERE a.tenant_id = ? AND a.type = 'asset' AND a.status='active'
+          AND (a.code = ? OR b.id IS NOT NULL)
+        ORDER BY a.code
+        """,
         (tenant_id, BANK_ACCOUNT_CODE),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def next_bank_code(conn: sqlite3.Connection, tenant_id: str) -> str:
+    used = {r["code"] for r in conn.execute(
+        "SELECT code FROM account WHERE tenant_id=?", (tenant_id,)).fetchall()}
+    for number in range(1020, 2000, 10):
+        code = str(number)
+        if code not in used:
+            return code
+    raise BankError("NO_CODE", "No free bank account code remains in the 1000 series.")
+
+
+def create_bank_account(conn: sqlite3.Connection, tenant_id: str, code: str, name: str,
+                        bank_name: str, account_number: str, ifsc: str = "",
+                        branch: str = "", holder_name: str = "",
+                        created_by: str | None = None) -> dict:
+    """Create a bank ledger account plus its full bank details atomically."""
+    code = (code or "").strip().upper()
+    name = (name or "").strip()
+    bank_name = (bank_name or "").strip()
+    account_number = (account_number or "").strip()
+    ifsc = (ifsc or "").strip().upper()
+    branch = (branch or "").strip()
+    holder_name = (holder_name or "").strip()
+
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{0,11}", code):
+        raise BankError("BAD_CODE",
+                        "Ledger code must start with a letter or digit and use up to 12 characters.")
+    if len(name) < 2 or len(name) > 80:
+        raise BankError("BAD_NAME", "Ledger name must be between 2 and 80 characters.")
+    if len(bank_name) < 2 or len(bank_name) > 80:
+        raise BankError("BAD_BANK_NAME", "Bank name must be between 2 and 80 characters.")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 /.-]{3,33}", account_number):
+        raise BankError("BAD_ACCOUNT_NUMBER",
+                        "Account number must be 4 to 34 letters, digits, spaces, /, . or -.")
+    if ifsc and not re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", ifsc):
+        raise BankError("BAD_IFSC", "IFSC must be 11 characters, e.g. HDFC0001234.")
+    if len(branch) > 80:
+        raise BankError("BAD_BRANCH", "Branch name is too long.")
+    if len(holder_name) > 120:
+        raise BankError("BAD_HOLDER", "Account holder name is too long.")
+    if conn.execute("SELECT 1 FROM account WHERE tenant_id=? AND code=?",
+                    (tenant_id, code)).fetchone():
+        raise BankError("CODE_TAKEN", f"Ledger code {code} already exists.")
+
+    account_id = db.new_id()
+    bank_account_id = db.new_id()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "INSERT INTO account (id, tenant_id, code, name, type, group_code, is_postable)"
+            " VALUES (?,?,?,?, 'asset', 'bank', 1)",
+            (account_id, tenant_id, code, name),
+        )
+        conn.execute(
+            "INSERT INTO bank_account (id, tenant_id, account_id, bank_name, account_number,"
+            " ifsc, branch, holder_name, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (bank_account_id, tenant_id, account_id, bank_name, account_number, ifsc,
+             branch, holder_name, db.now()),
+        )
+        audit(conn, tenant_id, created_by, "bank_account.create", "account", account_id,
+              meta={"code": code, "bank_name": bank_name,
+                    "account_number_last4": account_number[-4:], "ifsc": ifsc})
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return {"account_id": account_id, "bank_account_id": bank_account_id, "code": code,
+            "name": name, "bank_name": bank_name, "account_number": account_number,
+            "ifsc": ifsc, "branch": branch, "holder_name": holder_name}
 
 
 def _bank_account(conn: sqlite3.Connection, tenant_id: str, account_id: str) -> sqlite3.Row:

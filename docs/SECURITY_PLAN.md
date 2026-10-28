@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
+| Version | 1.1 |
+| Date | 2026-10-28 |
 | Status | Draft for owner approval |
 | Scope | Phase 1 foundation, with forward requirements for later phases |
 
@@ -83,16 +83,48 @@ Explicit non-goals for Phase 1: DDoS mitigation, WAF, penetration testing, SOC 2
 
 Permissions are explicit strings; roles are bundles. Checks happen in a dependency that runs **before** the handler body — not inside templates, not in the UI.
 
-| Role | Tenancy | Users | Ledger | Invoices | Inventory | Reports | Export | Backup |
+| Role | Tenancy | Users | Ledger / accounts | Invoices | Inventory | Reports | Export | Backup |
 |---|---|---|---|---|---|---|---|---|
-| owner | manage | full | post/reverse | full | full | all | yes | run/restore |
-| admin | manage | full | post/reverse | full | full | all | yes | run |
+| owner | manage | full | post/reverse/manage | full | full | all | yes | run/restore |
+| admin | manage | full | post/reverse/manage | full | full | all | yes | run |
 | manager | — | invite | post | approve | adjust | all | yes | — |
-| accountant | — | — | post/reverse | create | view | all | yes | — |
+| accountant | — | — | post/reverse/manage | create | view | all | yes | — |
 | cashier | — | — | — | create/receipt | view | own-day | no | — |
 | sales | — | — | — | create | view | own | no | — |
 | inventory | — | — | — | — | full | stock | yes | — |
 | readonly | — | — | view | view | view | view | no | — |
+
+Build 0.10 adds `account.manage` for creating ledger and bank accounts, setting an opening balance,
+and editing an Account 360 profile. It is granted to owner, admin and accountant; manager, cashier,
+sales, inventory and readonly do not receive it. Manual journal and opening-balance reversal
+continue to require `ledger.reverse`. The opening-balance and profile-update endpoints recheck
+`account.manage` on the server even when the form is hidden. Build 0.11's bulk opening-balance
+preview, template download and posting endpoints use the same `account.manage` check; the import is
+tenant-scoped and cannot create accounts, so a CSV cannot widen access or invent a ledger.
+
+The per-user palette endpoint `POST /preferences/theme` is available to any signed-in member but
+changes only that user's own `user.theme` value. It is CSRF-protected, accepts only the four fixed
+palette keys (unknown values are rejected), writes `user.theme_updated`, and sets a non-sensitive
+`ui_theme` cookie used only to render the sign-in page and the public landing page's dark colour
+variant. The landing picker can set that cookie through a validated `/home?theme=<key>` GET; it never
+writes `user.theme`, the audit log, accounting data or tenant data. It grants no accounting, tenant
+or user-management access.
+
+Build 0.11's account archive/merge endpoints (`POST /accounts/archive`, `/accounts/restore`,
+`/accounts/merge`) use the same server-side `account.manage` check, CSRF protection and tenant-scoped
+account lookup. Archive/merge require a reason and are refused for system/control accounts,
+party-linked ledgers, product-used sales ledgers, mismatched types/parties, bank/non-bank pairs and
+future-dated source activity. A merge posts one balanced reclassification journal through the normal
+posting service (period lock and balanced-posting checks still apply), then archives the source; it
+never edits or deletes a posted line. `account.archive`, `account.merge` and `account.restore` are
+written to `audit_log` with actor, source/target, reason, amount and journal reference. The UI hides
+the actions for roles without `account.manage`, but the server rejects them even if the form is
+forged.
+
+Account profile fields can contain personal and commercial data (contact, phone, email, GSTIN, PAN,
+CIN, bank/lender details). They are tenant-scoped, never rendered in public share links, and never
+change posted amounts. Account update writes `account.update`; opening balance writes
+`opening_balance.set`. Item master writes still require `item.manage`.
 
 Rules:
 - Least privilege by default; every new endpoint must declare a permission or it is denied.
@@ -226,3 +258,50 @@ The frontend receives **no** secrets — only a public API base URL.
 - **Residual risks:** review notes may contain commercially sensitive free text and are visible to
   every member who can open the GSTR-2B page; there is no reviewer-maker/checker separation, no
   supplier notification and no independent penetration test.
+
+## 14. Build 0.8 addendum - public home page and local demo login
+
+- **Public surface:** `GET /` when signed out and `GET /home` always return a static,
+  server-rendered marketing page. It reads no tenant, customer, bank or journal data and contains
+  no session-dependent output. It is indexable; the authenticated app and shares remain `noindex`.
+- **Demo gate:** `/demo` requires `ARTHIVIO_DEMO_AUTOLOGIN=1` **and** a loopback peer address
+  (`127.0.0.1`, `::1` or another `127.*`). It returns a plain 404 when either condition fails.
+- **Session creation:** a successful demo request uses the normal server session helper, sets the
+  same HttpOnly / SameSite=Lax cookie, and writes `auth.demo_login` with mode `loopback_autologin`.
+  It does not create a special role, bypass CSRF on later writes, or skip tenant membership checks.
+- **Residual risk:** the flag is a deliberate local bypass. Do not enable it on a shared host or
+  bind the server to a public interface. On a loopback host, any local process or user that can
+  reach port 8000 can obtain the demo owner session. The route cannot be reached through a remote
+  connection because of the peer-address check.
+- **No secrets:** the home page contains no API keys, database paths, session IDs, real financial
+  data or customer names. The preview numbers are labelled synthetic sample data. The reference's
+  customer, country and uptime figures are marked `*` and footnoted as illustrative marketing
+  metrics; they are not verified claims and must not be published without evidence.
+
+
+## 15. Build 0.12 addendum - Excel upload, exports and vendored chart asset
+
+- **Upload authentication:** `.xlsx` import still requires an active session, tenant membership,
+  CSRF and the existing permission (`account.manage` for opening balances, `bank.reconcile` for bank
+  statements, `gst.reconcile` for GSTR-2B). The file does not bypass the validators or post directly.
+- **Multipart parsing:** the removed `cgi` module is not used. A bounded in-process parser reads the
+  request body and keeps file parts only for that request. No upload is written to disk, object
+  storage or a temporary directory.
+- **Size and row limits:** the HTTP layer rejects a POST body over 10 MB before parsing; `app/xlsx_import.py` rejects workbook files over 8 MB and worksheets over 50,000 non-empty rows, and processes at most 100 columns. It reads the workbook in `read_only=True`,
+  `data_only=True` mode, uses cached formula values only and never evaluates a formula.
+- **Malformed input:** non-ZIP or corrupt workbooks fail with a visible `XlsxImportError`; the
+  existing validators still run afterward, so a syntactically valid workbook with bad accounting
+  rows cannot post.
+- **Residual risk:** `.xlsx` is a ZIP container, so a small compressed file can expand substantially
+  in memory before the row limit is reached. The 8 MB/row/column limits reduce but do not eliminate
+  a decompression denial-of-service risk. There is no malware scanner, sandboxed parser process or
+  per-user upload rate limit. Do not expose uploads to untrusted public users without adding those.
+- **Exports:** `/export/workbook.xlsx` and `/export/powerbi.zip` require `report.export` (or the
+  owning route's checked permission), are tenant-scoped, use `Cache-Control: no-store`, and contain
+  only the active tenant's actuals. The ZIP manifest hashes are integrity aids, not signatures.
+- **Chart asset:** ECharts 5.5.1 is vendored locally with its Apache-2.0 notice. There is no runtime
+  CDN request, no third-party script execution and no chart data beyond the active tenant's actuals.
+- **Insights:** `/api/v1/analytics/insights` requires `report.view`; it calls no external model,
+  stores no observation and returns `no-store` JSON. The deterministic rules can still surface
+  sensitive financial aggregates to any member with `report.view`; permission scope is unchanged
+  from the rest of reporting.

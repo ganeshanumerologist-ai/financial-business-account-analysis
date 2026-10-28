@@ -235,5 +235,60 @@ class TestImportAndMatch(BankBase):
         self.assertEqual(ctx.exception.code, "ALREADY_MATCHED")
 
 
+class TestBankAccounts(BankBase):
+    def create(self, code="1020", name="HDFC Current A/c", number="50200099998888",
+               ifsc="HDFC0001234"):
+        return bank.create_bank_account(
+            self.conn, self.t, code, name, "HDFC Bank", number, ifsc,
+            "Andheri West", "Demo Co")
+
+    def test_create_links_ledger_and_bank_details(self):
+        created = self.create()
+        row = self.conn.execute(
+            "SELECT a.code, a.type, a.group_code, b.bank_name, b.account_number, b.ifsc, b.branch"
+            " FROM account a JOIN bank_account b ON b.account_id=a.id"
+            " WHERE a.id=?", (created["account_id"],)).fetchone()
+        self.assertEqual(row["code"], "1020")
+        self.assertEqual(row["type"], "asset")
+        self.assertEqual(row["group_code"], "bank")
+        self.assertEqual(row["bank_name"], "HDFC Bank")
+        self.assertEqual(row["account_number"], "50200099998888")
+        self.assertEqual(row["ifsc"], "HDFC0001234")
+        self.assertEqual(row["branch"], "Andheri West")
+        audit = self.conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE tenant_id=? AND action='bank_account.create'",
+            (self.t,)).fetchone()["c"]
+        self.assertEqual(audit, 1)
+
+    def test_listing_includes_legacy_and_new_bank_accounts(self):
+        self.create()
+        accounts = bank.bank_accounts(self.conn, self.t)
+        self.assertEqual([a["code"] for a in accounts], ["1010", "1020"])
+        self.assertEqual(accounts[1]["bank_name"], "HDFC Bank")
+
+    def test_next_code_skips_used_codes(self):
+        self.assertEqual(bank.next_bank_code(self.conn, self.t), "1020")
+        self.create()
+        self.assertEqual(bank.next_bank_code(self.conn, self.t), "1030")
+
+    def test_duplicate_code_and_bad_ifsc_rejected(self):
+        self.create()
+        with self.assertRaises(bank.BankError) as ctx:
+            self.create()
+        self.assertEqual(ctx.exception.code, "CODE_TAKEN")
+        with self.assertRaises(bank.BankError) as ctx:
+            self.create(code="1030", number="12345678", ifsc="BADIFSC")
+        self.assertEqual(ctx.exception.code, "BAD_IFSC")
+
+    def test_new_bank_account_can_be_reconciled(self):
+        created = self.create()
+        gl = acc.general_ledger(self.conn, self.t, created["account_id"],
+                                "2026-10-01", "2026-10-31")
+        self.assertEqual(gl["closing"], 0)
+        rec = bank.reconciliation(self.conn, self.t, created["account_id"],
+                                  "2026-10-01", "2026-10-31")
+        self.assertEqual(rec["difference"], 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

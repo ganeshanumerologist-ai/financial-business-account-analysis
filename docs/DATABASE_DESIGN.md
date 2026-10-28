@@ -69,6 +69,7 @@ membership.role_key ── role.key
 | password_hash | TEXT | NOT NULL (Argon2id encoded string) |
 | full_name | TEXT | NOT NULL |
 | status | TEXT | CHECK IN (`active`,`locked`,`disabled`), default `active` |
+| theme | TEXT | NOT NULL default `ocean`; one of `ocean`, `emerald`, `violet`, `sunset` |
 | mfa_secret | TEXT | NULL |
 | mfa_enabled | INTEGER | NOT NULL default 0 |
 | failed_login_count | INTEGER | NOT NULL default 0 |
@@ -310,3 +311,129 @@ A line without a review row is presented as `open`. The unique `line_id` keeps o
 history is retained in `audit_log` (`gstr2b.review`, previous/new state and note). Index
 `ix_gstr2b_review_tenant` supports tenant/status summaries. The table stores no ITC amount: all
 displayed tax values come from the immutable 2B line and posted books.
+
+## 13. Build 0.10 additive table (2026-10-25)
+
+Added with `CREATE TABLE IF NOT EXISTS`; no existing account or journal data was rewritten.
+
+| Table | Purpose | Key constraints |
+|---|---|---|
+| `bank_account` | Full bank details for a bank ledger account | `account_id UNIQUE` FK to `account`, tenant FK, bank name, account number, IFSC, branch, holder, timestamp |
+
+Creating a bank account inserts a postable asset `account` and exactly one linked `bank_account`
+row in the same transaction. The legacy `1010 Bank` account remains usable with the bank details
+stored in `tenant`/Business Settings; new bank accounts carry their own details. The table stores no
+balance: every book and reconciliation figure is derived from posted `journal_line` rows. Index
+`ix_bank_account_tenant` supports tenant listing.
+
+Opening balances (Build 0.10) add **no table**. They are ordinary balanced `journal_entry` rows with
+`source_type='opening'` plus two `journal_line` rows, and the contra account is a normal `account`
+row named **Opening Balance Equity** (created lazily from code `3200`). The audit trail records
+`opening_balance.set`; replacement uses the same reversal rows as a manual journal.
+
+Bulk opening-balance import (Build 0.11) also adds **no table and no column**. The uploaded/pasted CSV
+is validated in memory and is not retained. Each accepted row becomes an ordinary opening journal, so
+the existing `journal_entry`, `journal_line` and `audit_log` rows are the record. In addition to the
+per-account `opening_balance.set` events, one `opening_balance.bulk_import` audit row stores the
+filename, row count, Dr/Cr totals and created entry IDs. The import is one outer transaction; a
+failure rolls back every row and any Opening Balance Equity account created by that attempt.
+
+## 14. Build 0.10 Account 360 additive schema (2026-10-26)
+
+All changes are additive columns or `CREATE TABLE IF NOT EXISTS`; no account, journal, party or item
+row is deleted or rewritten.
+
+| Object | Change | Purpose / constraints |
+|---|---|---|
+| `account.group_code` | `TEXT NOT NULL DEFAULT ''` | Classification such as `receivable`, `payable`, `bank`, `loans`, `duties_taxes`, `suspense`, `capital`, `drawings`, `retained_earnings`, `profit_loss`, `sales`, `purchase`, `depreciation`, `opening_equity`. The five `account.type` values still decide debit/credit normal balance. |
+| `account_profile` | new table | One descriptive profile per account: legal/company name, contact, phone, email, website, address, city, state, PIN, country, GSTIN, PAN, CIN, organisation type, industry, credit days/limit, linked `party_type`/`party_id`, lender, loan account, sanction/maturity dates, interest basis points, tenure, EMI paise, security and notes, plus created/updated by/time. `UNIQUE (tenant_id, account_id)`; tenant and account FKs. |
+| `customer.account_id`, `vendor.account_id` | nullable `TEXT` | Optional one-to-one link to the party's sub-ledger account. Indexed by `(tenant_id, account_id)`. |
+| `customer.credit_days`, `credit_limit_paise`; same on `vendor` | `INTEGER DEFAULT 0` | Party credit terms copied from the account profile and editable through the same flow. |
+| `item.hsn` | `TEXT NOT NULL DEFAULT ''` | HSN/SAC for GST-ready invoices. |
+| `item.category`, `item.brand`, `item.barcode` | `TEXT NOT NULL DEFAULT ''` | Product grouping and identification. |
+| `item.mrp_paise`, `item.margin_bp` | `INTEGER DEFAULT 0` | MRP in paise and margin in basis points; sale price, cost and GST remain integer values. |
+
+The known seed chart is backfilled to its group; bank ledgers created before groups existed are
+backfilled to `group_code='bank'`. Custom ledgers are not guessed. `account_profile` is included in
+backup row-count verification. Indexes on newly added party columns are created **after**
+`_ensure_columns`; creating them inside the base schema would fail on an existing database. An
+existing pre-Account-360 database is regression-tested by `TestAdditiveMigration`. Account edits
+update only descriptive fields and the party/bank profile; posted `journal_entry` and `journal_line`
+rows are immutable.
+
+## 15. Build 0.11 per-user theme column (2026-10-26)
+
+This is an additive column only; no accounting table, journal, party, item or account row changes.
+
+| Object | Change | Purpose / constraints |
+|---|---|---|
+| `user.theme` | `TEXT NOT NULL DEFAULT 'ocean'` | Personal workspace palette: `ocean`, `emerald`, `violet` or `sunset`. Applied by `layout()` through `data-theme`; changed from Settings → Appearance; defaulted for existing users by `_ensure_columns`. |
+
+`POST /preferences/theme` is CSRF-protected, available to any signed-in member (it changes only that
+user's screens), and writes one `user.theme_updated` `audit_log` row with the old and new palette.
+The value is a fixed allow-list; unknown values are rejected with HTTP 400. A non-sensitive
+`ui_theme` cookie mirrors the choice for the sign-in page and the public landing page's dark colour
+variant. The landing picker sets only that cookie through a validated `/home?theme=<key>` GET; it
+does not write `user.theme` or an audit row. Backups include the `user` table automatically; the
+theme is not derived from or written to any ledger row.
+
+## 16. Build 0.11 account archive/merge columns (2026-10-27)
+
+Additive columns only; no account, journal, party, item or opening-balance row is deleted or
+rewritten. The columns are present in the base schema and added to an existing database by
+`_ensure_columns` before dependent indexes are created.
+
+| Object | Change | Purpose / constraints |
+|---|---|---|
+| `account.status` | `TEXT NOT NULL DEFAULT 'active'` | `active` or `archived`. Posting paths and new-posting selectors require `active`; archived ledgers remain visible in the ledger hub's archived list. |
+| `account.archived_at` | `TEXT NULL` | UTC timestamp of the archive/merge action. |
+| `account.archived_by` | `TEXT NULL` | User ID that archived or merged the source. |
+| `account.merged_into_id` | `TEXT NULL` | Target account ID when the source was merged; null for a plain archive. The source stays `archived`. |
+| `ix_account_status` | `CREATE INDEX` after migration | Supports tenant + status filtering; created after the additive columns exist. |
+
+Archive/merge itself posts no new table. A merge with a non-zero net balance writes one ordinary
+balanced `journal_entry` (`source_type='merge'`, `source_id` = source account) plus two
+`journal_line` rows, then updates the source account's status/metadata. A zero-balance merge writes
+no journal. The source's existing `journal_line` rows are not moved, renumbered or edited, so the
+trial balance and all reports remain derived from the same immutable lines. `account.archive`,
+`account.merge` and `account.restore` audit rows carry the reason, codes, amount, journal entry and
+repointing counts. `account_profile` and `bank_account` rows are retained for archived ledgers;
+Bank Book and reconciliation selectors hide them, but their details are available if restored.
+
+
+## 17. Build 0.11 read-only analytics views (2026-10-27)
+
+These are `CREATE VIEW IF NOT EXISTS` objects, not tables. They copy no rows and add no cached
+totals. `db.init_db` creates them after `SCHEMA`, `_ensure_columns` and `POST_MIGRATION_INDEXES`, so
+an existing database upgrades without rewriting any accounting row.
+
+| Object | Columns / purpose |
+|---|---|
+| `v_analytics_journal` | Tenant, entry id/no/date/month, source type/id, status, reversal, line id/no, account id/code/name/type/group, party id, debit, credit, signed amount and memo. Joins `journal_entry`, `journal_line` and `account`; history stays immutable. |
+| `v_analytics_monthly` | Per tenant, month and account type: debit, credit, income amount (credit - debit for income), expense amount (debit - credit for expense) and signed amount (debit - credit). Built only from `v_analytics_journal`. |
+
+The views are read-only contracts for the internal JSON API, the Analytics Overview pilot and the
+Build 0.12 Excel/Power BI adapters. Every API query also filters by `tenant_id`; the views do not enforce
+tenant isolation on their own. Reports and metrics continue to use integer paise and the existing
+deterministic accounting functions. No view is treated as an authoritative source separate from the
+posted journal.
+
+The schema also supports the optional `ARTHIVIO_HOST` server binding (default `127.0.0.1`). This is
+a process setting, not a database change.
+
+
+## 18. Build 0.12 Excel, Power BI and insights: no schema change (2026-10-28)
+
+Build 0.12 adds **no table, no column and no index**. The Excel workbook, static Power BI ZIP and
+grounded-insight layer are read-only adapters over the existing journal and analytics views:
+
+- `.xlsx` import is converted to neutral CSV in memory and then handled by the same
+  `opening_import`, `bank` and `gstr2b` services. Uploaded files are not stored in SQLite or on disk.
+  The existing `bank_import`, `bank_statement_line`, `gstr2b_import`, `gstr2b_line`, journal and
+  audit tables remain the record.
+- The workbook and Power BI ZIP are generated from posted journal lines and the same deterministic
+  report functions; they create no cache table and no second ledger.
+- Insights are computed on request from the actuals contract; they are not persisted, so there is
+  no table of AI claims that could drift from the ledger.
+- All Build 0.12 queries remain tenant-scoped and money remains integer paise. No posted row is
+  rewritten by an export, an insight request or a `.xlsx` import preview.

@@ -13,7 +13,8 @@ import sqlite3
 from datetime import datetime, timezone
 
 TABLES = [
-    "tenant", "user", "membership", "account", "customer", "vendor", "item",
+    "tenant", "user", "membership", "account", "account_profile", "bank_account",
+    "customer", "vendor", "item",
     "invoice", "invoice_line", "bill", "bill_line", "payment", "payment_allocation",
     "credit_note", "credit_note_line", "debit_note", "debit_note_line",
     "journal_entry", "journal_line", "audit_log", "period_lock", "sequence",

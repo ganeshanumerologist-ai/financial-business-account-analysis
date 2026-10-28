@@ -11,51 +11,182 @@ import secrets
 import sqlite3
 import urllib.parse
 from datetime import date, datetime, timedelta, timezone
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import accounting as acct
+from . import analytics as analytics_mod
 from . import backup as backup_mod
 from . import bank as bank_mod
+from . import bi as bi_mod
 from . import db, money, security
+from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
+from . import insights as insights_mod
+from . import opening_import as opening_mod
 from . import sharing
+from . import xlsx_import as xlsx_mod
 
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 APP_NAME = "ARTHIVIO"
+DEMO_AUTOLOGIN = os.environ.get("ARTHIVIO_DEMO_AUTOLOGIN") == "1"
+DEMO_EMAIL = os.environ.get("ARTHIVIO_DEMO_EMAIL", "owner@arthivio.test")
 
-CSS = """
-:root{
-  --ivory:#F7F5EF; --surface:#FFFFFF; --ink:#183E35; --ink-soft:#3C534B;
-  --emerald:#176B4D; --emerald-700:#11543C; --sage:#DCE8D9; --sage-soft:#EEF4EC;
-  --gold:#C6A15B; --line:#E5E1D6; --muted:#5A685F; --danger:#A6402F; --danger-bg:#F7E7E3;
-  --radius:14px; --shadow:0 1px 2px rgba(24,62,53,.05),0 8px 24px rgba(24,62,53,.05);
+DEFAULT_THEME = "ocean"
+MAX_POST_BYTES = 10 * 1024 * 1024
+THEMES = {
+    "ocean": {
+        "label": "Ocean Blue",
+        "description": "Cool electric blue with cyan highlights.",
+        "swatches": ("#2563EB", "#67E8F9", "#22C55E", "#F6F9FF"),
+    },
+    "emerald": {
+        "label": "Emerald Green",
+        "description": "Fresh green with soft teal highlights.",
+        "swatches": ("#15803D", "#5EEAD4", "#22C55E", "#F4FBF7"),
+    },
+    "violet": {
+        "label": "Royal Violet",
+        "description": "Soft violet with lavender highlights.",
+        "swatches": ("#7C3AED", "#C4B5FD", "#22C55E", "#F8F5FF"),
+    },
+    "sunset": {
+        "label": "Warm Sunset",
+        "description": "Warm terracotta with peach highlights.",
+        "swatches": ("#C2410C", "#FDBA74", "#16A34A", "#FFF8F1"),
+    },
 }
+
+# Dark-but-not-black landing-page variants. These are deliberately separate from
+# the light workspace palettes so a marketing visitor can preview a colour without
+# turning the hero into a white page.
+LANDING_THEMES = {
+    "ocean": {
+        "hero_a": "#0C3157", "hero_b": "#0A2A48", "hero_c": "#061A30",
+        "overlay_1": "rgba(4,22,47,.94)", "overlay_2": "rgba(4,22,47,.84)",
+        "overlay_3": "rgba(4,22,47,.50)", "overlay_4": "rgba(4,22,47,.22)",
+        "accent": "#67E8F9", "accent_2": "#5EEAD4", "accent_3": "#86EFAC",
+        "primary": "#2563EB", "primary_2": "#1D4ED8",
+        "proof_a": "#08223D", "proof_b": "#0A2A48",
+        "side_a": "#0A2A48", "side_b": "#061A30",
+        "glow": "rgba(56,189,248,.30)",
+    },
+    "emerald": {
+        "hero_a": "#0D3F31", "hero_b": "#0A3328", "hero_c": "#052019",
+        "overlay_1": "rgba(5,32,25,.94)", "overlay_2": "rgba(5,32,25,.84)",
+        "overlay_3": "rgba(5,32,25,.50)", "overlay_4": "rgba(5,32,25,.22)",
+        "accent": "#86EFAC", "accent_2": "#5EEAD4", "accent_3": "#BBF7D0",
+        "primary": "#15803D", "primary_2": "#166534",
+        "proof_a": "#0A3328", "proof_b": "#0D3F31",
+        "side_a": "#0A3328", "side_b": "#052019",
+        "glow": "rgba(52,211,153,.28)",
+    },
+    "violet": {
+        "hero_a": "#2D1D52", "hero_b": "#241544", "hero_c": "#150C28",
+        "overlay_1": "rgba(21,12,40,.94)", "overlay_2": "rgba(21,12,40,.84)",
+        "overlay_3": "rgba(21,12,40,.50)", "overlay_4": "rgba(21,12,40,.22)",
+        "accent": "#C4B5FD", "accent_2": "#A78BFA", "accent_3": "#DDD6FE",
+        "primary": "#7C3AED", "primary_2": "#6D28D9",
+        "proof_a": "#241544", "proof_b": "#2D1D52",
+        "side_a": "#241544", "side_b": "#150C28",
+        "glow": "rgba(167,139,250,.28)",
+    },
+    "sunset": {
+        "hero_a": "#4E271A", "hero_b": "#3B1D12", "hero_c": "#26100A",
+        "overlay_1": "rgba(38,16,10,.94)", "overlay_2": "rgba(38,16,10,.84)",
+        "overlay_3": "rgba(38,16,10,.50)", "overlay_4": "rgba(38,16,10,.22)",
+        "accent": "#FDBA74", "accent_2": "#FB923C", "accent_3": "#FDE68A",
+        "primary": "#C2410C", "primary_2": "#9A3412",
+        "proof_a": "#3B1D12", "proof_b": "#4E271A",
+        "side_a": "#3B1D12", "side_b": "#26100A",
+        "glow": "rgba(251,146,60,.26)",
+    },
+}
+
+
+def landing_theme_style(theme: str) -> str:
+    """Inline custom properties for the standalone landing page."""
+    t = LANDING_THEMES.get(theme, LANDING_THEMES[DEFAULT_THEME])
+    return ";".join(f"--lp-{k.replace('_', '-')}:{v}" for k, v in t.items())
+
+
+THEME_CSS = """
+:root,[data-theme="ocean"]{
+  --page:#F6F9FF; --surface:#FFFFFF; --ink:#212529; --ink-soft:#3F4650;
+  --primary:#2563EB; --primary-strong:#1D4ED8; --primary-soft:#DBEAFE; --primary-pale:#EFF6FF;
+  --primary-line:#BFDBFE; --primary-ink:#1E40AF; --chart-a:#60A5FA; --chart-b:#2563EB;
+  --success:#22C55E; --success-soft:#DCFCE7; --success-ink:#166534;
+  --line:#E6EDF7; --muted:#6C757D; --danger:#DC2626; --danger-bg:#FEF2F2;
+  --radius:14px; --shadow:0 1px 2px rgba(33,37,41,.05),0 8px 24px rgba(33,37,41,.06);
+}
+[data-theme="emerald"]{
+  --page:#F4FBF7; --primary:#15803D; --primary-strong:#166534;
+  --primary-soft:#DCFCE7; --primary-pale:#F0FDF4; --primary-line:#BBF7D0;
+  --primary-ink:#166534; --chart-a:#4ADE80; --chart-b:#16A34A;
+  --line:#DDF0E4; --muted:#5F6B66;
+}
+[data-theme="violet"]{
+  --page:#F8F5FF; --primary:#7C3AED; --primary-strong:#6D28D9;
+  --primary-soft:#EDE9FE; --primary-pale:#F5F3FF; --primary-line:#DDD6FE;
+  --primary-ink:#5B21B6; --chart-a:#A78BFA; --chart-b:#7C3AED;
+  --line:#E9E3F7; --muted:#6B6478;
+}
+[data-theme="sunset"]{
+  --page:#FFF8F1; --primary:#C2410C; --primary-strong:#9A3412;
+  --primary-soft:#FFEDD5; --primary-pale:#FFF7ED; --primary-line:#FED7AA;
+  --primary-ink:#9A3412; --chart-a:#FDBA74; --chart-b:#C2410C;
+  --line:#F3E3D3; --muted:#7A6A5C;
+}
+"""
+
+CSS = THEME_CSS + """
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
-  background:var(--ivory); color:var(--ink);
+  background:var(--page); color:var(--ink);
   font-family:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
   font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased;
 }
-a{color:var(--emerald);text-decoration:none}
+a{color:var(--primary);text-decoration:none}
 a:hover{text-decoration:underline}
 h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.015em;color:var(--ink)}
 h1{font-size:26px} h2{font-size:19px} h3{font-size:15px}
-.shell{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
-.side{background:linear-gradient(180deg,#124A36 0%,#0E3B2B 100%);color:#EAF2EC;padding:20px 16px 28px;position:sticky;top:0;height:100vh;overflow-y:auto}
-.brand{display:flex;align-items:center;gap:10px;margin:4px 6px 26px}
+.shell{min-height:100vh}
+.topbar{position:sticky;top:0;z-index:60;background:rgba(255,255,255,.97);color:var(--ink);border-bottom:1px solid var(--line);backdrop-filter:blur(16px);box-shadow:0 8px 24px rgba(33,37,41,.05)}
+.topbar-inner{max-width:1600px;margin:0 auto;padding:0 22px;min-height:64px;display:flex;align-items:center;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;margin:0;flex:0 0 auto;color:var(--ink);text-decoration:none}
+.brand:hover{text-decoration:none;color:var(--primary)}
 .brand svg{flex:0 0 auto}
 .brand .name{font-size:19px;font-weight:700;letter-spacing:.06em}
-.brand .tag{display:block;font-size:10.5px;color:#A9C4B5;letter-spacing:.02em;margin-top:2px}
-.nav{display:flex;flex-direction:column;gap:2px}
-.nav .grp{font-size:10.5px;letter-spacing:.12em;color:#8FB0A1;margin:16px 10px 6px;text-transform:uppercase}
-.nav a{display:flex;align-items:center;gap:10px;color:#DCEAE1;padding:9px 12px;border-radius:9px;font-size:14.5px}
-.nav a:hover{background:rgba(255,255,255,.08);text-decoration:none}
-.nav a.on{background:#F7F5EF;color:#123F2E;font-weight:600;box-shadow:0 1px 0 rgba(0,0,0,.06)}
-.nav a .ico{width:16px;height:16px;opacity:.9}
-.main{padding:22px 28px 56px;min-width:0}
+.brand .tag{display:block;font-size:10.5px;color:var(--muted);letter-spacing:.02em;margin-top:2px}
+.mainnav{display:flex;align-items:stretch;gap:1px;flex:1;min-width:0}
+.navlink,.menu>summary{display:flex;align-items:center;gap:7px;height:64px;padding:0 12px;color:var(--ink-soft);font-size:13.5px;font-weight:600;cursor:pointer;list-style:none;white-space:nowrap;border-radius:0}
+.navlink:hover,.menu>summary:hover{background:var(--primary-pale);text-decoration:none;color:var(--primary-strong)}
+.navlink.on,.menu.on>summary{background:var(--primary-pale);color:var(--primary);box-shadow:inset 0 -2px 0 var(--primary)}
+.navlink:focus-visible,.menu>summary:focus-visible{outline:2px solid var(--primary);outline-offset:-3px}
+.navlink .ico,.menu>summary .ico{width:16px;height:16px;opacity:.9}
+.menu{position:relative}
+.menu>summary::-webkit-details-marker{display:none}
+.menu>summary .chev{width:12px;height:12px;margin-left:2px;transition:transform .15s;opacity:.7}
+.menu[open]>summary .chev{transform:rotate(180deg)}
+.menu-panel{position:absolute;top:calc(100% + 8px);left:0;z-index:70;min-width:250px;background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(33,37,41,.18);padding:10px;display:grid;gap:8px}
+.menu-group{min-width:220px}
+.menu-title{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:6px 10px 3px}
+.menu-panel a{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--ink-soft);font-size:13.5px;font-weight:500;white-space:nowrap}
+.menu-panel a:hover{background:var(--primary-pale);color:var(--primary-strong);text-decoration:none}
+.menu-panel a.on{background:var(--primary-soft);color:var(--primary-strong);font-weight:700}
+.menu-panel a .ico{width:15px;height:15px;opacity:.85}
+.menu-group + .menu-group{border-top:1px solid var(--line);padding-top:6px}
+.userbox{display:flex;align-items:center;gap:8px;margin-left:auto;flex:0 0 auto}
+.usertext{font-size:12px;line-height:1.25;color:var(--muted);text-align:right}
+.usertext b{display:block;color:var(--ink);font-size:12.5px}
+.topbar .btn.ghost{background:#fff;border-color:var(--line);color:var(--primary)}
+.topbar .btn.ghost:hover{background:var(--primary-pale);color:var(--primary-strong)}
+.main{padding:26px 30px 56px;min-width:0;max-width:1600px;margin:0 auto;width:100%}
 .top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
 .top .who{font-size:13px;color:var(--muted)}
 .top .who b{color:var(--ink)}
@@ -68,26 +199,54 @@ h1{font-size:26px} h2{font-size:19px} h3{font-size:15px}
 .kpi .sub{font-size:12.5px;color:var(--muted);margin-top:4px}
 .grid2{display:grid;grid-template-columns:1.45fr 1fr;gap:16px}
 .grid2>*{min-width:0}
+.ledger-layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:start}
+.ledger-side{position:sticky;top:80px;max-height:calc(100vh - 100px);overflow:auto;padding:14px}
+.ledger-side h2{font-size:15px}
+.ledger-group{margin-top:12px}
+.ledger-group-title{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:5px 8px 3px}
+.ledger-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:8px;color:var(--ink-soft);font-size:13px;line-height:1.25}
+.ledger-item:hover{background:var(--primary-pale);color:var(--primary-strong);text-decoration:none}
+.ledger-item.on{background:var(--primary-soft);color:var(--primary-strong);font-weight:700}
+.ledger-item.archived{opacity:.68}
+.ledger-item.archived .name{font-style:italic}
+.ledger-item .code{font-variant-numeric:tabular-nums;color:var(--muted);font-size:11.5px;flex:0 0 auto}
+.ledger-item.on .code{color:var(--primary-strong)}
+.ledger-item .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ledger-item .bal{font-variant-numeric:tabular-nums;font-size:11.5px;white-space:nowrap}
+.ledger-add{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.ledger-add>summary{cursor:pointer;color:var(--primary);font-size:13px;font-weight:650;list-style:none}
+.ledger-add>summary::-webkit-details-marker{display:none}
+.ledger-add[open]>summary{margin-bottom:10px}
+.ledger-add form{display:grid;gap:9px}
+.ledger-add .row.c2{gap:8px}
+.entry-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.entry-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.entry-tab{padding:8px 13px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--ink-soft);font-size:13px;font-weight:600}
+.entry-tab:hover{background:var(--primary-pale);text-decoration:none;color:var(--primary-strong)}
+.entry-tab.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.entry-tab.on:hover{color:#fff}
+.notice{background:var(--primary-pale);border:1px solid var(--primary-line);color:var(--primary-ink);padding:10px 13px;border-radius:10px;margin-bottom:14px;font-size:13.5px}
+.pill{display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:2px 7px;border-radius:999px;background:#F1F5F9;color:#475569;white-space:nowrap}
 table{width:100%;border-collapse:collapse;font-size:14.5px}
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
-th{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;background:#FBFAF6}
-tbody tr:hover{background:#FCFBF7}
+th{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;background:#F8FAFC}
+tbody tr:hover{background:#F8FAFC}
 .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-tfoot td{font-weight:650;background:#FBFAF6}
+tfoot td{font-weight:650;background:#F8FAFC}
 .table-wrap{overflow-x:auto}
 .review-cell{min-width:210px}
-.review-form summary{cursor:pointer;color:var(--emerald);font-size:12px;font-weight:600;margin-top:4px}
+.review-form summary{cursor:pointer;color:var(--primary);font-size:12px;font-weight:600;margin-top:4px}
 .review-form[open] summary{margin-bottom:6px}
 .review-form form{display:grid;gap:5px;min-width:190px}
 .review-form select,.review-form input{font-size:12.5px;padding:6px 8px}
-.btn{display:inline-flex;align-items:center;gap:8px;background:var(--emerald);color:#fff;border:0;border-radius:10px;
+.btn{display:inline-flex;align-items:center;gap:8px;background:var(--primary);color:#fff;border:0;border-radius:10px;
   padding:10px 16px;font-size:14.5px;font-weight:600;cursor:pointer}
-.btn:hover{background:var(--emerald-700);text-decoration:none;color:#fff}
-.btn.ghost{background:#fff;color:var(--emerald);border:1px solid #C9D8CE}
-.btn.ghost:hover{background:var(--sage-soft);color:var(--emerald-700)}
+.btn:hover{background:var(--primary-strong);text-decoration:none;color:#fff}
+.btn.ghost{background:#fff;color:var(--primary);border:1px solid var(--primary-line)}
+.btn.ghost:hover{background:var(--primary-pale);color:var(--primary-strong)}
 .btn.small{padding:7px 12px;font-size:13.5px}
-input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid #D8D3C6;border-radius:9px;padding:9px 11px;width:100%}
-input:focus,select:focus,textarea:focus{outline:2px solid #BBD6C6;outline-offset:0;border-color:var(--emerald)}
+input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:9px;padding:9px 11px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--primary-line);outline-offset:0;border-color:var(--primary)}
 label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;letter-spacing:.01em}
 .field{margin-bottom:13px}
 .row{display:grid;gap:12px}
@@ -95,72 +254,120 @@ label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margi
 .row.c3{grid-template-columns:repeat(3,1fr)}
 .row.c4{grid-template-columns:repeat(4,1fr)}
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 9px;border-radius:999px}
-.badge.ok{background:var(--sage);color:#14503A}
+.badge.ok{background:var(--success-soft);color:var(--success-ink)}
 .badge.bad{background:var(--danger-bg);color:var(--danger)}
-.badge.neutral{background:#F0EDE4;color:#5C6A62}
+.badge.neutral{background:#F1F5F9;color:#475569}
+.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;border:0;padding:0;margin:0}
+.theme-option{position:relative;display:block;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;cursor:pointer}
+.theme-option:hover{border-color:var(--primary-line);background:var(--primary-pale)}
+.theme-option:has(input:checked){border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-soft)}
+.theme-option:focus-within{outline:2px solid var(--primary);outline-offset:2px}
+.theme-option input{position:absolute;opacity:0;pointer-events:none}
+.theme-preview{display:flex;gap:3px;margin-bottom:8px}
+.theme-preview i{height:18px;flex:1;border-radius:4px;display:block}
+.theme-name{display:block;font-size:13px;font-weight:700;color:var(--ink)}
+.theme-desc{display:block;font-size:11.5px;color:var(--muted);line-height:1.35;margin-top:2px}
+.theme-save{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
 .muted{color:var(--muted)}
 .small{font-size:13px}
-.err{background:var(--danger-bg);color:var(--danger);border:1px solid #E7C4BC;padding:11px 14px;border-radius:10px;margin-bottom:14px;font-size:14px}
+.err{background:var(--danger-bg);color:var(--danger);border:1px solid #FECACA;padding:11px 14px;border-radius:10px;margin-bottom:14px;font-size:14px}
 .sect{margin-bottom:26px}
 .sect-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .chart{display:flex;align-items:flex-end;gap:10px;height:150px;padding:10px 2px 0}
-.chart .bar{flex:1;background:linear-gradient(180deg,#2E8D69,#176B4D);border-radius:6px 6px 0 0;min-height:3px;position:relative}
+.chart .bar{flex:1;background:linear-gradient(180deg,var(--chart-a),var(--chart-b));border-radius:6px 6px 0 0;min-height:3px;position:relative}
 .chart .bar span{position:absolute;bottom:-22px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted)}
 .chart .bar b{position:absolute;top:-20px;left:0;right:0;text-align:center;font-size:11px;color:var(--ink-soft);font-weight:600}
+.chart2{display:flex;align-items:flex-end;gap:14px;height:176px;padding:20px 2px 0}
+.chart2 .m{flex:1;display:flex;align-items:flex-end;gap:3px;height:100%;position:relative;min-width:0}
+.chart2 .m i{flex:1;border-radius:5px 5px 0 0;min-height:2px;display:block}
+.chart2 .m i.rev{background:linear-gradient(180deg,var(--chart-a),var(--chart-b))}
+.chart2 .m i.exp{background:linear-gradient(180deg,#FBBF24,#F59E0B)}
+.chart2 .m span{position:absolute;bottom:-22px;left:0;right:0;text-align:center;font-size:11px;color:var(--muted);white-space:nowrap}
+.legend{display:flex;gap:16px;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:-1px}
+.legend .rev{background:linear-gradient(180deg,var(--chart-a),var(--chart-b))}
+.legend .exp{background:#F59E0B}
+.mini-bar{height:8px;background:var(--line);border-radius:999px;overflow:hidden;min-width:70px}
+.mini-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--chart-a),var(--chart-b));border-radius:999px}
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
 .login{width:100%;max-width:410px}
 .brandline{display:flex;align-items:center;gap:11px;margin-bottom:18px}
 .footer-note{color:var(--muted);font-size:12px;margin-top:26px}
 .empty{padding:26px;text-align:center;color:var(--muted);font-size:14px}
-@media (max-width:980px){
-  .shell{grid-template-columns:1fr}
-  .side{position:static;height:auto;padding:14px}
-  .nav{flex-direction:row;flex-wrap:wrap}
-  .nav .grp{display:none}
+@media (max-width:1180px){
+  .topbar-inner{padding:0 14px;gap:10px}
+  .navlink,.menu>summary{padding:0 9px;font-size:12.5px}
+  .usertext{display:none}
+}
+@media (max-width:1260px){
+  .topbar-inner{flex-wrap:wrap;padding:10px 14px;min-height:0;gap:8px 10px}
+  .mainnav{order:3;flex:0 0 100%;width:100%;flex-wrap:nowrap;overflow-x:auto;overflow-y:visible;border-top:1px solid var(--line);padding-top:4px}
+  .navlink,.menu>summary{height:44px;padding:0 8px;font-size:12px;gap:5px;flex:0 0 auto}
+  .menu{position:static}
+  .menu-panel{position:absolute;left:12px;right:12px;top:calc(100% + 6px);width:auto;min-width:0;max-height:70vh;overflow:auto;background:#fff;color:var(--ink);border:1px solid var(--line);box-shadow:0 18px 50px rgba(33,37,41,.18)}
+  .menu-title{color:var(--muted)}
+  .menu-panel a{color:var(--ink-soft)}
+  .menu-panel a:hover{background:var(--primary-pale);color:var(--primary-strong)}
+  .menu-panel a.on{background:var(--primary-soft);color:var(--primary-strong)}
+  .menu-group + .menu-group{border-top-color:var(--line)}
   .main{padding:18px}
   .grid2{grid-template-columns:1fr}
+  .row.c3,.row.c4{grid-template-columns:1fr 1fr}
 }
-@media print{.side,.top .who{display:none}.shell{grid-template-columns:1fr}}
+@media (max-width:900px){
+  .ledger-layout{grid-template-columns:1fr}
+  .ledger-side{position:static;max-height:none}
+}
+@media (max-width:620px){.row.c3,.row.c4{grid-template-columns:1fr}}
+@media print{.topbar,.top .who{display:none}.main{max-width:none;padding:0}}
 """
 
 PRINT_CSS = """
 @page{size:A4;margin:12mm}
 *{box-sizing:border-box}
-body{margin:0;background:#EEECE5;color:#1B2B26;font-family:"Segoe UI",system-ui,Arial,sans-serif;font-size:12px;line-height:1.45}
+body{margin:0;background:var(--page);color:var(--ink);font-family:"Segoe UI",system-ui,Arial,sans-serif;font-size:12px;line-height:1.45}
 .toolbar{max-width:190mm;margin:14px auto;display:flex;gap:10px;justify-content:flex-end}
-.toolbar a,.toolbar button{font:inherit;font-size:13px;padding:8px 14px;border-radius:8px;border:1px solid #C9D3CD;background:#fff;color:#176B4D;cursor:pointer;text-decoration:none}
-.toolbar button{background:#176B4D;color:#fff;border-color:#176B4D}
-.sheet{width:190mm;min-height:270mm;margin:0 auto 20px;background:#fff;padding:14mm 14mm 12mm;box-shadow:0 4px 24px rgba(0,0,0,.08)}
-.head{display:flex;justify-content:space-between;gap:18px;border-bottom:2px solid #176B4D;padding-bottom:10px}
-.head .brand{font-size:21px;font-weight:700;letter-spacing:.03em;color:#123F2E}
+.toolbar a,.toolbar button{font:inherit;font-size:13px;padding:8px 14px;border-radius:8px;border:1px solid var(--primary-line);background:#fff;color:var(--primary);cursor:pointer;text-decoration:none}
+.toolbar button{background:var(--primary);color:#fff;border-color:var(--primary)}
+.sheet{width:190mm;min-height:270mm;margin:0 auto 20px;background:#fff;padding:14mm 14mm 12mm;box-shadow:0 4px 24px rgba(33,37,41,.08)}
+.head{display:flex;justify-content:space-between;gap:18px;border-bottom:2px solid var(--primary);padding-bottom:10px}
+.head .brand{font-size:21px;font-weight:700;letter-spacing:.03em;color:var(--ink)}
 .head .meta{text-align:right;min-width:58mm}
-.head .meta .doc{font-size:15px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#123F2E}
-.addr{font-size:11px;color:#44564F;margin-top:3px}
+.head .meta .doc{font-size:15px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.addr{font-size:11px;color:var(--ink-soft);margin-top:3px}
 .parties{display:flex;gap:16px;margin:12px 0}
-.parties>div{flex:1;border:1px solid #DDE3DF;border-radius:6px;padding:8px 10px;min-height:24mm}
-.parties h4{margin:0 0 4px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#5A685F}
+.parties>div{flex:1;border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-height:24mm}
+.parties h4{margin:0 0 4px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 table{width:100%;border-collapse:collapse;font-size:11px}
-th,td{border:1px solid #DDE3DF;padding:5px 6px;vertical-align:top}
-th{background:#F4F7F4;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#44564F;text-align:left}
+th,td{border:1px solid var(--line);padding:5px 6px;vertical-align:top}
+th{background:var(--primary-pale);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);text-align:left}
 .num{text-align:right;white-space:nowrap}
 .totals{margin-left:auto;width:62mm;margin-top:8px}
 .totals td{border:none;padding:3px 0}
 .totals .amt{text-align:right;white-space:nowrap}
-.totals .grand td{border-top:1px solid #176B4D;font-weight:700;font-size:13px;padding-top:5px}
-.words{margin-top:10px;font-size:11px;background:#F7F9F7;border:1px solid #E3E9E4;border-radius:5px;padding:7px 9px}
-.foot{display:flex;justify-content:space-between;gap:18px;margin-top:14px;font-size:10.5px;color:#44564F}
+.totals .grand td{border-top:1px solid var(--primary);font-weight:700;font-size:13px;padding-top:5px}
+.words{margin-top:10px;font-size:11px;background:var(--primary-pale);border:1px solid var(--line);border-radius:5px;padding:7px 9px}
+.foot{display:flex;justify-content:space-between;gap:18px;margin-top:14px;font-size:10.5px;color:var(--ink-soft)}
 .foot .box{flex:1}
-.sign .line{margin-top:26px;border-top:1px solid #9FB0A8;display:block;padding-top:4px;text-align:center}
+.sign .line{margin-top:26px;border-top:1px solid var(--line);display:block;padding-top:4px;text-align:center}
 .foot .sign{flex:0 0 58mm;text-align:center;margin:0}
-.note{margin-top:10px;font-size:10px;color:#5A685F}
-.warn{max-width:190mm;margin:12px auto 0;background:#F7E7E3;border:1px solid #E7C4BC;color:#A6402F;padding:8px 12px;border-radius:8px;font-size:12px}
+.note{margin-top:10px;font-size:10px;color:var(--muted)}
+.warn{max-width:190mm;margin:12px auto 0;background:var(--danger-bg);border:1px solid #FECACA;color:var(--danger);padding:8px 12px;border-radius:8px;font-size:12px}
 @media print{body{background:#fff}.toolbar,.warn{display:none}.sheet{box-shadow:none;margin:0;width:auto;min-height:0;padding:0}}
 """
 
-LOGO = """<svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
-<path d="M4 26 L13 6 L20 20 L24 13 L28 26 Z" fill="#C6A15B" opacity=".95"/>
-<path d="M4 26 L13 6 L20 20 Z" fill="#EAF2EC" opacity=".9"/>
-<circle cx="24" cy="9" r="3.2" fill="#C6A15B"/>
+LOGO = """<svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true">
+<path d="M3 30 L13 5 L21 24 Z" fill="#22D3EE"/>
+<path d="M11 30 L19 9 L30 30 Z" fill="#3B82F6"/>
+<path d="M18 30 L24 18 L33 30 Z" fill="#A78BFA" opacity=".92"/>
+<path d="M6 30 L13 13 L18 30 Z" fill="#38BDF8" opacity=".48"/>
+</svg>"""
+
+LANDING_LOGO = """<svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true">
+<path d="M3 30 L13 5 L21 24 Z" fill="#22D3EE"/>
+<path d="M11 30 L19 9 L30 30 Z" fill="#2563EB"/>
+<path d="M18 30 L24 18 L33 30 Z" fill="#7C3AED" opacity=".92"/>
+<path d="M6 30 L13 13 L18 30 Z" fill="#0EA5E9" opacity=".48"/>
 </svg>"""
 
 ICONS = {
@@ -172,44 +379,122 @@ ICONS = {
     "item": '<path d="M4 7l8-4 8 4v10l-8 4-8-4V7zm8 4v10"/>',
     "audit": '<path d="M5 3h14v18H5zM9 8h6M9 12h6M9 16h3"/>',
     "gear": '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="18" r="2"/>',
+    "bank": '<path d="M3 9l9-5 9 5M5 9v9M9 9v9M15 9v9M19 9v9M3 21h18"/>',
+    "gst": '<path d="M19 5L5 19M7.5 7.5a2 2 0 100-4 2 2 0 000 4zM16.5 20.5a2 2 0 100-4 2 2 0 000 4z"/>',
+    "chev": '<path d="M6 9l6 6 6-6"/>',
 }
 
 NAV = [
-    ("Overview", [("", "dash", "Dashboard")]),
-    ("Sales", [
-        ("invoices", "inv", "Invoices"),
-        ("receipts", "inv", "Receipts"),
-        ("credit-notes", "inv", "Credit Notes"),
-    ]),
-    ("Purchases", [
-        ("bills", "inv", "Bills"),
-        ("debit-notes", "inv", "Debit Notes"),
-        ("vendors", "cust", "Vendors"),
-    ]),
-    ("Books", [
-        ("daybook", "led", "Day Book"),
-        ("journal", "led", "Journal"),
-        ("bank-recon", "led", "Bank Recon"),
-        ("ledger", "led", "Ledger"),
-    ]),
-    ("Reports", [
-        ("reports/trial-balance", "rep", "Trial Balance"),
-        ("reports/pnl", "rep", "Profit &amp; Loss"),
-        ("reports/balance-sheet", "rep", "Balance Sheet"),
-        ("reports/ar-ageing", "rep", "Receivables Ageing"),
-        ("reports/ap-ageing", "rep", "Payables Ageing"),
-        ("reports/gst", "rep", "GST Summary"),
-        ("reports/gstr3b", "rep", "GSTR-3B"),
-        ("gstr2b", "rep", "GSTR-2B Recon"),
-    ]),
-    ("Masters", [
-        ("customers", "cust", "Customers"),
-        ("items", "item", "Items"),
-        ("users", "cust", "Team"),
-        ("settings", "gear", "Settings"),
-        ("backup", "audit", "Backups"),
-        ("audit", "audit", "Audit Log"),
-    ]),
+    {
+        "key": "dashboard",
+        "label": "Dashboard",
+        "icon": "dash",
+        "href": "",
+        "groups": [],
+    },
+    {
+        "key": "transactions",
+        "label": "Transactions",
+        "icon": "inv",
+        "groups": [
+            ("Sales", [
+                ("invoices", "inv", "Invoices"),
+                ("receipts", "inv", "Receipts"),
+                ("credit-notes", "inv", "Credit Notes"),
+            ]),
+            ("Purchases", [
+                ("bills", "inv", "Bills"),
+                ("debit-notes", "inv", "Debit Notes"),
+                ("vendors", "cust", "Vendors"),
+            ]),
+        ],
+    },
+    {
+        "key": "entries",
+        "label": "Entries",
+        "icon": "led",
+        "groups": [
+            ("Record a new entry", [
+                ("entries/cash", "led", "Cash Entry"),
+                ("entries/bank", "bank", "Bank Entry"),
+                ("entries/journal", "led", "Journal Entry"),
+            ]),
+        ],
+    },
+    {
+        "key": "books",
+        "label": "Books",
+        "icon": "led",
+        "groups": [
+            ("Ledgers", [
+                ("ledger", "led", "Ledger"),
+                ("ledger/opening-balances", "led", "Bulk Opening Balances"),
+                ("reports/cash-book", "led", "Cash Book"),
+                ("reports/bank-book", "bank", "Bank Book"),
+            ]),
+            ("Day book", [
+                ("daybook", "led", "Day Book"),
+            ]),
+            ("Banking", [
+                ("bank-accounts", "bank", "Bank Accounts"),
+                ("bank-recon", "bank", "Bank Reconciliation"),
+            ]),
+        ],
+    },
+    {
+        "key": "reports",
+        "label": "Reports",
+        "icon": "rep",
+        "groups": [
+            ("Analysis", [
+                ("reports/analytics", "rep", "Analytics Overview"),
+            ]),
+            ("Financial statements", [
+                ("reports/trial-balance", "rep", "Trial Balance"),
+                ("reports/pnl", "rep", "Profit &amp; Loss"),
+                ("reports/balance-sheet", "rep", "Balance Sheet"),
+            ]),
+            ("Receivables &amp; payables", [
+                ("reports/ar-ageing", "rep", "Receivables Ageing"),
+                ("reports/ap-ageing", "rep", "Payables Ageing"),
+            ]),
+            ("GST &amp; tax working papers", [
+                ("reports/gst", "gst", "GST Summary &amp; GSTR-1"),
+                ("reports/gstr3b", "gst", "GSTR-3B Working"),
+                ("gstr2b", "gst", "GSTR-2B Reconciliation"),
+            ]),
+        ],
+    },
+    {
+        "key": "masters",
+        "label": "Masters",
+        "icon": "cust",
+        "groups": [
+            ("Parties", [
+                ("customers", "cust", "Customers"),
+                ("vendors", "cust", "Vendors"),
+            ]),
+            ("Products", [
+                ("items", "item", "Items"),
+            ]),
+        ],
+    },
+    {
+        "key": "settings",
+        "label": "Settings",
+        "icon": "gear",
+        "groups": [
+            ("Workspace", [
+                ("businesses", "gear", "Businesses"),
+                ("users", "cust", "Team &amp; Roles"),
+                ("settings", "gear", "Business Settings"),
+            ]),
+            ("Controls", [
+                ("backup", "audit", "Backups"),
+                ("audit", "audit", "Audit Log"),
+            ]),
+        ],
+    },
 ]
 
 
@@ -288,39 +573,109 @@ def icon(key: str) -> str:
     return f'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">{d}</svg>'
 
 
+def nav_html(active: str) -> str:
+    """Render the Tally-style top menu with grouped dropdowns."""
+    out = []
+    for item in NAV:
+        links = [link for _group, group_links in item["groups"] for link in group_links]
+        is_parent = any(path == active for path, _ico, _label in links)
+        if not item["groups"]:
+            cls = "navlink on" if item["href"] == active else "navlink"
+            out.append(f'<a class="{cls}" href="/{item["href"]}">{icon(item["icon"])}<span>{item["label"]}</span></a>')
+            continue
+        cls = "menu on" if is_parent else "menu"
+        chev = ('<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+                'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+                f'{ICONS["chev"]}</svg>')
+        out.append(f'<details class="{cls}"><summary>{icon(item["icon"])}'
+                   f'<span>{item["label"]}</span>{chev}</summary>'
+                   f'<div class="menu-panel">')
+        for group, group_links in item["groups"]:
+            out.append(f'<div class="menu-group"><div class="menu-title">{group}</div>')
+            for path, ico, label in group_links:
+                link_cls = " on" if path == active else ""
+                out.append(f'<a class="{link_cls.strip()}" href="/{path}">{icon(ico)}<span>{label}</span></a>')
+            out.append('</div>')
+        out.append('</div></details>')
+    return "".join(out)
+
+
+def theme_for(user) -> str:
+    """Return the saved theme for a user, falling back safely for old rows."""
+    if not user:
+        return DEFAULT_THEME
+    try:
+        value = user["theme"]
+    except (IndexError, KeyError):
+        return DEFAULT_THEME
+    return value if value in THEMES else DEFAULT_THEME
+
+
+def theme_options(current: str) -> str:
+    """Render the four saved-palette choices without changing page layout."""
+    current = current if current in THEMES else DEFAULT_THEME
+    out = []
+    for key, meta in THEMES.items():
+        checked = " checked" if key == current else ""
+        swatches = "".join(
+            f'<i style="background:{color}" aria-hidden="true"></i>'
+            for color in meta["swatches"])
+        out.append(
+            f'<label class="theme-option"><input type="radio" name="theme" value="{key}"{checked}>'
+            f'<span class="theme-preview" aria-hidden="true">{swatches}</span>'
+            f'<span class="theme-name">{esc(meta["label"])}</span>'
+            f'<span class="theme-desc">{esc(meta["description"])}</span></label>')
+    return "".join(out)
+
+
 def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> str:
-    nav = []
-    for group, links in NAV:
-        nav.append(f'<div class="grp">{group}</div>')
-        for path, ico, label in links:
-            cls = " on" if path == active else ""
-            nav.append(f'<a class="{cls.strip()}" href="/{path}">{icon(ico)}<span>{label}</span></a>')
+    nav = nav_html(active)
+    theme = theme_for(user)
     who = ""
     if user:
-        who = (f'<div class="who"><b>{esc(user["full_name"])}</b> &nbsp;·&nbsp; {esc(tenant["name"]) if tenant else ""}'
-               f'<a class="btn ghost small" href="/businesses" style="margin-left:10px">Businesses</a>'
-               f'<form method="post" action="/logout" style="display:inline;margin-left:6px">'
+        who = (f'<div class="userbox"><div class="usertext"><b>{esc(user["full_name"])}</b>'
+               f'{esc(tenant["name"]) if tenant else ""}</div>'
+               f'<a class="btn ghost small" href="/businesses">Businesses</a>'
+               f'<form method="post" action="/logout" style="display:inline;margin:0">'
                f'<button class="btn ghost small" type="submit">Sign out</button></form></div>')
-    return f"""<!doctype html><html lang="en"><head>
+    return f"""<!doctype html><html lang="en" data-theme="{theme}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="description" content="ARTHIVIO private accounting workspace: double-entry books, GST working papers and financial statements.">
 <title>{esc(title)} · {APP_NAME}</title><style>{CSS}</style></head>
 <body><div class="shell">
-<aside class="side">
-  <div class="brand">{LOGO}<div><span class="name">ARTHIVIO</span><span class="tag">Smarter Finance</span></div></div>
-  <nav class="nav">{''.join(nav)}</nav>
-</aside>
+<header class="topbar"><div class="topbar-inner">
+  <a class="brand" href="/" aria-label="ARTHIVIO dashboard">{LOGO}<div><span class="name">ARTHIVIO</span><span class="tag">Smarter Finance</span></div></a>
+  <nav class="mainnav" aria-label="Main navigation">{nav}</nav>
+  {who}
+</div></header>
 <main class="main">
-  <div class="top"><h1>{esc(title)}</h1>{who}</div>
+  <div class="top"><h1>{esc(title)}</h1></div>
   {body}
   <p class="footer-note">{APP_NAME} · amounts in INR · all figures derived from posted documents and journal entries.</p>
-</main></div></body></html>"""
+</main></div>
+<script>
+(() => {{
+  const menus = Array.from(document.querySelectorAll('.menu'));
+  const closeOthers = keep => menus.forEach(m => {{ if (m !== keep) m.open = false; }});
+  menus.forEach(menu => {{
+    menu.addEventListener('toggle', () => {{ if (menu.open) closeOthers(menu); }});
+  }});
+  document.addEventListener('click', event => {{
+    if (!event.target.closest('.menu')) closeOthers(null);
+  }});
+  document.addEventListener('keydown', event => {{
+    if (event.key === 'Escape') closeOthers(null);
+  }});
+}})();
+</script>
+</body></html>"""
 
 
-def login_page(error: str = "") -> str:
+def login_page(error: str = "", theme: str = DEFAULT_THEME) -> str:
+    theme = theme if theme in THEMES else DEFAULT_THEME
     err = f'<div class="err">{esc(error)}</div>' if error else ""
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="en" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="description" content="Sign in to your private ARTHIVIO accounting workspace.">
@@ -339,12 +694,583 @@ def login_page(error: str = "") -> str:
 </div></div></body></html>"""
 
 
+L_ICONS = {
+    "grid": '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
+    "invoice": '<path d="M6 3h9l3 3v15H6zM15 3v4h4M9 11h6M9 15h6M9 19h3"/>',
+    "cart": '<path d="M3 4h2l2.2 10.2a2 2 0 002 1.6h8.4a2 2 0 002-1.6L21 7H6M9 21a1 1 0 100-2 1 1 0 000 2zM18 21a1 1 0 100-2 1 1 0 000 2z"/>',
+    "box": '<path d="M4 7l8-4 8 4v10l-8 4-8-4V7zM12 11v10M4 7l8 4 8-4"/>',
+    "bank": '<path d="M3 9l9-5 9 5M5 9v9M9 9v9M15 9v9M19 9v9M3 21h18"/>',
+    "chart": '<path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/>',
+    "shield": '<path d="M12 3l8 3v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3z"/><path d="M8 12l2.5 2.5L16 9"/>',
+    "cloud": '<path d="M7 18a4 4 0 01-.4-8A6 6 0 0118 11a3.5 3.5 0 01-.5 7H7z"/>',
+    "lock": '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
+    "globe": '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>',
+    "trend": '<path d="M3 17l6-6 4 4 7-8M15 7h5v5"/>',
+    "users": '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.2 2.7-5 6-5s6 1.8 6 5M16 5a3 3 0 010 6M18 14c2.2.5 3 2 3 4"/>',
+    "search": '<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>',
+    "audit": '<path d="M5 3h14v18H5zM9 8h6M9 12h6M9 16h3"/>',
+    "wallet": '<path d="M3 6h18v14H3zM3 10h18M16 15h2"/>',
+    "gst": '<path d="M19 5L5 19M7.5 7.5a2 2 0 100-4 2 2 0 000 4zM16.5 20.5a2 2 0 100-4 2 2 0 000 4z"/>',
+    "arrow": '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    "calc": '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01"/>',
+    "spark": '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3z"/><path d="M19 15l.7 1.8L21.5 18l-1.8.7L19 21l-.7-2.3L16.5 18l1.8-1.2L19 15z"/>',
+    "building": '<path d="M4 21V8l8-4v17M12 21V11l8 4v6M7 10h2M7 14h2M7 18h2M16 16h1M16 19h1"/>',
+    "gear": '<circle cx="12" cy="12" r="3.1"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14.2 3h-4.4l-.3 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2l.3 2.6h4.4l.3-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>',
+    "bell": '<path d="M6 9a6 6 0 1112 0c0 7 3 7 3 9H3c0-2 3-2 3-9zM10 21h4"/>',
+    "chev": '<path d="M6 9l6 6 6-6"/>',
+    "check": '<path d="M4 12l5 5L20 6"/>',
+    "play": '<path d="M8 5l11 7-11 7z"/>',
+    "target": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    "headset": '<path d="M4 13a8 8 0 0116 0M4 13v5a2 2 0 002 2h2v-7H6M20 13v5a2 2 0 01-2 2h-2v-7h2"/>',
+    "refresh": '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 9a7 7 0 0111.6-2L20 12M4 12l2.3 5a7 7 0 0011.6-2"/>',
+    "scale": '<path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/>',
+    "arrowup": '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    "palette": '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="9" r="1.1"/><circle cx="15" cy="9" r="1.1"/><circle cx="9" cy="15" r="1.1"/><circle cx="15" cy="15" r="1.1"/>',
+}
+
+
+def l_icon(name: str, cls: str = "lp-ico") -> str:
+    path = L_ICONS.get(name, L_ICONS["grid"])
+    return (f'<svg class="{cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            f'{path}</svg>')
+
+
+LANDING_CSS = """
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+.lp-body{background:#FFFFFF;color:#0B1F3A;overflow-x:hidden;font-family:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.lp h1,.lp h2,.lp h3{margin:0;font-weight:650;letter-spacing:-.015em;color:#0B1F3A}
+.lp a{text-decoration:none}
+.lp-body a{color:var(--lp-primary);text-decoration:none}
+.lp-body a:hover{text-decoration:none}
+.lp{min-height:100vh}
+.lp-skip{position:absolute;left:16px;top:-60px;z-index:100;background:#F6F9FF;color:#0B1F3A!important;padding:10px 14px;border-radius:8px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.lp-skip:focus{top:12px}
+.lp-ico{width:16px;height:16px;flex:0 0 auto;display:inline-block;vertical-align:middle}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.lp-wrap{max-width:1340px;margin:0 auto;padding:0 28px}
+
+/* Header */
+.lp-nav{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.97);border-bottom:1px solid #E6EDF7;backdrop-filter:blur(16px);box-shadow:0 8px 30px rgba(33,37,41,.05)}
+.lp-nav-inner{max-width:1400px;margin:auto;padding:0 28px;height:74px;display:flex;align-items:center;gap:18px}
+.lp-brand{display:flex;align-items:center;gap:10px;color:#0B1F3A;flex:0 0 auto}
+.lp-brand .mark{width:39px;height:39px;display:grid;place-items:center}
+.lp-brand .mark svg{width:39px;height:39px}
+.lp-name{display:block;font-size:20px;font-weight:800;letter-spacing:.10em;line-height:1;color:#0B1F3A}
+.lp-tag{display:block;font-size:9.5px;color:#64748B;margin-top:4px;letter-spacing:.02em}
+.lp-menu{display:flex;align-items:center;gap:19px;margin-left:16px}
+.lp-menu a{position:relative;display:inline-flex;align-items:center;gap:3px;padding:27px 0;font-size:12.5px;font-weight:600;color:#475569;white-space:nowrap}
+.lp-menu a:hover,.lp-menu a.on{color:var(--lp-primary-2)}
+.lp-menu a.on:after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--lp-primary);border-radius:2px 2px 0 0}
+.lp-chev{width:9px;height:9px;color:#64748B;stroke-width:2}
+.lp-nav-actions{margin-left:auto;display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.lp-icon-btn{position:relative;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#475569;background:#F8FAFC;border:1px solid #E6EDF7}
+.lp-icon-btn:hover{color:#1D4ED8;background:#EFF6FF;border-color:#DBEAFE}
+.lp-icon-btn .lp-ico{width:14px;height:14px}
+.lp-icon-btn .dot{position:absolute;right:5px;top:5px;width:5px;height:5px;border-radius:50%;background:#EF4444;border:1px solid #fff}
+.lp-lang{display:flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:#475569;padding:0 2px}
+.lp-lang .lp-ico{width:13px;height:13px;color:#64748B}
+.lp-user{display:flex;align-items:center;gap:8px;padding:4px 5px;border-radius:999px;color:#0B1F3A!important}
+.lp-user:hover{background:#EFF6FF}
+.lp-user .avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#DBEAFE,#DBEAFE);color:#1D4ED8;font-size:9px;font-weight:800;display:grid;place-items:center;border:1px solid #BFDBFE}
+.lp-user b{display:block;font-size:9.5px;line-height:1.15;font-weight:700}
+.lp-user span span{display:block;font-size:8px;line-height:1.2;color:#64748B;margin-top:2px}
+.lp-theme{position:relative;flex:0 0 auto}
+.lp-theme-btn{width:auto;height:30px;padding:0 9px;border-radius:999px;display:inline-flex;align-items:center;gap:5px;color:#475569;background:#F8FAFC;border:1px solid #E6EDF7;cursor:pointer;list-style:none;font-size:10px;font-weight:700;letter-spacing:.01em}
+.lp-theme-btn::-webkit-details-marker{display:none}
+.lp-theme-btn:hover{color:var(--lp-primary-2);background:#EFF6FF;border-color:#DBEAFE}
+.lp-theme-btn .lp-ico{width:14px;height:14px}
+.lp-theme-btn .lp-chev{width:9px;height:9px;transform:rotate(90deg)}
+.lp-theme-menu{position:absolute;right:0;top:calc(100% + 10px);z-index:90;min-width:194px;background:#fff;border:1px solid #E6EDF7;border-radius:12px;box-shadow:0 18px 45px rgba(11,31,58,.18);padding:7px}
+.lp-theme-title{display:block;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#64748B;font-weight:800;padding:6px 9px 4px}
+.lp-theme-menu a{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:8px;font-size:12px;color:#334A66;font-weight:600;white-space:nowrap}
+.lp-theme-menu a:hover{background:#F6F9FF;color:#0B1F3A}
+.lp-theme-menu a.on{background:#EFF6FF;color:var(--lp-primary-2)}
+.lp-theme-menu a i{width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #DCE6F2;flex:0 0 auto}
+.lp-theme-menu .lp-check{width:14px;height:14px;margin-left:auto;color:var(--lp-primary-2)}
+.lp-theme-note{display:block;font-size:9px;line-height:1.35;color:#7C8CA3;padding:6px 9px 3px;border-top:1px solid #EEF3FA;margin-top:4px}
+
+/* Hero */
+.lp-hero{position:relative;isolation:isolate;overflow:hidden;padding:64px 0 74px;background:linear-gradient(135deg,var(--lp-hero-a) 0%,var(--lp-hero-b) 55%,var(--lp-hero-c) 100%);color:#F0F9FF;min-height:620px}
+.lp-hero-art{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.82}
+.lp-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,var(--lp-overlay-1) 0%,var(--lp-overlay-2) 34%,var(--lp-overlay-3) 62%,var(--lp-overlay-4) 100%);z-index:1;pointer-events:none}
+.lp-hero-inner{position:relative;z-index:2;max-width:1340px;margin:auto;padding:0 28px;display:grid;grid-template-columns:1fr 1.05fr;gap:52px;align-items:center}
+.lp-hero-copy{min-width:0}
+.lp-eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:10.5px;letter-spacing:.18em;font-weight:800;color:var(--lp-accent)}
+.lp-eyebrow span{width:24px;height:1px;background:var(--lp-accent);display:inline-block;box-shadow:0 0 10px var(--lp-accent)}
+.lp-hero h1{font-size:clamp(44px,4.5vw,68px);line-height:.95;letter-spacing:-.05em;color:#fff;margin:18px 0 0;max-width:720px;font-weight:800}
+.lp-hero h1 em{font-style:normal;color:var(--lp-accent);display:block;padding-bottom:3px}
+@supports((background-clip:text) or (-webkit-background-clip:text)){
+  .lp-hero h1 em{background:linear-gradient(90deg,var(--lp-accent) 0%,var(--lp-accent-2) 42%,var(--lp-accent-3) 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+}
+.lp-hero-copy p{font-size:15.5px;line-height:1.72;color:#D4E3F5;max-width:585px;margin:23px 0 0}
+.lp-ctas{display:flex;gap:12px;flex-wrap:wrap;margin:30px 0 0}
+.lp-btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;border-radius:10px;padding:13px 20px;font-size:13.5px;font-weight:700;transition:transform .16s ease,background .16s ease,box-shadow .16s ease}
+.lp-btn:hover{transform:translateY(-1px)}
+.lp-btn.primary{background:linear-gradient(135deg,var(--lp-primary-2),var(--lp-primary) 58%,var(--lp-primary-2));color:#fff!important;box-shadow:0 14px 30px rgba(4,22,47,.28)}
+.lp-btn.primary:hover{filter:brightness(.93)}
+.lp-btn.secondary{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.32);color:#F1F7FF!important}
+.lp-btn.secondary:hover{background:rgba(255,255,255,.13)}
+.lp-btn.green{background:linear-gradient(135deg,#15803D,#22C55E);color:#fff!important;box-shadow:0 12px 26px rgba(34,197,94,.28)}
+.lp-btn.green:hover{background:linear-gradient(135deg,#166534,#22C55E)}
+.lp-btn .play{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.55);font-size:9px;padding-left:1px}
+.lp-btn .play .lp-ico{width:9px;height:9px;stroke-width:2.4;margin-left:1px}
+.lp-trust{display:flex;flex-wrap:wrap;gap:9px 20px;margin-top:28px;color:#BBD2EA;font-size:11.5px}
+.lp-trust span{display:inline-flex;align-items:center;gap:6px}
+.lp-trust i{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;background:var(--lp-primary);color:#EFF6FF;font-style:normal;font-size:9px;font-weight:800}
+
+/* Dashboard preview */
+.lp-preview{position:relative;z-index:2;min-width:0;isolation:isolate}
+.lp-preview:before{content:"";position:absolute;inset:8% -7% -11%;background:radial-gradient(circle,var(--lp-glow),transparent 67%);filter:blur(24px);z-index:-1;pointer-events:none}
+.pv-window{background:#fff;border:1px solid rgba(255,255,255,.55);border-radius:16px;box-shadow:0 34px 80px rgba(0,0,0,.38),0 2px 0 rgba(255,255,255,.6) inset;overflow:hidden;color:#0B1F3A;transform:rotate(-.25deg)}
+.pv-top{height:50px;display:flex;align-items:center;gap:9px;padding:0 12px;background:#FBFDFF;border-bottom:1px solid #E6EDF7}
+.pv-brand{display:flex;align-items:center;gap:5px;font-size:8.5px;font-weight:800;letter-spacing:.08em;color:#1D4ED8;white-space:nowrap}
+.pv-brand svg{width:19px;height:19px}
+.pv-search{flex:1;max-width:170px;height:24px;border-radius:999px;background:#EFF6FF;color:#64748B;font-size:8px;display:flex;align-items:center;gap:4px;padding:0 8px;margin-left:5px;white-space:nowrap}
+.pv-search .lp-ico{width:10px;height:10px}
+.pv-top-icons{display:flex;align-items:center;gap:8px;color:#64748B;margin-left:auto}
+.pv-top-icons .lp-ico{width:11px;height:11px}
+.pv-company{display:flex;align-items:center;gap:5px;border-left:1px solid #E6EDF7;padding-left:8px;font-size:6.5px;line-height:1.15;color:#64748B}
+.pv-company .avatar{width:20px;height:20px;border-radius:50%;background:#DBEAFE;color:#1D4ED8;font-size:6.5px;font-weight:800;display:grid;place-items:center}
+.pv-body{display:grid;grid-template-columns:124px 1fr;min-height:424px}
+.pv-side{background:linear-gradient(180deg,var(--lp-side-a),var(--lp-side-b));padding:11px 8px;color:#B9D0EA}
+.pv-side-item{display:flex;align-items:center;gap:6px;font-size:8.1px;padding:5.5px 7px;border-radius:5px;white-space:nowrap;margin-bottom:1.5px}
+.pv-side-item.active{background:linear-gradient(90deg,var(--lp-primary-2),var(--lp-primary));color:#FFFFFF;font-weight:700;box-shadow:0 4px 10px rgba(4,22,47,.32)}
+.pv-side .lp-ico{width:10px;height:10px;flex:0 0 auto;stroke-width:1.8}
+.pv-main{padding:13px;background:#F7FAFF;min-width:0;overflow:hidden}
+.pv-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.pv-head h2{font-size:15px;letter-spacing:-.02em;color:#0B1F3A;line-height:1.1}
+.pv-head p{font-size:7px;color:#64748B;margin:3px 0 0}
+.pv-date{font-size:6.5px;color:#64748B;background:#EFF6FF;padding:4px 6px;border-radius:5px;white-space:nowrap}
+.pv-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.pv-kpi{background:#fff;border:1px solid #E6EDF7;border-radius:7px;padding:7px 7px 6px;min-width:0}
+.pv-kpi span{display:block;font-size:6.5px;color:#64748B;text-transform:uppercase;letter-spacing:.045em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-kpi b{display:block;font-size:12.2px;margin-top:3px;color:#0B1F3A;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.02em}
+.pv-kpi small{font-size:6.2px;color:#15803D;white-space:nowrap;font-weight:700}
+.pv-grid{display:grid;grid-template-columns:1.58fr 1fr;gap:7px;margin-top:7px}
+.pv-card{background:#fff;border:1px solid #E6EDF7;border-radius:7px;padding:8px;min-width:0}
+.pv-card h3{font-size:8px;color:#475569;line-height:1.2}
+.pv-card-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.pv-legend-inline{display:flex;gap:7px;font-size:6px;color:#64748B;white-space:nowrap}
+.pv-legend-inline i{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:3px}
+.pv-legend-inline .blue{background:#2563EB}
+.pv-legend-inline .green{background:#22C55E}
+.pv-chart{width:100%;height:91px;margin-top:4px;display:block}
+.pv-performance{display:flex;align-items:center;gap:9px;margin-top:9px}
+.pv-donut{width:78px;height:78px;border-radius:50%;background:conic-gradient(#2563EB 0 48%,#22C55E 48% 72%,#A78BFA 72% 86%,#F59E0B 86% 100%);display:grid;place-items:center;position:relative;flex:0 0 auto}
+.pv-donut:after{content:"";position:absolute;inset:13px;background:#fff;border-radius:50%}
+.pv-donut b{position:relative;z-index:1;font-size:10.5px;color:#0B1F3A;line-height:1}
+.pv-donut small{position:relative;z-index:1;font-size:5.8px;color:#64748B;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.pv-donut .donut-label{position:relative;z-index:1;display:grid;place-items:center}
+.pv-legend{display:grid;gap:4px;font-size:6.1px;color:#64748B;min-width:0}
+.pv-legend span{display:flex;align-items:center;white-space:nowrap}
+.pv-legend i{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:4px;flex:0 0 auto}
+.pv-legend b{margin-left:auto;color:#475569;font-weight:700;padding-left:6px}
+.pv-quick{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:6.3px;color:#64748B;white-space:nowrap;overflow:hidden}
+.pv-quick b{color:#2563EB;font-size:6.5px}
+.pv-quick span{display:inline-flex;align-items:center;gap:2px;background:#EFF6FF;border-radius:4px;padding:3px 5px}
+.pv-quick .lp-ico{width:8px;height:8px}
+.pv-mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:7px}
+.pv-mini div{background:#fff;border:1px solid #E6EDF7;border-radius:6px;padding:6px 7px;min-width:0}
+.pv-mini span{display:block;font-size:6.2px;color:#64748B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-mini b{display:block;font-size:10px;margin-top:2px;white-space:nowrap;color:#0B1F3A}
+.pv-mini small{font-size:5.8px;color:#15803D;font-weight:700}
+.pv-note{margin-top:7px;font-size:5.9px;color:#64748B;text-align:right;letter-spacing:.02em}
+
+/* Feature band */
+.lp-feature-band{padding:32px 0 36px;background:#fff;border-bottom:1px solid #E6EDF7}
+.lp-feature-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.lp-feature{background:#fff;border:1px solid #E6EDF7;border-radius:14px;padding:17px 14px;display:flex;align-items:flex-start;gap:11px;box-shadow:0 2px 5px rgba(33,37,41,.05);transition:transform .16s ease,box-shadow .16s ease}
+.lp-feature:hover{transform:translateY(-3px);box-shadow:0 16px 34px rgba(33,37,41,.10)}
+.lp-fi{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#EFF6FF;color:#2563EB;flex:0 0 auto}
+.lp-fi .lp-ico{width:21px;height:21px}
+.lp-fi.blue{background:#EFF6FF;color:#2563EB}
+.lp-fi.violet{background:#F3E8FF;color:#7C3AED}
+.lp-fi.green{background:#DCFCE7;color:#22C55E}
+.lp-fi.amber{background:#FEF3C7;color:#D97706}
+.lp-feature h3{font-size:12.5px;margin:1px 0 4px;letter-spacing:-.015em;line-height:1.2}
+.lp-feature p{font-size:10.5px;line-height:1.45;color:#64748B;margin:0}
+
+/* Why */
+.lp-why{padding:68px 0 76px;background:#fff;border-bottom:1px solid #E6EDF7}
+.lp-why-inner{display:grid;grid-template-columns:.70fr 1.30fr;gap:50px;align-items:center}
+.lp-why h2{font-size:clamp(30px,3.2vw,44px);line-height:1.06;letter-spacing:-.04em;margin:0 0 17px;font-weight:750}
+.lp-why h2 em{font-style:normal;background:linear-gradient(transparent 72%,#DCFCE7 72%);padding:0 2px}
+.lp-kicker{display:block;font-size:10px;letter-spacing:.17em;font-weight:800;color:var(--lp-primary);margin-bottom:12px}
+.lp-why-copy p{font-size:14px;line-height:1.72;color:#475569;max-width:390px;margin:0 0 24px}
+.lp-why-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.lp-why-card{background:#fff;border:1px solid #E6EDF7;border-radius:14px;padding:16px 12px;min-height:174px;box-shadow:0 3px 10px rgba(33,37,41,.05);transition:transform .16s ease,box-shadow .16s ease}
+.lp-why-card:hover{transform:translateY(-3px);box-shadow:0 14px 28px rgba(33,37,41,.10)}
+.lp-why-card .lp-fi{width:38px;height:38px;border-radius:11px;margin:0 0 13px}
+.lp-why-card .lp-fi .lp-ico{width:18px;height:18px}
+.lp-why-card h3{font-size:11.5px;margin-bottom:6px;line-height:1.2}
+.lp-why-card p{font-size:10.5px;line-height:1.5;color:#64748B;margin:0}
+
+/* Trust strip */
+.lp-proof{background:linear-gradient(90deg,var(--lp-proof-a),var(--lp-proof-b) 55%,var(--lp-proof-a));color:#EFF6FF;padding:32px 0}
+.lp-proof-grid{display:grid;grid-template-columns:1.55fr .82fr .72fr .72fr 1fr;gap:24px;align-items:center}
+.lp-proof-intro,.lp-mission{display:flex;gap:11px;align-items:flex-start;min-width:0}
+.lp-proof-intro .lp-ico,.lp-mission .lp-ico{width:24px;height:24px;color:var(--lp-accent);flex:0 0 auto;margin-top:2px}
+.lp-proof-intro b,.lp-mission b{display:block;font-size:12.5px;color:#fff;line-height:1.3}
+.lp-proof-intro span{display:block;font-size:9.5px;line-height:1.5;color:#9EBBD9;margin-top:3px}
+.lp-proof-stat{display:flex;align-items:center;gap:9px;min-width:0}
+.lp-proof-stat .lp-ico{width:22px;height:22px;color:var(--lp-accent);flex:0 0 auto}
+.lp-proof-stat b{display:block;font-size:20px;line-height:1;color:#fff;font-weight:750;letter-spacing:-.02em}
+.lp-proof-stat span{display:block;font-size:9.5px;color:#9EBBD9;margin-top:4px;white-space:nowrap}
+.lp-mission b{font-size:12.5px}
+.lp-mission em{font-style:normal;display:inline-block;color:var(--lp-accent-3);background:linear-gradient(transparent 72%,rgba(255,255,255,.22) 72%);padding:0 2px}
+.lp-demo-note{background:#041326;color:#A9B8CC;font-size:9.5px;text-align:center;padding:9px 18px;letter-spacing:.02em}
+
+@media(max-width:1180px){
+  .lp-menu{display:none}
+  .lp-why-inner{grid-template-columns:.8fr 1.2fr;gap:32px}
+  .lp-why-grid{grid-template-columns:repeat(3,1fr)}
+  .lp-why-card{min-height:150px}
+}
+@media(max-width:1080px){
+  .lp-hero-inner{grid-template-columns:1fr;gap:38px}
+  .lp-hero-copy{max-width:760px}
+  .lp-preview{max-width:720px;margin:0 auto;width:100%}
+  .lp-feature-grid{grid-template-columns:repeat(3,1fr)}
+  .lp-why-inner{grid-template-columns:1fr;gap:30px}
+  .lp-why-copy p{max-width:620px}
+  .lp-proof-grid{grid-template-columns:repeat(3,1fr);row-gap:22px}
+  .lp-proof-intro{grid-column:span 2}
+}
+@media(max-width:760px){
+  .lp-nav-inner{height:66px;padding:0 18px;gap:12px}
+  .lp-brand .mark,.lp-brand .mark svg{width:34px;height:34px}
+  .lp-name{font-size:18px}
+  .lp-tag{font-size:8.5px}
+  .lp-icon-btn,.lp-lang{display:none}
+  .lp-theme-btn{width:30px;padding:0;justify-content:center}
+  .lp-theme-btn span,.lp-theme-btn .lp-chev{display:none}
+  .lp-user b,.lp-user span span{display:none}
+  .lp-user{padding:2px}
+  .lp-wrap,.lp-hero-inner{padding:0 18px}
+  .lp-hero{padding:44px 0 54px;min-height:0}
+  .lp-hero:after{background:linear-gradient(180deg,var(--lp-overlay-1),var(--lp-overlay-3))}
+  .lp-hero h1{font-size:clamp(42px,12vw,60px)}
+  .lp-hero-copy p{font-size:14px}
+  .lp-ctas{gap:9px}
+  .lp-btn{padding:12px 15px;font-size:12.5px}
+  .lp-trust{gap:7px 13px;font-size:10.5px}
+  .pv-body{grid-template-columns:92px 1fr;min-height:0}
+  .pv-side-item{font-size:7px;padding:5px 4px;gap:4px}
+  .pv-main{padding:9px}
+  .pv-kpis{grid-template-columns:repeat(2,1fr)}
+  .pv-grid{grid-template-columns:1fr}
+  .pv-card:nth-child(2){display:none}
+  .pv-company{display:none}
+  .pv-search{max-width:130px}
+  .lp-feature-band{padding:24px 0}
+  .lp-feature-grid{grid-template-columns:repeat(2,1fr)}
+  .lp-why{padding:52px 0 58px}
+  .lp-why-grid{grid-template-columns:repeat(2,1fr)}
+  .lp-why-card{min-height:0}
+  .lp-proof-grid{grid-template-columns:repeat(2,1fr);gap:18px}
+  .lp-proof-intro{grid-column:1/-1}
+  .lp-proof-stat span{white-space:normal}
+}
+@media(max-width:480px){
+  .lp-feature-grid,.lp-why-grid,.lp-proof-grid{grid-template-columns:1fr}
+  .lp-proof-intro{grid-column:auto}
+  .pv-side{display:none}
+  .pv-body{grid-template-columns:1fr}
+  .pv-kpis{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:380px){
+  .lp-wrap,.lp-hero-inner{padding:0 14px}
+  .lp-hero h1{font-size:34px}
+  .lp-hero-copy p{font-size:13px}
+  .pv-search,.pv-top-icons,.pv-quick{display:none}
+  .pv-kpis{grid-template-columns:1fr}
+  .pv-main{padding:8px}
+}
+@media(prefers-reduced-motion:reduce){
+  .lp *{transition:none!important}
+}
+"""
+
+LANDING_JS = """
+(function(){var d=document.querySelector('details.lp-theme');if(!d)return;document.addEventListener('click',function(e){if(d.open&&!d.contains(e.target))d.open=false;});document.addEventListener('keydown',function(e){if(e.key==='Escape')d.open=false;});})();
+"""
+
+
+def landing_page(theme: str = DEFAULT_THEME) -> str:
+    theme = theme if theme in LANDING_THEMES else DEFAULT_THEME
+    demo = "/demo" if DEMO_AUTOLOGIN else "/login"
+    app_link = demo
+
+    nav_menu = "".join(
+        f'<a class="{"on" if label == "Dashboard" else ""}" href="{app_link}">{label}{l_icon("chev", "lp-chev")}</a>'
+        for label in ("Dashboard", "Accounting", "Sales &amp; Purchase", "Inventory",
+                      "Reports &amp; Analytics", "Business Intelligence")
+    )
+    theme_links = []
+    for key in LANDING_THEMES:
+        meta = THEMES[key]
+        active = " on" if key == theme else ""
+        current = ' aria-current="true"' if key == theme else ""
+        check = l_icon("check", "lp-check") if key == theme else ""
+        theme_links.append(
+            f'<a href="/home?theme={key}" class="{active.strip()}"{current}>'
+            f'<i style="background:{meta["swatches"][0]}"></i>{meta["label"]}{check}</a>'
+        )
+    theme_links = "".join(theme_links)
+
+    feature_cards = "".join(
+        f'<article class="lp-feature"><div class="lp-fi {tone}">{l_icon(ico)}</div>'
+        f'<div><h3>{title}</h3><p>{copy}</p></div></article>'
+        for ico, tone, title, copy in (
+            ("calc", "blue", "Accounting &amp; Finance", "Smart. Accurate. Compliant."),
+            ("cart", "violet", "Sales &amp; POS", "Fast. Flexible. Everywhere."),
+            ("box", "green", "Inventory &amp; Warehouse", "Track. Manage. Optimize."),
+            ("chart", "amber", "Business Analytics", "Data to Decisions."),
+            ("spark", "violet", "AI Insights", "Smarter Decisions."),
+            ("building", "green", "Multi-Company", "Grow Without Limits."),
+        )
+    )
+
+    why_cards = "".join(
+        f'<article class="lp-why-card"><div class="lp-fi {tone}">{l_icon(ico)}</div>'
+        f'<h3>{title}</h3><p>{copy}</p></article>'
+        for ico, tone, title, copy in (
+            ("shield", "green", "100% Data Accuracy", "Your data is always accurate, secure and up to date."),
+            ("cloud", "blue", "Offline &amp; Online", "Work anytime, anywhere — online or offline."),
+            ("lock", "green", "Advanced Security", "Bank-level security to keep your business data safe."),
+            ("headset", "blue", "Global Support", "24/7 support in multiple languages, wherever you are."),
+            ("trend", "green", "Scalable for Growth", "From startup to enterprise, we grow with you."),
+        )
+    )
+
+    preview = f"""
+<div class="pv-window" aria-label="Illustrative ARTHIVIO dashboard preview">
+  <div class="pv-top">
+    <div class="pv-brand">{LANDING_LOGO}<span>ARTHIVIO</span></div>
+    <div class="pv-search">{l_icon("search")}<span>Search anything...</span></div>
+    <div class="pv-top-icons">{l_icon("bell")}{l_icon("globe")}</div>
+    <div class="pv-company"><span class="avatar">GT</span><span>Global Tech<br>Solutions</span></div>
+  </div>
+  <div class="pv-body">
+    <div class="pv-side">
+      <div class="pv-side-item active">{l_icon("grid")} Dashboard</div>
+      <div class="pv-side-item">{l_icon("invoice")} Accounting</div>
+      <div class="pv-side-item">{l_icon("cart")} Sales</div>
+      <div class="pv-side-item">{l_icon("cart")} Purchases</div>
+      <div class="pv-side-item">{l_icon("box")} Inventory</div>
+      <div class="pv-side-item">{l_icon("bank")} Banking</div>
+      <div class="pv-side-item">{l_icon("chart")} Reports</div>
+      <div class="pv-side-item">{l_icon("chart")} Business Analytics</div>
+      <div class="pv-side-item">{l_icon("spark")} AI Insights</div>
+      <div class="pv-side-item">{l_icon("gear")} Settings</div>
+    </div>
+    <div class="pv-main">
+      <div class="pv-head">
+        <div><h2>Business Overview</h2><p>Sample workspace · synthetic data</p></div>
+        <span class="pv-date">01 Apr 2025 - 30 Apr 2025</span>
+      </div>
+      <div class="pv-kpis">
+        <div class="pv-kpi"><span>Total Revenue</span><b>$248,620</b><small>↗ 18.6%</small></div>
+        <div class="pv-kpi"><span>Net Profit</span><b>$185,430</b><small>↗ 22.4%</small></div>
+        <div class="pv-kpi"><span>Cash Flow</span><b>$96,240</b><small>↗ 12.8%</small></div>
+        <div class="pv-kpi"><span>Total Customers</span><b>1,248</b><small>↗ 8.2%</small></div>
+      </div>
+      <div class="pv-grid">
+        <div class="pv-card">
+          <div class="pv-card-head"><h3>Revenue &amp; Profit Trend</h3><div class="pv-legend-inline"><span><i class="blue"></i>Revenue</span><span><i class="green"></i>Profit</span></div></div>
+          <svg class="pv-chart" viewBox="0 0 360 118" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="lp-area" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#2563EB" stop-opacity=".20"/>
+                <stop offset="1" stop-color="#2563EB" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <g stroke="#E2E8F0" stroke-width="1">
+              <line x1="0" y1="103" x2="360" y2="103"/><line x1="0" y1="76" x2="360" y2="76"/>
+              <line x1="0" y1="49" x2="360" y2="49"/><line x1="0" y1="22" x2="360" y2="22"/>
+            </g>
+            <path d="M0 94 C38 88 58 76 94 78 S146 62 184 61 S234 44 272 46 S326 24 360 20 L360 118 L0 118 Z" fill="url(#lp-area)"/>
+            <path d="M0 94 C38 88 58 76 94 78 S146 62 184 61 S234 44 272 46 S326 24 360 20" fill="none" stroke="#2563EB" stroke-width="2.1" stroke-linecap="round"/>
+            <path d="M0 106 C40 102 62 96 98 97 S150 88 188 89 S240 80 278 78 S330 66 360 63" fill="none" stroke="#22C55E" stroke-width="1.7" stroke-linecap="round"/>
+            <g fill="#2563EB"><circle cx="94" cy="78" r="2.3"/><circle cx="272" cy="46" r="2.3"/></g>
+          </svg>
+        </div>
+        <div class="pv-card">
+          <h3>Business Performance</h3>
+          <div class="pv-performance">
+            <div class="pv-donut"><div class="donut-label"><b>18.3%</b><small>Growth</small></div></div>
+            <div class="pv-legend">
+              <span><i style="background:#2563EB"></i>Sales <b>48%</b></span>
+              <span><i style="background:#22C55E"></i>Services <b>24%</b></span>
+              <span><i style="background:#A78BFA"></i>Inventory <b>14%</b></span>
+              <span><i style="background:#F59E0B"></i>Other <b>14%</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pv-quick"><b>Quick Actions</b><span>{l_icon("invoice")} New Invoice</span><span>{l_icon("users")} Add Customer</span><span>{l_icon("wallet")} Record Payment</span><span>{l_icon("chart")} View Reports</span></div>
+      <div class="pv-mini">
+        <div><span>Inventory Value</span><b>$112,480 <small>↗ 6.4%</small></b></div>
+        <div><span>Accounts Receivable</span><b>$268,900 <small>↗ 9.2%</small></b></div>
+        <div><span>Accounts Payable</span><b>$142,350 <small>↘ 4.1%</small></b></div>
+      </div>
+      <div class="pv-note">Illustrative dashboard · synthetic sample data</div>
+    </div>
+  </div>
+</div>"""
+
+    hero_art = """
+<svg class="lp-hero-art" viewBox="0 0 1440 700" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+  <defs>
+    <linearGradient id="lp-sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#031126"/><stop offset=".50" stop-color="#062A50"/><stop offset="1" stop-color="#0B3F72"/>
+    </linearGradient>
+    <linearGradient id="lp-bld" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0A2C52"/><stop offset="1" stop-color="#041A33"/>
+    </linearGradient>
+    <linearGradient id="lp-bld2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0D365F"/><stop offset="1" stop-color="#06213D"/>
+    </linearGradient>
+    <linearGradient id="lp-arrow" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22C55E" stop-opacity="0"/><stop offset=".55" stop-color="#34D399"/><stop offset="1" stop-color="#86EFAC" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="lp-windows" width="11" height="15" patternUnits="userSpaceOnUse">
+      <rect x="2" y="3" width="2" height="4" fill="#38BDF8" opacity=".38"/>
+    </pattern>
+    <pattern id="lp-windows2" width="14" height="18" patternUnits="userSpaceOnUse">
+      <rect x="3" y="4" width="2.4" height="4.5" fill="#7DD3FC" opacity=".24"/>
+    </pattern>
+    <radialGradient id="lp-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#38BDF8" stop-opacity=".40"/><stop offset="1" stop-color="#38BDF8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1440" height="700" fill="url(#lp-sky)"/>
+  <circle cx="1100" cy="340" r="310" fill="url(#lp-glow)"/>
+  <g opacity=".62" fill="url(#lp-bld2)">
+    <rect x="0" y="390" width="90" height="310"/><rect x="100" y="330" width="70" height="370"/>
+    <rect x="180" y="285" width="64" height="415"/><rect x="254" y="410" width="86" height="290"/>
+    <rect x="350" y="345" width="78" height="355"/><rect x="438" y="300" width="92" height="400"/>
+    <rect x="540" y="390" width="70" height="310"/><rect x="620" y="330" width="86" height="370"/>
+    <rect x="716" y="250" width="66" height="450"/><rect x="792" y="320" width="80" height="380"/>
+    <rect x="882" y="380" width="72" height="320"/><rect x="964" y="300" width="92" height="400"/>
+    <rect x="1066" y="350" width="78" height="350"/><rect x="1154" y="275" width="70" height="425"/>
+    <rect x="1234" y="395" width="86" height="305"/><rect x="1330" y="335" width="110" height="365"/>
+  </g>
+  <g fill="url(#lp-bld)">
+    <rect x="0" y="450" width="118" height="250"/><rect x="130" y="382" width="84" height="318"/>
+    <rect x="226" y="330" width="72" height="370"/><rect x="310" y="455" width="96" height="245"/>
+    <rect x="418" y="370" width="82" height="330"/><rect x="512" y="315" width="96" height="385"/>
+    <rect x="620" y="410" width="78" height="290"/><rect x="710" y="278" width="70" height="422"/>
+    <rect x="792" y="350" width="92" height="350"/><rect x="896" y="428" width="74" height="272"/>
+    <rect x="982" y="352" width="88" height="348"/><rect x="1082" y="300" width="74" height="400"/>
+    <rect x="1168" y="410" width="92" height="290"/><rect x="1272" y="345" width="168" height="355"/>
+  </g>
+  <g fill="url(#lp-windows)" opacity=".75">
+    <rect x="0" y="450" width="118" height="250"/><rect x="130" y="382" width="84" height="318"/>
+    <rect x="226" y="330" width="72" height="370"/><rect x="310" y="455" width="96" height="245"/>
+    <rect x="418" y="370" width="82" height="330"/><rect x="512" y="315" width="96" height="385"/>
+    <rect x="620" y="410" width="78" height="290"/><rect x="710" y="278" width="70" height="422"/>
+    <rect x="792" y="350" width="92" height="350"/><rect x="896" y="428" width="74" height="272"/>
+    <rect x="982" y="352" width="88" height="348"/><rect x="1082" y="300" width="74" height="400"/>
+    <rect x="1168" y="410" width="92" height="290"/><rect x="1272" y="345" width="168" height="355"/>
+  </g>
+  <g fill="url(#lp-windows2)" opacity=".55">
+    <rect x="130" y="382" width="84" height="318"/><rect x="310" y="455" width="96" height="245"/>
+    <rect x="512" y="315" width="96" height="385"/><rect x="792" y="350" width="92" height="350"/>
+    <rect x="1082" y="300" width="74" height="400"/><rect x="1272" y="345" width="168" height="355"/>
+  </g>
+  <rect y="628" width="1440" height="72" fill="#03162C" opacity=".92"/>
+  <g stroke="#2B7BAA" stroke-width="1" opacity=".22">
+    <path d="M0 646h1440M0 662h1440M0 678h1440M0 694h1440"/>
+    <path d="M120 654h170M420 670h250M830 646h180M1140 682h210" opacity=".6"/>
+  </g>
+  <path d="M70 654 C420 610 636 468 1002 330" fill="none" stroke="url(#lp-arrow)" stroke-width="24" opacity=".18" stroke-linecap="round"/>
+  <path d="M958 306 L1058 312 L1004 382 Z" fill="#34D399" opacity=".16"/>
+</svg>"""
+
+    return f"""<!doctype html><html lang="en" data-theme="{theme}" style="{landing_theme_style(theme)}"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#0B1F3A">
+<meta name="description" content="ARTHIVIO brings together accounting, finance, inventory, analytics and AI in one powerful platform for businesses of every size.">
+<title>ARTHIVIO · Smarter Finance. Stronger Business.</title>
+<style>{LANDING_CSS}</style></head>
+<body class="lp-body"><div class="lp">
+<a class="lp-skip" href="#main">Skip to content</a>
+<header class="lp-nav"><div class="lp-nav-inner">
+  <a class="lp-brand" href="/"><span class="mark">{LANDING_LOGO}</span><span><span class="lp-name">ARTHIVIO</span><span class="lp-tag">Business, Seen Clearly.</span></span></a>
+  <nav class="lp-menu" aria-label="Main navigation">{nav_menu}</nav>
+  <div class="lp-nav-actions">
+    <details class="lp-theme">
+      <summary class="lp-theme-btn" aria-label="Choose background colour" title="Choose background colour">{l_icon("palette")}<span>Colour</span>{l_icon("chev", "lp-chev")}</summary>
+      <div class="lp-theme-menu"><span class="lp-theme-title">Landing colour</span>{theme_links}<span class="lp-theme-note">Workspace theme: Settings → Appearance.</span></div>
+    </details>
+    <a class="lp-icon-btn" href="{app_link}" aria-label="Settings">{l_icon("gear")}</a>
+    <a class="lp-icon-btn" href="{app_link}" aria-label="Notifications">{l_icon("bell")}<span class="dot"></span></a>
+    <span class="lp-lang">{l_icon("globe")} EN {l_icon("chev", "lp-chev")}</span>
+    <a class="lp-user" href="/login"><span class="avatar" aria-hidden="true">BU</span><span><b>Welcome</b><span>Business User</span></span><span class="sr-only">Sign in</span></a>
+  </div>
+</div></header>
+
+<main id="main">
+<section class="lp-hero">
+  {hero_art}
+  <div class="lp-hero-inner">
+    <div class="lp-hero-copy">
+      <div class="lp-eyebrow"><span></span>GLOBAL BUSINESS MANAGEMENT PLATFORM</div>
+      <h1>Smarter Finance.<em>Stronger Business.</em></h1>
+      <p>ARTHIVIO brings together accounting, finance, inventory, analytics and AI — in one powerful platform. Built for businesses of every size. Trusted worldwide.</p>
+      <div class="lp-ctas">
+        <a class="lp-btn primary" href="{demo}">Get Started Free {l_icon("arrow")}</a>
+        <a class="lp-btn secondary" href="{demo}"><span class="play">{l_icon("play")}</span> Watch Demo</a>
+      </div>
+      <div class="lp-trust">
+        <span><i>✓</i> Secure</span><span><i>✓</i> Scalable</span>
+        <span><i>✓</i> Multi-Language</span><span><i>✓</i> Global Ready</span>
+      </div>
+    </div>
+    <div class="lp-preview" id="preview">{preview}</div>
+  </div>
+</section>
+
+<section class="lp-feature-band" id="features"><div class="lp-wrap">
+  <div class="lp-feature-grid">{feature_cards}</div>
+</div></section>
+
+<section class="lp-why" id="why"><div class="lp-wrap">
+  <div class="lp-why-inner">
+    <div class="lp-why-copy">
+      <span class="lp-kicker">WHY ARTHIVIO?</span>
+      <h2>Everything You Need to Run Your Business — <em>Smarter.</em></h2>
+      <p>From daily operations to strategic decisions, ARTHIVIO gives you the power of real-time data, advanced analytics and automation — all in one platform.</p>
+      <a class="lp-btn green" href="{demo}">Explore All Features {l_icon("arrow")}</a>
+    </div>
+    <div class="lp-why-grid">{why_cards}</div>
+  </div>
+</div></section>
+
+<section class="lp-proof" id="trust"><div class="lp-wrap"><div class="lp-proof-grid">
+  <div class="lp-proof-intro">{l_icon("globe")}<div><b>Trusted by Businesses Worldwide</b><span>Retail · Manufacturing · Trading · Services · Healthcare · Education · and more...</span></div></div>
+  <div class="lp-proof-stat">{l_icon("users")}<div><b>50,000+*</b><span>Happy Businesses</span></div></div>
+  <div class="lp-proof-stat">{l_icon("globe")}<div><b>120+*</b><span>Countries</span></div></div>
+  <div class="lp-proof-stat">{l_icon("shield")}<div><b>99.99%*</b><span>Uptime</span></div></div>
+  <div class="lp-mission">{l_icon("trend")}<div><b>Your Growth.<br><em>Our Mission.</em></b></div></div>
+</div></div></section>
+<div class="lp-demo-note">Local prototype ? *illustrative marketing metrics, not verified production figures ? demo data is synthetic.</div>
+</main>
+</div>
+<script>{LANDING_JS}</script>
+</body></html>"""
+
+
 def kpi(label: str, value: str, sub: str = "") -> str:
     return f'<div class="card kpi"><div class="lbl">{esc(label)}</div><div class="val">{esc(value)}</div><div class="sub">{esc(sub)}</div></div>'
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ARTHIVIO/0.1"
+    server_version = "ARTHIVIO/0.12"
 
     # ---------------- plumbing ----------------
     def log_message(self, fmt, *args):  # quieter console
@@ -364,6 +1290,36 @@ class Handler(BaseHTTPRequestHandler):
 
     def _session(self, conn):
         return security.get_session(conn, self._cookies().get("sid"))
+
+    def _demo_login(self, conn):
+        """Local-only convenience login for the synthetic demo.
+
+        Disabled unless ARTHIVIO_DEMO_AUTOLOGIN=1 and the request comes from
+        loopback. It never runs on a remotely reachable server.
+        """
+        if not DEMO_AUTOLOGIN:
+            return self._send("Not found", 404)
+        host = (self.client_address[0] or "").lower()
+        if not (host in ("127.0.0.1", "::1") or host.startswith("127.")):
+            return self._send("Not found", 404)
+        row = conn.execute(
+            "SELECT u.id AS user_id, m.tenant_id FROM user u"
+            " JOIN membership m ON m.user_id=u.id"
+            " JOIN tenant t ON t.id=m.tenant_id"
+            " WHERE u.email=? AND u.status='active' AND m.status='active'"
+            " AND m.role='owner' AND t.status='active'"
+            " ORDER BY u.created_at LIMIT 1", (DEMO_EMAIL,),
+        ).fetchone()
+        if not row:
+            return self._send("Demo owner not found", 404)
+        token, _csrf = security.create_session(conn, row["user_id"], row["tenant_id"],
+                                               self.client_address[0])
+        acct.audit(conn, row["tenant_id"], row["user_id"], "auth.demo_login", "session",
+                   meta={"mode": "loopback_autologin", "email": DEMO_EMAIL})
+        return self._redirect("/", {
+            "Set-Cookie": f"sid={token}; HttpOnly; SameSite=Lax; Path=/",
+            "Cache-Control": "no-store",
+        })
 
     def _send(self, body: str, status: int = 200, headers: dict | None = None):
         data = body.encode("utf-8")
@@ -386,10 +1342,93 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
 
+    def _serve_static(self, path: str):
+        """Serve only known, flat static assets; reject traversal and unknown files."""
+        name = path[len("/static/"):]
+        allowed = {
+            "echarts.min.js": "application/javascript; charset=utf-8",
+            "ECHARTS_NOTICE.txt": "text/plain; charset=utf-8",
+        }
+        content_type = allowed.get(name)
+        if not content_type:
+            return self._send("Not found", 404)
+        full = os.path.join(STATIC_DIR, name)
+        if not os.path.isfile(full):
+            return self._send("Not found", 404)
+        with open(full, "rb") as fh:
+            data = fh.read()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _json(self, payload: dict | list, status: int = 200,
+              headers: dict | None = None):
+        """Send a stable UTF-8 JSON response with no-store and security headers."""
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Vary", "Cookie")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
     def _form(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length).decode("utf-8") if length else ""
-        return urllib.parse.parse_qs(raw, keep_blank_values=True)
+        raw = self.rfile.read(length) if length else b""
+        content_type = (self.headers.get("Content-Type") or "").lower()
+        self._uploaded_files = {}
+        if content_type.startswith("multipart/form-data"):
+            return self._multipart_form(raw, self.headers.get("Content-Type") or "")
+        return urllib.parse.parse_qs(raw.decode("utf-8", errors="replace"),
+                                     keep_blank_values=True)
+
+    def _multipart_form(self, raw: bytes, content_type: str) -> dict:
+        """Parse a small multipart upload without the removed cgi module.
+
+        Text fields are returned in the same list shape as parse_qs. File parts
+        are kept only for this request in self._uploaded_files.
+        """
+        envelope = (
+            b"Content-Type: " + content_type.encode("latin-1", errors="replace")
+            + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
+        )
+        try:
+            message = BytesParser(policy=email_policy).parsebytes(envelope)
+        except Exception:  # noqa: BLE001 - malformed multipart is a client error
+            return {}
+        form: dict[str, list[str]] = {}
+        files: dict[str, dict] = {}
+        for part in message.iter_parts():
+            if part.get_content_disposition() != "form-data":
+                continue
+            name = part.get_param("name", header="content-disposition")
+            if not name:
+                continue
+            payload = part.get_payload(decode=True) or b""
+            filename = part.get_filename()
+            if filename:
+                files[name] = {
+                    "filename": filename,
+                    "content": payload,
+                    "content_type": part.get_content_type(),
+                }
+            else:
+                charset = part.get_content_charset() or "utf-8"
+                form.setdefault(name, []).append(
+                    payload.decode(charset, errors="replace")
+                )
+        self._uploaded_files = files
+        return form
 
     def _base_url(self) -> str:
         fallback = f"127.0.0.1:{os.environ.get('PORT', '8000')}"
@@ -408,9 +1447,13 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(parsed.query)
 
             if path == "/login":
-                return self._send(login_page())
+                return self._send(login_page(theme=self._cookies().get("ui_theme", DEFAULT_THEME)))
             if path == "/health":
                 return self._send("ok")
+            if path.startswith("/static/"):
+                return self._serve_static(path)
+            if path == "/demo":
+                return self._demo_login(conn)
             invite_match = re.fullmatch(r"/invite/([A-Za-z0-9_-]{20,})", path)
             if invite_match:
                 return self._send(self.page_invite_accept(conn, invite_match.group(1)),
@@ -431,12 +1474,38 @@ class Handler(BaseHTTPRequestHandler):
                                                  "X-Robots-Tag": "noindex, nofollow"})
 
             sess = self._session(conn)
+            landing_theme = self._cookies().get("ui_theme", DEFAULT_THEME)
+            if landing_theme not in LANDING_THEMES:
+                landing_theme = DEFAULT_THEME
+            requested_theme = (q.get("theme") or [None])[0]
+            if requested_theme in LANDING_THEMES and (path == "/home" or (path == "/" and not sess)):
+                return self._redirect(path, {
+                    "Set-Cookie": f"ui_theme={requested_theme}; Path=/; Max-Age=31536000; SameSite=Lax",
+                    "Cache-Control": "no-store",
+                })
+            landing_headers = {"Cache-Control": "no-cache", "Vary": "Cookie"}
+            if path == "/home":
+                return self._send(landing_page(landing_theme), headers=landing_headers)
+            if path == "/" and not sess:
+                return self._send(landing_page(landing_theme), headers=landing_headers)
             if not sess:
+                if path.startswith("/api/"):
+                    return self._json({"error": "Authentication required.", "code": "UNAUTHENTICATED"},
+                                      status=401)
                 return self._redirect("/login")
             user = conn.execute("SELECT * FROM user WHERE id=?", (sess["user_id"],)).fetchone()
             tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (sess["tenant_id"],)).fetchone()
             if not user or not tenant:
                 return self._redirect("/logout")
+
+            if path == "/api/v1/analytics/catalog":
+                return self.api_analytics_catalog(conn, user, tenant)
+            if path == "/api/v1/analytics/overview":
+                return self.api_analytics_overview(conn, user, tenant, q)
+            if path == "/api/v1/analytics/insights":
+                return self.api_analytics_insights(conn, user, tenant, q)
+            if path.startswith("/api/"):
+                return self._json({"error": "Not found.", "code": "NOT_FOUND"}, status=404)
 
             if path == "/":
                 return self._send(self.page_dashboard(conn, user, tenant))
@@ -450,14 +1519,36 @@ class Handler(BaseHTTPRequestHandler):
             if re.fullmatch(r"/invoices/[0-9a-f]{32}", path):
                 return self._send(self.page_invoice_detail(conn, user, tenant, sess,
                                                            path.rsplit("/", 1)[1]))
+            if path == "/ledger/account/new":
+                return self._send(self.page_account_new(conn, user, tenant, sess, q))
+            if re.fullmatch(r"/ledger/account/[0-9a-f]{32}/edit", path):
+                return self._send(self.page_account_edit(conn, user, tenant, sess,
+                                                         path.split("/")[3], q))
+            if re.fullmatch(r"/ledger/account/[0-9a-f]{32}/archive", path):
+                return self._send(self.page_account_archive(conn, user, tenant, sess,
+                                                            path.split("/")[3], q))
+            if path == "/ledger/opening-balances/template.csv":
+                return self._opening_template(conn, user, tenant)
+            if path == "/ledger/opening-balances":
+                return self._send(self.page_opening_import(conn, user, tenant, sess, q))
             if path == "/ledger":
-                return self._send(self.page_ledger(conn, user, tenant, q))
+                return self._send(self.page_ledger(conn, user, tenant, q, sess))
+            if path == "/bank-accounts":
+                return self._send(self.page_bank_accounts(conn, user, tenant, sess, q))
+            if path == "/reports/cash-book":
+                return self._send(self.page_book(conn, user, tenant, q, "1000", "Cash Book",
+                                                 "reports/cash-book"))
+            if path == "/reports/bank-book":
+                return self._send(self.page_book(conn, user, tenant, q, "1010", "Bank Book",
+                                                 "reports/bank-book", bank=True))
             if path == "/reports/trial-balance":
                 return self._send(self.page_tb(conn, user, tenant, q))
             if path == "/reports/pnl":
                 return self._send(self.page_pnl(conn, user, tenant, q))
             if path == "/reports/balance-sheet":
                 return self._send(self.page_bs(conn, user, tenant, q))
+            if path == "/reports/analytics":
+                return self._send(self.page_analytics(conn, user, tenant, q))
             if path == "/customers":
                 return self._send(self.page_customers(conn, user, tenant, sess))
             if re.fullmatch(r"/customers/[0-9a-f]{32}", path):
@@ -484,7 +1575,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/daybook":
                 return self._send(self.page_daybook(conn, user, tenant, q))
             if path == "/journal":
-                return self._send(self.page_journal(conn, user, tenant, sess))
+                return self._send(self.page_journal(conn, user, tenant, sess, q))
+            if re.fullmatch(r"/entries/(cash|bank|journal)", path):
+                mode = path.rsplit("/", 1)[1]
+                return self._send(self.page_journal(conn, user, tenant, sess, q, mode=mode))
             if path == "/bank-recon":
                 return self._send(self.page_bank_recon(conn, user, tenant, sess, q))
             if path == "/reports/ar-ageing":
@@ -497,6 +1591,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_gstr3b(conn, user, tenant, q))
             if path == "/gstr2b":
                 return self._send(self.page_gstr2b(conn, user, tenant, sess, q))
+            if path == "/export/workbook.xlsx":
+                return self.export_workbook(conn, user, tenant, q)
+            if path == "/export/powerbi.zip":
+                return self.export_powerbi_pack(conn, user, tenant, q)
             if path == "/export/gstr1.json":
                 return self.export_gstr1_json(conn, user, tenant, q)
             if path.startswith("/export/"):
@@ -521,6 +1619,14 @@ class Handler(BaseHTTPRequestHandler):
         conn = self._conn()
         try:
             path = urllib.parse.urlparse(self.path).path.rstrip("/") or "/"
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_POST_BYTES:
+                self.close_connection = True
+                return self._send(
+                    layout("Request too large",
+                           '<div class="card pad"><div class="err">That upload is too large. '
+                           'The maximum request size is 10 MB.</div></div>'),
+                    413)
             form = self._form()
 
             if path == "/login":
@@ -528,10 +1634,13 @@ class Handler(BaseHTTPRequestHandler):
                     user = security.authenticate(conn, first(form, "email"), first(form, "password"),
                                                  self.client_address[0])
                 except security.AuthError as e:
-                    return self._send(login_page(e.message), 401)
+                    return self._send(
+                        login_page(e.message, self._cookies().get("ui_theme", DEFAULT_THEME)), 401)
                 rows = security.tenants_for(conn, user["id"])
                 if not rows:
-                    return self._send(login_page("This account has no business workspace yet."), 403)
+                    return self._send(
+                        login_page("This account has no business workspace yet.",
+                                   self._cookies().get("ui_theme", DEFAULT_THEME)), 403)
                 token, _csrf = security.create_session(conn, user["id"], rows[0]["id"],
                                                        self.client_address[0])
                 acct.audit(conn, rows[0]["id"], user["id"], "auth.session_created", "session")
@@ -560,6 +1669,8 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/settings":
                 return self._save_settings(conn, user, tenant, form)
+            if path == "/preferences/theme":
+                return self._save_theme(conn, user, tenant, form)
 
             if path == "/switch":
                 return self._switch_business(conn, user, sess, form)
@@ -617,6 +1728,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self._create_vendor(conn, user, tenant, sess, form)
             if path == "/journal":
                 return self._create_journal(conn, user, tenant, sess, form)
+            if path == "/journal/reverse":
+                return self._reverse_journal(conn, user, tenant, form)
+            if path == "/accounts":
+                return self._create_account(conn, user, tenant, form, sess)
+            if path == "/accounts/update":
+                return self._update_account(conn, user, tenant, form, sess)
+            if path == "/accounts/archive":
+                return self._archive_account(conn, user, tenant, form, sess)
+            if path == "/accounts/restore":
+                return self._restore_account(conn, user, tenant, form, sess)
+            if path == "/accounts/merge":
+                return self._merge_account(conn, user, tenant, form, sess)
+            if path == "/ledger/opening-balances":
+                return self._bulk_opening_import(conn, user, tenant, sess, form)
+            if path == "/opening-balance":
+                return self._set_opening_balance(conn, user, tenant, form)
+            if path == "/bank-accounts":
+                return self._create_bank_account(conn, user, tenant, form)
             if path == "/customers":
                 return self._create_customer(conn, user, tenant, sess, form)
             if path == "/items":
@@ -627,6 +1756,45 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
 
     # ---------------- pages ----------------
+    def api_analytics_catalog(self, conn, user, tenant):
+        try:
+            security.require(conn, user["id"], tenant["id"], analytics_mod.PERMISSION)
+        except security.AuthError as e:
+            return self._json({"error": e.message, "code": e.code}, status=403)
+        return self._json(analytics_mod.catalog())
+
+    def api_analytics_overview(self, conn, user, tenant, q):
+        try:
+            security.require(conn, user["id"], tenant["id"], analytics_mod.PERMISSION)
+            payload = analytics_mod.overview(
+                conn, tenant,
+                (q.get("from") or [None])[0],
+                (q.get("to") or [None])[0],
+            )
+        except security.AuthError as e:
+            return self._json({"error": e.message, "code": e.code}, status=403)
+        except analytics_mod.AnalyticsError as e:
+            return self._json({"error": e.message, "code": e.code}, status=400)
+        except acct.AccountingError as e:
+            return self._json({"error": e.message, "code": e.code}, status=400)
+        return self._json(payload)
+
+    def api_analytics_insights(self, conn, user, tenant, q):
+        try:
+            security.require(conn, user["id"], tenant["id"], analytics_mod.PERMISSION)
+            payload = insights_mod.grounded(
+                conn, tenant,
+                (q.get("from") or [None])[0],
+                (q.get("to") or [None])[0],
+            )
+        except security.AuthError as e:
+            return self._json({"error": e.message, "code": e.code}, status=403)
+        except analytics_mod.AnalyticsError as e:
+            return self._json({"error": e.message, "code": e.code}, status=400)
+        except acct.AccountingError as e:
+            return self._json({"error": e.message, "code": e.code}, status=400)
+        return self._json(payload)
+
     def page_dashboard(self, conn, user, tenant) -> str:
         today = date.today()
         start = today.replace(month=tenant["fiscal_year_start_month"], day=1)
@@ -665,7 +1833,7 @@ class Handler(BaseHTTPRequestHandler):
 <div class="kpis">
   {kpi("Revenue (FY)", money.fmt(d["revenue"]), "from posted journals")}
   {kpi("Net profit (FY)", money.fmt(d["profit"]), "income minus expenses")}
-  {kpi("Cash + bank", money.fmt(d["cash"]), "accounts 1000 / 1010")}
+  {kpi("Cash + bank", money.fmt(d["cash"]), "cash and all linked bank accounts")}
   {kpi("Receivable", money.fmt(d["receivable"]), f'{d["open_invoices"]} open invoice(s)')}
   {kpi("Payable", money.fmt(d["payable"]), f'{d["open_bills"]} open bill(s)')}
   {kpi("Inventory", money.fmt(d["inventory"]), "perpetual valuation")}
@@ -862,6 +2030,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         return layout(f'Invoice {inv["invoice_no"]}', body, "invoices", user, tenant)
 
     def page_invoice_print(self, conn, user, tenant, invoice_id: str) -> str:
+        theme = theme_for(user)
         try:
             br = acct.invoice_tax_breakup(conn, tenant["id"], invoice_id)
         except acct.AccountingError:
@@ -922,10 +2091,10 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             esc(t["email"]) if t["email"] else "",
         ] if x)
 
-        return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+        return f"""<!doctype html><html lang="en" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tax Invoice {esc(inv["invoice_no"])} &middot; {esc(t["name"])}</title>
-<style>{PRINT_CSS}</style></head><body>
+<style>{THEME_CSS}{PRINT_CSS}</style></head><body>
 <div class="toolbar no-print">
   <a href="/invoices/{esc(inv["id"])}">Back to invoice</a>
   <button onclick="window.print()">Print / Save as PDF</button>
@@ -1317,28 +2486,223 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <p class="small muted" style="margin-top:12px">Every voucher is one balanced journal entry. {len(entries)} entries in this period.</p>"""
         return layout("Day book", body, "daybook", user, tenant)
 
-    def page_journal(self, conn, user, tenant, sess) -> str:
-        accounts = conn.execute("SELECT * FROM account WHERE tenant_id=? ORDER BY code",
-                                (tenant["id"],)).fetchall()
-        opts = "".join(f'<option value="{a["id"]}">{a["code"]} — {esc(a["name"])}</option>' for a in accounts)
-        rows = "".join(
-            f'<tr><td><select name="account_id">{opts}</select></td>'
-            f'<td><input name="debit" value="0" inputmode="decimal"></td>'
-            f'<td><input name="credit" value="0" inputmode="decimal"></td></tr>' for _ in range(4))
+    def page_journal(self, conn, user, tenant, sess, q=None, mode: str = "journal") -> str:
+        q = q or {}
+        accounts = conn.execute(
+            "SELECT * FROM account WHERE tenant_id=? AND status='active' ORDER BY code",
+            (tenant["id"],)).fetchall()
+        account_by_id = {a["id"]: a for a in accounts}
+        title_map = {"cash": "Cash entry", "bank": "Bank entry", "journal": "Journal entry"}
+        title = title_map.get(mode, "Journal entry")
+        active = f"entries/{mode}" if mode in title_map else "entries/journal"
+
+        try:
+            security.require(conn, user["id"], tenant["id"], "journal.post")
+            can_post = True
+        except security.AuthError:
+            can_post = False
+        try:
+            security.require(conn, user["id"], tenant["id"], "ledger.reverse")
+            can_reverse = True
+        except security.AuthError:
+            can_reverse = False
+
+        def tabs_html() -> str:
+            return ('<div class="entry-tabs">' + "".join(
+                f'<a class="entry-tab{" on" if value == mode else ""}" href="/entries/{value}">'
+                f'{label}</a>' for value, label in
+                [("cash", "Cash entry"), ("bank", "Bank entry"), ("journal", "Journal entry")])
+                + '</div>')
+
+        reverse_id = (q.get("reverse") or [""])[0]
+        if reverse_id:
+            entry = conn.execute(
+                "SELECT * FROM journal_entry WHERE id=? AND tenant_id=?",
+                (reverse_id, tenant["id"])).fetchone()
+            if not entry:
+                body = ('<div class="card pad"><div class="err">Journal entry not found in this business.</div>'
+                        '<a class="btn ghost" href="/ledger">Back to ledger</a></div>')
+                return layout("Reverse journal entry", body, "entries/journal", user, tenant)
+            lines = conn.execute(
+                "SELECT l.*, a.code, a.name FROM journal_line l"
+                " JOIN account a ON a.id=l.account_id"
+                " WHERE l.entry_id=? ORDER BY l.line_no", (entry["id"],)).fetchall()
+            first_account = lines[0]["account_id"] if lines else ""
+            back = f'/ledger?account={first_account}' if first_account else "/ledger"
+            if not can_reverse:
+                body = ('<div class="card pad"><div class="err">Your role cannot reverse journal entries.</div>'
+                        f'<a class="btn ghost" href="{back}">Back to ledger</a></div>')
+                return layout("Reverse journal entry", body, "entries/journal", user, tenant)
+            if entry["source_type"] not in ("manual", "opening"):
+                body = (f'<div class="card pad"><div class="err">Only manual journals and opening balances can be reversed here. '
+                        f'This entry came from <b>{esc(entry["source_type"])}</b>. Use the source document, a credit note, '
+                        f'a debit note or a void action for that correction.</div>'
+                        f'<a class="btn ghost" href="{back}">Back to ledger</a></div>')
+                return layout("Reverse journal entry", body, "entries/journal", user, tenant)
+            if entry["status"] == "reversed":
+                body = (f'<div class="card pad"><div class="err">Entry {esc(entry["entry_no"])} is already reversed.</div>'
+                        f'<a class="btn ghost" href="{back}">Back to ledger</a></div>')
+                return layout("Reverse journal entry", body, "entries/journal", user, tenant)
+            line_rows = "".join(
+                f'<tr><td>{esc(l["code"])}</td><td>{esc(l["name"])}</td>'
+                f'<td class="num">{money.fmt(l["debit_paise"]) if l["debit_paise"] else ""}</td>'
+                f'<td class="num">{money.fmt(l["credit_paise"]) if l["credit_paise"] else ""}</td></tr>'
+                for l in lines)
+            body = f"""
+{tabs_html()}
+<div class="card pad" style="max-width:900px">
+<h2>Reverse {esc(entry["entry_no"])}</h2>
+<p class="muted">Original date {esc(entry["entry_date"])} · {esc(entry["narration"])}</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Code</th><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+<tbody>{line_rows}</tbody></table></div>
+<form method="post" action="/journal/reverse" style="margin-top:16px">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="entry_id" value="{esc(entry["id"])}">
+<div class="field"><label for="reason">Reversal reason</label>
+<input id="reason" name="reason" maxlength="200" required placeholder="e.g. Wrong account selected"></div>
+<div class="entry-actions">
+<button class="btn" type="submit">Post reversal</button>
+<a class="btn ghost" href="{back}">Cancel</a>
+</div></form>
+<p class="small muted">The original entry stays in the books and is marked reversed. A new mirrored entry is posted with its own audit trail.</p>
+</div>"""
+            return layout("Reverse journal entry", body, "entries/journal", user, tenant)
+
+        if not can_post:
+            body = (tabs_html() + '<div class="card pad"><div class="err">Your role cannot post journal entries. '
+                    'Ask an owner, admin or accountant for journal posting permission.</div>'
+                    '<a class="btn ghost" href="/ledger">Back to ledger</a></div>')
+            return layout(title, body, active, user, tenant)
+
+        bank_accounts = bank_mod.bank_accounts(conn, tenant["id"])
+        bank_ids = {a["id"] for a in bank_accounts}
+        cash_id = next((a["id"] for a in accounts if a["code"] == "1000"), "")
+        bank_id = next((a["id"] for a in bank_accounts if a["code"] == "1010"),
+                       bank_accounts[0]["id"] if bank_accounts else "")
+        selected = (q.get("account") or [""])[0]
+        if mode == "cash":
+            first_account = cash_id
+            hint = "Row 1 is preselected as Cash. Add the other side of the entry in row 2."
+        elif mode == "bank":
+            first_account = selected if selected in bank_ids else bank_id
+            hint = ("Row 1 is preselected with a bank account. Choose a different bank in row 1 if needed. "
+                    "Add the other side of the entry in row 2.")
+        else:
+            first_account = selected if selected in account_by_id else ""
+            hint = "Choose any two or more accounts. Debits must equal credits exactly."
+
+        def account_options(chosen: str) -> str:
+            return ('<option value="">— choose account —</option>' + "".join(
+                f'<option value="{a["id"]}"{" selected" if a["id"] == chosen else ""}>'
+                f'{esc(a["code"])} — {esc(a["name"])}</option>' for a in accounts))
+
+        row_html = ""
+        for i in range(4):
+            chosen = first_account if i == 0 else ""
+            row_html += (
+                f'<tr><td><select name="account_id">{account_options(chosen)}</select></td>'
+                f'<td><input name="debit" value="" inputmode="decimal" placeholder="0.00"></td>'
+                f'<td><input name="credit" value="" inputmode="decimal" placeholder="0.00"></td></tr>')
+
+        narration_hint = {"cash": "Cash receipt or payment", "bank": "Bank receipt or payment",
+                          "journal": "Manual journal narration"}.get(mode, "Narration")
         body = f"""
+{tabs_html()}
+<div class="notice">{esc(hint)}</div>
 <form method="post" action="/journal">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="mode" value="{esc(mode)}">
 <div class="card pad sect">
 <div class="row c3">
 <div class="field"><label>Date</label><input type="date" name="entry_date" value="{date.today().isoformat()}" required></div>
-<div class="field" style="grid-column:span 2"><label>Narration</label><input name="narration" required maxlength="200"></div>
+<div class="field" style="grid-column:span 2"><label>Narration</label>
+<input name="narration" required maxlength="200" placeholder="{esc(narration_hint)}"></div>
 </div></div>
-<div class="card sect"><table><thead><tr><th style="width:60%">Account</th><th>Debit</th><th>Credit</th></tr></thead>
-<tbody>{rows}</tbody></table></div>
-<button class="btn" type="submit">Post journal</button>
+<div class="card sect table-wrap"><table>
+<thead><tr><th style="width:58%">Account</th><th>Debit</th><th>Credit</th></tr></thead>
+<tbody>{row_html}</tbody></table></div>
+<div class="entry-actions">
+<button class="btn" type="submit">Post {esc(title.lower())}</button>
+<a class="btn ghost" href="/ledger">Back to ledger</a>
+</div>
 <p class="small muted" style="margin-top:12px">Debits must equal credits exactly. Posting is atomic: an unbalanced entry is rejected and nothing is written.</p>
 </form>"""
-        return layout("Journal entry", body, "journal", user, tenant)
+        return layout(title, body, active, user, tenant)
+
+    def page_bank_accounts(self, conn, user, tenant, sess, q) -> str:
+        accounts = bank_mod.bank_accounts(conn, tenant["id"])
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+            can_manage = True
+        except security.AuthError:
+            can_manage = False
+
+        rows = ""
+        for a in accounts:
+            bank_name = a.get("bank_name") or (tenant["bank_name"] if a["code"] == "1010" else "")
+            account_number = a.get("account_number") or (tenant["bank_account"] if a["code"] == "1010" else "")
+            ifsc = a.get("ifsc") or (tenant["bank_ifsc"] if a["code"] == "1010" else "")
+            branch = a.get("branch") or ""
+            holder = a.get("holder_name") or (tenant["name"] if a["code"] == "1010" else "")
+            source = ("Business Settings" if not a.get("bank_account_id") else "Bank Accounts")
+            details = " · ".join(x for x in [
+                esc(bank_name) if bank_name else "Details not set",
+                f'A/c {esc(account_number)}' if account_number else "",
+                f'IFSC {esc(ifsc)}' if ifsc else "",
+                f'Branch {esc(branch)}' if branch else "",
+                f'Holder {esc(holder)}' if holder else "",
+            ] if x)
+            rows += (f'<tr><td><b>{esc(a["code"])}</b><br><span class="small muted">{esc(a["name"])}</span></td>'
+                     f'<td>{details}<div class="small muted">{esc(source)}</div></td>'
+                     f'<td><a class="small" href="/ledger?account={a["id"]}">Ledger</a> · '
+                     f'<a class="small" href="/reports/bank-book?account={a["id"]}">Bank Book</a> · '
+                     f'<a class="small" href="/bank-recon?account={a["id"]}">Reconcile</a></td></tr>')
+        rows = rows or '<tr><td colspan="3" class="empty">No bank accounts yet.</td></tr>'
+
+        notice = ""
+        if q.get("created"):
+            notice = '<div class="notice">Bank account created. You can post a bank entry or import a statement now.</div>'
+        add_card = ""
+        if can_manage:
+            try:
+                next_code = bank_mod.next_bank_code(conn, tenant["id"])
+            except bank_mod.BankError:
+                next_code = ""
+            add_card = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:12px">Add bank account</h2>
+<form method="post" action="/bank-accounts">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="row c3">
+<div class="field"><label>Ledger code</label><input name="code" maxlength="12" required value="{esc(next_code)}" placeholder="1020"></div>
+<div class="field"><label>Ledger name</label><input name="name" maxlength="80" required placeholder="HDFC Current A/c"></div>
+<div class="field"><label>Bank name</label><input name="bank_name" maxlength="80" required placeholder="HDFC Bank"></div>
+</div>
+<div class="row c3">
+<div class="field"><label>Account number</label><input name="account_number" maxlength="34" required placeholder="50200012345678"></div>
+<div class="field"><label>IFSC</label><input name="ifsc" maxlength="11" placeholder="HDFC0001234"></div>
+<div class="field"><label>Branch</label><input name="branch" maxlength="80" placeholder="Andheri West"></div>
+</div>
+<div class="field"><label>Account holder</label><input name="holder_name" maxlength="120" value="{esc(tenant['name'])}"></div>
+<button class="btn" type="submit">Add bank account</button>
+</form>
+<p class="small muted" style="margin:10px 0 0">This creates a new asset ledger account and links it to the bank book and reconciliation. The original bank account 1010 keeps using Business Settings.</p>
+</div>"""
+        else:
+            add_card = ('<div class="card pad small muted">Your role can view bank accounts but cannot add them. '
+                        'Ask an owner, admin or accountant to grant account management permission.</div>')
+
+        body = f"""
+{notice}
+<div class="sect-head"><div><h2>Bank accounts</h2>
+<div class="small muted">Every bank account has its own ledger, bank book and reconciliation.</div></div>
+<div class="entry-actions"><a class="btn ghost small" href="/settings">Business Settings</a></div></div>
+<div class="card table-wrap sect"><table>
+<thead><tr><th>Ledger</th><th>Bank details</th><th>Open</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+{add_card}"""
+        return layout("Bank accounts", body, "bank-accounts", user, tenant)
 
     def page_bank_recon(self, conn, user, tenant, sess, q) -> str:
         today = date.today()
@@ -1346,8 +2710,9 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         dto = (q.get("to") or [today.isoformat()])[0]
         accounts = bank_mod.bank_accounts(conn, tenant["id"])
         if not accounts:
-            body = ('<div class="card pad"><div class="err">No bank account (code 1010) exists in this '
-                    'business chart of accounts.</div></div>')
+            body = ('<div class="card pad"><div class="err">No bank account exists in this '
+                    'business chart of accounts.</div>'
+                    '<a class="btn ghost" href="/bank-accounts">Add a bank account</a></div>')
             return layout("Bank reconciliation", body, "bank-recon", user, tenant)
         account_id = (q.get("account") or [accounts[0]["id"]])[0]
         if account_id not in {a["id"] for a in accounts}:
@@ -1472,15 +2837,18 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 </div></form>
 <div class="card pad sect">
 <div class="sect-head"><h2 style="margin-bottom:0">Import bank statement</h2>{last_note}</div>
-<form method="post" action="/bank-recon/import">
+<form method="post" action="/bank-recon/import" enctype="multipart/form-data">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <input type="hidden" name="account_id" value="{esc(account_id)}">
 <input type="hidden" name="filename" id="filename" value="">
-<div class="field"><label>CSV file</label><input type="file" id="csvfile" accept=".csv,text/csv"></div>
+<div class="row c2">
+<div class="field"><label>CSV file (read in browser)</label><input type="file" id="csvfile" accept=".csv,text/csv"></div>
+<div class="field"><label>Excel .xlsx file (server-side)</label><input type="file" name="xlsx_file" id="xlsxfile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
+</div>
 <div class="field"><label>Or paste CSV</label><textarea name="csv_text" id="csv_text" rows="5" placeholder="Date,Description,Reference,Debit,Credit,Balance&#10;2026-06-01,NEFT CR SUNDARAM,NEFT-88421,,23600.00,523600.00"></textarea></div>
 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
 <button class="btn" type="submit">Import statement</button>
-<span class="small muted">Columns: Date, Description, Reference, Debit, Credit (or Amount + Dr/Cr). Duplicate rows are skipped.</span>
+<span class="small muted">Columns: Date, Description, Reference, Debit, Credit (or Amount + Dr/Cr). Duplicate rows are skipped. Excel uses the first worksheet; header must be the first non-empty row.</span>
 </div></form>
 <script>
 document.getElementById('csvfile').addEventListener('change', function (e) {{
@@ -1773,15 +3141,18 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <div class="card pad sect">
 <div class="sect-head"><h2 style="margin-bottom:0">Import GSTR-2B working CSV</h2>
 <span class="small muted">Latest active import wins for the month</span></div>
-<form method="post" action="/gstr2b/import">
+<form method="post" action="/gstr2b/import" enctype="multipart/form-data">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <input type="hidden" name="month" value="{esc(month)}">
 <input type="hidden" name="filename" id="gstr2b_filename" value="">
-<div class="field"><label for="gstr2b_file">CSV file</label><input type="file" id="gstr2b_file" accept=".csv,text/csv"></div>
+<div class="row c2">
+<div class="field"><label for="gstr2b_file">CSV file (read in browser)</label><input type="file" id="gstr2b_file" accept=".csv,text/csv"></div>
+<div class="field"><label for="gstr2b_xlsx">Excel .xlsx file (server-side)</label><input type="file" name="xlsx_file" id="gstr2b_xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
+</div>
 <div class="field"><label for="gstr2b_text">Or paste CSV</label><textarea name="csv_text" id="gstr2b_text" rows="6" placeholder="Supplier GSTIN,Supplier Name,Invoice No,Invoice Date,Taxable Value,IGST,CGST,SGST,Cess,Invoice Value&#10;27AAACL1234C1Z5,Loom House Pvt Ltd,LH-2026-097,2026-08-10,42000.00,0,3780.00,3780.00,0,49560.00"></textarea></div>
 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
 <button class="btn" type="submit">Import GSTR-2B</button>
-<span class="small muted">Expected columns: GSTIN, invoice no, invoice date, taxable value, IGST, CGST, SGST. This is a working reconciliation aid, not the portal's official schema.</span>
+<span class="small muted">Expected columns: GSTIN, invoice no, invoice date, taxable value, IGST, CGST, SGST. Excel uses the first worksheet. This is a working reconciliation aid, not the portal's official schema.</span>
 </div></form>
 <script>
 document.getElementById('gstr2b_file').addEventListener('change', function (e) {{
@@ -1953,31 +3324,64 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
 """
         return layout("GSTR-2B reconciliation", body, "gstr2b", user, tenant)
 
-    def page_ledger(self, conn, user, tenant, q) -> str:
-        accounts = conn.execute("SELECT * FROM account WHERE tenant_id=? ORDER BY code", (tenant["id"],)).fetchall()
+    def page_book(self, conn, user, tenant, q, code: str, title: str, active: str,
+                  bank: bool = False) -> str:
+        """Cash book / bank book from the posted ledger of a control account."""
+        if bank:
+            accounts = bank_mod.bank_accounts(conn, tenant["id"])
+        else:
+            accounts = conn.execute(
+                "SELECT * FROM account WHERE tenant_id=? AND code=? AND status='active'"
+                " ORDER BY name", (tenant["id"], code)).fetchall()
         if not accounts:
-            return layout("Ledger", '<div class="card pad">No accounts.</div>', "ledger", user, tenant)
+            body = (f'<div class="card pad"><div class="err">No {esc(title.lower())} account exists in this '
+                    f'business chart of accounts.</div>'
+                    + (f'<a class="btn ghost" href="/bank-accounts">Add a bank account</a>' if bank else "")
+                    + '</div>')
+            return layout(title, body, active, user, tenant)
         account_id = (q.get("account") or [accounts[0]["id"]])[0]
+        if account_id not in {a["id"] for a in accounts}:
+            account_id = accounts[0]["id"]
+        selected = dict(next(a for a in accounts if a["id"] == account_id))
         today = date.today()
-        date_from = (q.get("from") or [f"{today.year}-04-01"])[0]
+        date_from = (q.get("from") or [fiscal_start(today, tenant["fiscal_year_start_month"])])[0]
         date_to = (q.get("to") or [today.isoformat()])[0]
-        try:
-            gl = acct.general_ledger(conn, tenant["id"], account_id, date_from, date_to)
-        except acct.AccountingError:
-            gl = None
+        gl = acct.general_ledger(conn, tenant["id"], account_id, date_from, date_to)
         opts = "".join(
             f'<option value="{a["id"]}" {"selected" if a["id"] == account_id else ""}>{a["code"]} — {esc(a["name"])}</option>'
             for a in accounts)
-        if not gl:
-            return layout("Ledger", '<div class="card pad">Account not found.</div>', "ledger", user, tenant)
         rows = "".join(
             f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}</td><td>{esc(r["narration"])}</td>'
             f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
             f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
             f'<td class="num">{money.fmt(r["balance"])}</td></tr>' for r in gl["rows"])
         rows = rows or '<tr><td colspan="6" class="empty">No movement in this period</td></tr>'
+        bank_meta = ""
+        if bank:
+            bank_name = selected.get("bank_name") or tenant["bank_name"] or ""
+            account_number = selected.get("account_number") or tenant["bank_account"] or ""
+            ifsc = selected.get("ifsc") or tenant["bank_ifsc"] or ""
+            branch = selected.get("branch") or ""
+            holder = selected.get("holder_name") or tenant["name"]
+            details = " · ".join(x for x in [
+                f'<b>{esc(bank_name)}</b>' if bank_name else "",
+                f'A/c {esc(account_number)}' if account_number else "",
+                f'IFSC {esc(ifsc)}' if ifsc else "",
+                f'Branch {esc(branch)}' if branch else "",
+                f'Holder {esc(holder)}' if holder else "",
+            ] if x)
+            if details:
+                bank_meta = f'<div class="card pad small muted" style="margin-bottom:14px">{details}</div>'
+        entry_href = f'/entries/bank?account={account_id}' if bank else f'/entries/cash?account={account_id}'
+        entry_label = "Bank entry" if bank else "Cash entry"
         body = f"""
-<form method="get" action="/ledger" class="card pad sect">
+<div class="sect-head"><div></div><div class="entry-actions">
+<a class="btn small" href="{entry_href}">New {esc(entry_label.lower())}</a>
+<a class="btn ghost small" href="/ledger?account={account_id}">Open ledger</a>
+{f'<a class="btn ghost small" href="/bank-accounts">Bank accounts</a>' if bank else ''}
+</div></div>
+{bank_meta}
+<form method="get" action="/{active}" class="card pad sect">
 <div class="row c4">
 <div class="field"><label>Account</label><select name="account">{opts}</select></div>
 <div class="field"><label>From</label><input type="date" name="from" value="{esc(date_from)}"></div>
@@ -1985,10 +3389,942 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
 <div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
 </div></form>
 <div class="card"><table>
-<thead><tr><th>Date</th><th>Ref</th><th>Narration</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+<thead><tr><th>Date</th><th>Ref</th><th>Particulars</th><th class="num">Receipts</th><th class="num">Payments</th><th class="num">Balance</th></tr></thead>
 <tbody><tr><td colspan="5" class="muted">Opening balance</td><td class="num"><b>{money.fmt(gl["opening"])}</b></td></tr>
 {rows}</tbody>
-<tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(gl["closing"])}</td></tr></tfoot></table></div>"""
+<tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(gl["closing"])}</td></tr></tfoot></table></div>
+<p class="small muted" style="margin-top:12px">This book is computed from posted journal lines. Nothing is cached or entered directly here.</p>"""
+        return layout(f'{title} — {gl["account"]["name"]}', body, active, user, tenant)
+
+    def _account_form(self, action: str, sess, tenant, account=None, profile=None,
+                      bank=None, values=None, submit: str = "Create ledger account") -> str:
+        profile = profile or {}
+        bank = bank or {}
+        values = {key: (val[0] if isinstance(val, list) else val)
+                  for key, val in (values or {}).items()}
+
+        def v(name: str, default: str = "") -> str:
+            if name in values:
+                return values.get(name, default) or ""
+            return str(profile.get(name, default) or "")
+
+        def money_v(name: str) -> str:
+            if name in values:
+                return values.get(name, "") or ""
+            value = int(profile.get(name, 0) or 0)
+            return money.to_str(value) if value else ""
+
+        def pct_v(name: str) -> str:
+            if name in values:
+                return values.get(name, "") or ""
+            value = int(profile.get(name, 0) or 0)
+            return f"{value / 100:.2f}".rstrip("0").rstrip(".") if value else ""
+
+        editing = account is not None
+        code = (values.get("code") if "code" in values else (account["code"] if editing else "")) or ""
+        name = (values.get("name") if "name" in values else (account["name"] if editing else "")) or ""
+        account_type = ((values.get("type") if "type" in values
+                         else (account["type"] if editing else "asset")) or "asset").lower()
+        group_code = ((values.get("group_code") if "group_code" in values
+                       else (account["group_code"] if editing else "")) or "")
+        if not group_code:
+            group_code = acct.default_group_for_type(account_type)
+        group = acct.ACCOUNT_GROUPS.get(group_code)
+        if group:
+            account_type = group["type"]
+
+        type_defs = [("asset", "Asset"), ("liability", "Liability"),
+                     ("equity", "Capital / Equity"), ("income", "Revenue / Income"),
+                     ("expense", "Expense")]
+        if editing:
+            identity = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Ledger identity</h2>
+<p class="small muted" style="margin:0 0 14px">Code, type and group stay fixed after posting so reports
+and prior entries remain comparable. You can correct the display name and profile details.</p>
+<div class="row c3">
+<div class="field"><label>Code</label><input value="{esc(code)}" readonly></div>
+<div class="field"><label>Type</label><input value="{esc(account_type.title())}" readonly></div>
+<div class="field"><label>Group</label><input value="{esc(acct.account_group_label(group_code, account_type))}" readonly></div>
+</div>
+<div class="field"><label>Ledger name</label><input name="name" maxlength="80" required value="{esc(name)}"></div>
+</div>"""
+        else:
+            group_options = ""
+            for typ, typ_label in type_defs:
+                options = "".join(
+                    f'<option value="{g["code"]}" data-type="{g["type"]}"'
+                    f' data-hint="{esc(g["hint"])}" data-side="{g["default_side"]}"'
+                    f'{" selected" if group_code == g["code"] else ""}>{esc(g["label"])}</option>'
+                    for g in acct.account_groups_for_type(typ))
+                group_options += f'<optgroup label="{typ_label}">{options}</optgroup>'
+            identity = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Account classification</h2>
+<p class="small muted" style="margin:0 0 14px">Choose what this account is in your own books: Cash,
+Bank, Sundry Debtors, Sundry Creditors, Loan, Purchase, Sales, Suspense and so on. ARTHIVIO derives the
+accounting type and normal debit/credit side from your choice.</p>
+<div class="row c3">
+<div class="field"><label>Ledger code</label><input name="code" maxlength="12" required value="{esc(code)}" placeholder="6050"></div>
+<div class="field"><label>Account type / group</label><select name="group_code" id="accountGroup">{group_options}</select></div>
+<div class="field"><label>Ledger name</label><input name="name" maxlength="80" required value="{esc(name)}" placeholder="City Hospital Pvt Ltd"></div>
+</div>
+<p class="small muted" id="groupHint" style="margin:0"></p>
+</div>"""
+
+        opening_card = ""
+        if not editing:
+            opening_side = (values.get("opening_side")
+                            or acct.ACCOUNT_GROUPS.get(group_code, {}).get("default_side", "debit"))
+            opening_card = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Opening balance</h2>
+<p class="small muted" style="margin:0 0 14px">Optional. It posts a balanced journal against Opening
+Balance Equity. Leave the amount blank if this account starts at zero; you can add it later from the ledger.</p>
+<div class="row c3">
+<div class="field"><label>Opening amount</label><input name="opening_amount" inputmode="decimal" value="{esc(values.get("opening_amount", ""))}" placeholder="0.00"></div>
+<div class="field"><label>Balance side</label><select name="opening_side" id="openingSide">
+<option value="debit"{" selected" if opening_side == "debit" else ""}>Debit (Dr)</option>
+<option value="credit"{" selected" if opening_side == "credit" else ""}>Credit (Cr)</option>
+</select></div>
+<div class="field"><label>As of</label><input type="date" name="opening_as_of" value="{esc(values.get("opening_as_of") or fiscal_start(date.today(), tenant["fiscal_year_start_month"]))}"></div>
+</div>
+<p class="small muted" style="margin:0">Debit is usual for assets and expenses; credit is usual for
+liabilities, equity and income. The date cannot be in the future.</p>
+</div>"""
+
+        state_opts = state_options(v("state_code") or tenant["state_code"])
+        party_note = ("Saving a Sundry Debtors or Sundry Creditors account also creates a linked customer or "
+                      "vendor master. Invoices, bills, receipts and payments then post to this ledger.")
+        company_card = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Company, contact and credit details</h2>
+<p class="small muted" style="margin:0 0 14px">Optional but recommended. {party_note}</p>
+<div class="row c3">
+<div class="field"><label>Legal / company name</label><input name="legal_name" maxlength="120" value="{esc(v("legal_name"))}" placeholder="As per GST / PAN"></div>
+<div class="field"><label>Contact person</label><input name="contact_person" maxlength="80" value="{esc(v("contact_person"))}"></div>
+<div class="field"><label>Phone</label><input name="phone" maxlength="24" value="{esc(v("phone"))}"></div>
+</div>
+<div class="row c3">
+<div class="field"><label>Email</label><input type="email" name="email" maxlength="120" value="{esc(v("email"))}"></div>
+<div class="field"><label>Website</label><input name="website" maxlength="120" value="{esc(v("website"))}" placeholder="https://"></div>
+<div class="field"><label>Organisation type</label><input name="organisation_type" list="orgTypes" maxlength="80" value="{esc(v("organisation_type"))}" placeholder="Private Limited"></div>
+</div>
+<datalist id="orgTypes">
+<option value="Proprietorship"><option value="Partnership"><option value="LLP">
+<option value="Private Limited"><option value="Public Limited"><option value="Trust">
+<option value="Society"><option value="Government"><option value="Individual">
+</datalist>
+<div class="row c3">
+<div class="field"><label>Industry / business type</label><input name="industry" list="industryTypes" maxlength="80" value="{esc(v("industry"))}" placeholder="Hospital, School, Retail, Real Estate"></div>
+<datalist id="industryTypes">
+<option value="Retail"><option value="Wholesale / Trading"><option value="Manufacturing">
+<option value="Services"><option value="Hospital / Healthcare"><option value="School / College">
+<option value="Real Estate"><option value="Construction"><option value="Transport">
+<option value="Hospitality"><option value="NGO"><option value="Multinational"><option value="Other">
+</datalist>
+<div class="field"><label>Credit days</label><input name="credit_days" inputmode="numeric" value="{esc(v("credit_days") if v("credit_days") != "0" else "")}" placeholder="0"></div>
+<div class="field"><label>Credit limit</label><input name="credit_limit" inputmode="decimal" value="{esc(money_v("credit_limit_paise"))}" placeholder="0.00"></div>
+</div>
+<div class="field"><label>Address</label><textarea name="address" rows="2" maxlength="240" placeholder="Building, street, area">{esc(v("address"))}</textarea></div>
+<div class="row c3">
+<div class="field"><label>City</label><input name="city" maxlength="60" value="{esc(v("city"))}"></div>
+<div class="field"><label>State</label><select name="state_code">{state_opts}</select></div>
+<div class="field"><label>PIN code</label><input name="pincode" maxlength="6" inputmode="numeric" value="{esc(v("pincode"))}"></div>
+</div>
+<div class="row c3">
+<div class="field"><label>Country</label><input name="country" maxlength="60" value="{esc(v("country") or "India")}"></div>
+<div class="field"><label>GSTIN</label><input name="gstin" maxlength="15" value="{esc(v("gstin"))}" placeholder="27ABCDE1234F1Z5"></div>
+<div class="field"><label>PAN</label><input name="pan" maxlength="10" value="{esc(v("pan"))}" placeholder="ABCDE1234F"></div>
+</div>
+<div class="row c2">
+<div class="field"><label>CIN (companies)</label><input name="cin" maxlength="21" value="{esc(v("cin"))}"></div>
+<div class="field"><label>Internal notes</label><input name="notes" maxlength="500" value="{esc(v("notes"))}" placeholder="Payment behaviour, agreed terms, etc."></div>
+</div>
+</div>"""
+
+        bank_card = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Bank details</h2>
+<p class="small muted" style="margin:0 0 14px">Used only when the group is <b>Bank Account</b>.
+These details drive the bank book and reconciliation; for other groups they are ignored.</p>
+<div class="row c3">
+<div class="field"><label>Bank name</label><input name="bank_name" maxlength="80" value="{esc(bank.get("bank_name") or values.get("bank_name", ""))}" placeholder="HDFC Bank"></div>
+<div class="field"><label>Account number</label><input name="bank_account_number" maxlength="34" value="{esc(bank.get("account_number") or values.get("bank_account_number", ""))}" placeholder="50200012345678"></div>
+<div class="field"><label>IFSC</label><input name="ifsc" maxlength="11" value="{esc(bank.get("ifsc") or values.get("ifsc", ""))}" placeholder="HDFC0001234"></div>
+</div>
+<div class="row c2">
+<div class="field"><label>Branch</label><input name="branch" maxlength="80" value="{esc(bank.get("branch") or values.get("branch", ""))}"></div>
+<div class="field"><label>Account holder</label><input name="holder_name" maxlength="120" value="{esc(bank.get("holder_name") or values.get("holder_name", "") or tenant["name"])}"></div>
+</div>
+</div>"""
+
+        loan_card = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Loan / borrowing details</h2>
+<p class="small muted" style="margin:0 0 14px">Use this for a <b>Loans (Liability)</b> ledger. The lender
+name is required for that group; the rest is optional and never affects posting arithmetic.</p>
+<div class="row c3">
+<div class="field"><label>Lender name</label><input name="loan_lender" maxlength="120" value="{esc(v("loan_lender"))}" placeholder="HDFC Bank / Director / NBFC"></div>
+<div class="field"><label>Loan account no.</label><input name="loan_account_no" maxlength="60" value="{esc(v("loan_account_no"))}"></div>
+<div class="field"><label>Sanction date</label><input type="date" name="loan_sanction_date" value="{esc(v("loan_sanction_date"))}"></div>
+</div>
+<div class="row c4">
+<div class="field"><label>Maturity date</label><input type="date" name="loan_maturity_date" value="{esc(v("loan_maturity_date"))}"></div>
+<div class="field"><label>Interest % p.a.</label><input name="interest_rate" inputmode="decimal" value="{esc(pct_v("interest_rate_bp"))}" placeholder="9.5"></div>
+<div class="field"><label>Tenure (months)</label><input name="tenure_months" inputmode="numeric" value="{esc(v("tenure_months") if v("tenure_months") != "0" else "")}" placeholder="60"></div>
+<div class="field"><label>EMI amount</label><input name="emi" inputmode="decimal" value="{esc(money_v("emi_paise"))}" placeholder="0.00"></div>
+</div>
+<div class="field"><label>Security / collateral</label><input name="security_details" maxlength="240" value="{esc(v("security_details"))}" placeholder="Property, stock, personal guarantee, etc."></div>
+</div>"""
+
+        hidden = ""
+        if editing:
+            hidden = (f'<input type="hidden" name="account_id" value="{esc(account["id"])}">')
+        cancel = f'/ledger?account={account["id"]}' if editing else "/ledger"
+        return f"""
+<form method="post" action="{esc(action)}">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+{hidden}
+{identity}
+{opening_card}
+{company_card}
+{bank_card}
+{loan_card}
+<div class="entry-actions" style="margin-bottom:18px">
+<button class="btn" type="submit">{esc(submit)}</button>
+<a class="btn ghost" href="{cancel}">Cancel</a>
+<span class="small muted">All postings remain balanced and audited.</span>
+</div>
+</form>
+<script>
+const accountTypeNames = {{
+  asset: 'Asset', liability: 'Liability', equity: 'Capital / Equity',
+  income: 'Revenue / Income', expense: 'Expense'
+}};
+function updateGroupHint(autoSide) {{
+  const group = document.getElementById('accountGroup');
+  const hint = document.getElementById('groupHint');
+  if (!group || !hint) return;
+  const option = group.options[group.selectedIndex];
+  if (!option) {{ hint.textContent = ''; return; }}
+  const typeName = accountTypeNames[option.dataset.type] || '';
+  const detail = option.dataset.hint || '';
+  hint.textContent = (typeName ? 'Accounting type: ' + typeName + '. ' : '') + detail;
+  if (autoSide) {{
+    const side = document.getElementById('openingSide');
+    if (side && option.dataset.side) side.value = option.dataset.side;
+  }}
+}}
+if (document.getElementById('accountGroup')) {{
+  document.getElementById('accountGroup').addEventListener('change', function () {{
+    updateGroupHint(true);
+  }});
+  updateGroupHint(false);
+}}
+</script>"""
+
+    def page_account_new(self, conn, user, tenant, sess, q, error: str = "") -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<a class="btn ghost" href="/ledger">Back to ledger</a></div>')
+            return layout("New ledger account", body, "ledger", user, tenant)
+        form = self._account_form("/accounts", sess, tenant, values=q,
+                                  submit="Create ledger account")
+        error_html = f'<div class="err" style="margin-bottom:14px">{esc(error)}</div>' if error else ""
+        body = f"""
+<div class="sect-head"><div><h2>New ledger account</h2>
+<div class="small muted">Create the account and capture its full profile in one flow. Product-wise
+price, margin and GST are maintained in <a href="/items">Masters → Items</a>, because one ledger can
+contain many products.</div></div>
+<a class="btn ghost small" href="/ledger">Back to ledger</a></div>
+{error_html}
+{form}"""
+        return layout("New ledger account", body, "ledger", user, tenant)
+
+    def page_account_edit(self, conn, user, tenant, sess, account_id: str, q,
+                          error: str = "") -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    f'<a class="btn ghost" href="/ledger?account={esc(account_id)}">Back to ledger</a></div>')
+            return layout("Edit account", body, "ledger", user, tenant)
+        account = conn.execute(
+            "SELECT * FROM account WHERE id=? AND tenant_id=?", (account_id, tenant["id"])
+        ).fetchone()
+        if not account:
+            return layout("Account not found",
+                          '<div class="card pad">Account not found in this business.</div>',
+                          "ledger", user, tenant)
+        profile = acct.account_profile(conn, tenant["id"], account_id) or {}
+        bank = conn.execute(
+            "SELECT * FROM bank_account WHERE tenant_id=? AND account_id=?",
+            (tenant["id"], account_id),
+        ).fetchone() or {}
+        form = self._account_form("/accounts/update", sess, tenant, account=account,
+                                  profile=profile, bank=dict(bank), values=q if q else None,
+                                  submit="Save account details")
+        error_html = f'<div class="err" style="margin-bottom:14px">{esc(error)}</div>' if error else ""
+        body = f"""
+<div class="sect-head"><div><h2>{esc(account["name"])}</h2>
+<div class="small muted">{esc(account["code"])} · {esc(acct.account_group_label(account["group_code"], account["type"]))}</div></div>
+<a class="btn ghost small" href="/ledger?account={esc(account_id)}">Back to ledger</a></div>
+{error_html}
+{form}"""
+        return layout(f'Edit {account["name"]}', body, "ledger", user, tenant)
+
+    def page_account_archive(self, conn, user, tenant, sess, account_id: str, q,
+                             error: str = "") -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<a class="btn ghost" href="/ledger">Back to ledger</a></div>')
+            return layout("Archive or merge account", body, "ledger", user, tenant)
+        account = conn.execute(
+            "SELECT * FROM account WHERE id=? AND tenant_id=?", (account_id, tenant["id"])
+        ).fetchone()
+        if not account:
+            return layout("Account not found",
+                          '<div class="card pad">Account not found in this business.</div>',
+                          "ledger", user, tenant)
+        profile = acct.account_profile(conn, tenant["id"], account_id) or {}
+        bank_row = conn.execute(
+            "SELECT * FROM bank_account WHERE tenant_id=? AND account_id=?",
+            (tenant["id"], account_id)).fetchone()
+        balance = acct.account_balance(conn, tenant["id"], account_id)
+        is_archived = account["status"] == "archived"
+        is_system = acct.account_is_system(account)
+        party = acct._account_party(conn, tenant["id"], account_id)
+        party_type = party[0] if party else ""
+        item_refs = conn.execute(
+            "SELECT COUNT(*) AS c FROM item WHERE tenant_id=? AND revenue_code=?",
+            (tenant["id"], account["code"])).fetchone()["c"]
+        merged_target = None
+        if account["merged_into_id"]:
+            merged_target = conn.execute(
+                "SELECT id, code, name FROM account WHERE id=? AND tenant_id=?",
+                (account["merged_into_id"], tenant["id"])).fetchone()
+        targets = acct.merge_targets(conn, tenant["id"], account_id) if (
+            not is_archived and not is_system) else []
+
+        def balance_text(value: int) -> str:
+            if not value:
+                return money.fmt(0)
+            return f'{money.fmt(abs(value))} {"Dr" if value > 0 else "Cr"}'
+
+        error_html = f'<div class="err" style="margin-bottom:14px">{esc(error)}</div>' if error else ""
+        status_bits = [f'<span class="pill">{esc(account["status"])}</span>']
+        if merged_target:
+            status_bits.append(
+                f'<span class="small muted">Merged into <a href="/ledger?account={merged_target["id"]}">'
+                f'{esc(merged_target["code"])} — {esc(merged_target["name"])}</a></span>')
+        if is_archived and account["archived_at"]:
+            status_bits.append(f'<span class="small muted">on {esc(account["archived_at"])}</span>')
+        summary = f"""
+<div class="card pad" style="margin-bottom:14px">
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<span class="pill">{esc(account["code"])}</span>
+<b>{esc(account["name"])}</b>
+{"".join(status_bits)}
+<span class="small muted" style="margin-left:auto">All-time balance:
+<b>{balance_text(balance)}</b></span>
+</div>
+<div class="small muted" style="margin-top:8px">
+{esc(account["type"]).title()} · {esc(acct.account_group_label(account["group_code"], account["type"]))}
+{f' · Party: {esc(party_type.title())}' if party_type else ''}
+{f' · Bank: {esc(bank_row["bank_name"])} A/c {esc(bank_row["account_number"])}' if bank_row else ''}
+{f' · Used by {item_refs} product(s)' if item_refs else ''}
+</div>
+</div>"""
+
+        if is_archived:
+            archived_card = f"""
+<div class="card pad" style="margin-bottom:14px;border-color:var(--border-strong)">
+<h2 style="margin-bottom:4px">Restore this ledger</h2>
+<p class="small muted" style="margin:0 0 12px">Restore makes the account active again. Its history and
+current balance stay exactly as posted. If it was merged, the reclassification journal is not reversed;
+use a manual journal if the merged balance also needs to move back.</p>
+<form method="post" action="/accounts/restore">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<div class="field"><label for="restore_reason">Restore reason (optional)</label>
+<input id="restore_reason" name="reason" maxlength="200" placeholder="e.g. Account closed by mistake"></div>
+<button class="btn" type="submit">Restore account</button>
+<a class="btn ghost" href="/ledger?account={esc(account_id)}">Back to ledger</a>
+</form></div>"""
+            archive_card = ""
+            merge_card = ""
+        else:
+            archived_card = ""
+            if is_system:
+                archive_card = ('<div class="card pad" style="margin-bottom:14px"><h2 style="margin-bottom:4px">'
+                                'Archive</h2><p class="small muted" style="margin:0">This is a system or '
+                                'control ledger. Archive and merge are locked so code-based postings and '
+                                'reports keep working.</p></div>')
+            elif party_type:
+                archive_card = ('<div class="card pad" style="margin-bottom:14px"><h2 style="margin-bottom:4px">'
+                                'Archive</h2><p class="small muted" style="margin:0">This ledger is linked to a '
+                                'customer or vendor. Archive is unavailable; merge it into another ledger for '
+                                'the same party so the party statement and account pointer stay consistent.</p></div>')
+            elif item_refs:
+                archive_card = (f'<div class="card pad" style="margin-bottom:14px"><h2 style="margin-bottom:4px">'
+                                f'Archive</h2><p class="small muted" style="margin:0">This sales ledger is used by '
+                                f'{item_refs} product(s). Move those products to another active sales ledger, or '
+                                f'merge this ledger into that target, before archiving.</p></div>')
+            elif balance:
+                archive_card = (f'<div class="card pad" style="margin-bottom:14px"><h2 style="margin-bottom:4px">'
+                                f'Archive</h2><p class="small muted" style="margin:0">Archive is available only at '
+                                f'an all-time balance of zero. This ledger has {balance_text(balance)}. Merge it into '
+                                f'another ledger or post a zeroing journal first.</p></div>')
+            else:
+                archive_card = f"""
+<div class="card pad" style="margin-bottom:14px;border-color:var(--border-strong)">
+<h2 style="margin-bottom:4px">Archive this ledger</h2>
+<p class="small muted" style="margin:0 0 12px">Archive keeps all posted history but blocks new postings.
+It is available only when the all-time balance is exactly zero. No journal is posted by archiving.</p>
+<form method="post" action="/accounts/archive" onsubmit="return confirm('Archive this ledger? New postings will be blocked.');">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<div class="field"><label for="archive_reason">Archive reason</label>
+<input id="archive_reason" name="reason" maxlength="200" required placeholder="e.g. Obsolete ledger, replaced by 6050"></div>
+<button class="btn" type="submit">Archive account</button>
+</form></div>"""
+
+            if is_system:
+                merge_card = ""
+            elif targets:
+                target_opts = "".join(
+                    f'<option value="{t["id"]}">{esc(t["code"])} — {esc(t["name"])}'
+                    f' ({esc(t["group_label"])}) · {balance_text(t["balance"])}</option>'
+                    for t in targets)
+                hints = []
+                if party_type:
+                    hints.append("The customer/vendor account pointer is repointed to the target.")
+                if item_refs:
+                    hints.append(f"{item_refs} product(s) are repointed to the target sales ledger.")
+                if account["group_code"] == "bank":
+                    hints.append("Bank statement history stays on the archived source ledger.")
+                merge_card = f"""
+<div class="card pad" style="border-color:var(--border-strong)">
+<h2 style="margin-bottom:4px">Merge into another ledger</h2>
+<p class="small muted" style="margin:0 0 12px">Merge posts one balanced reclassification journal dated
+today for the source's net balance, then archives the source. The source history is never edited.
+Both ledgers must have the same accounting type; bank ledgers only merge into bank ledgers and party
+ledgers only into the same party.</p>
+<form method="post" action="/accounts/merge" onsubmit="return confirm('Merge this ledger and archive the source? A reclassification journal will be posted today.');">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<div class="field"><label for="merge_target">Target ledger</label>
+<select id="merge_target" name="target_id" required>{target_opts}</select></div>
+<div class="field"><label for="merge_reason">Merge reason</label>
+<input id="merge_reason" name="reason" maxlength="200" required placeholder="e.g. Duplicate ledger, same account"></div>
+<p class="small muted" style="margin:0 0 12px">Transfer amount: <b>{balance_text(balance)}</b>.
+{" ".join(hints)}</p>
+<button class="btn" type="submit">Merge and archive</button>
+</form></div>"""
+            else:
+                merge_card = ('<div class="card pad"><h2 style="margin-bottom:4px">Merge into another ledger</h2>'
+                              '<p class="small muted" style="margin:0">No compatible active target exists. '
+                              'Create another ledger with the same accounting type (and the same party or '
+                              'bank group, if this one is linked) first.</p></div>')
+
+        body = f"""
+<div class="sect-head"><div><h2>Archive or merge</h2>
+<div class="small muted">Close an obsolete ledger without deleting posted history. Every change is
+audited and every balance transfer is a balanced journal.</div></div>
+<a class="btn ghost small" href="/ledger?account={esc(account_id)}">Back to ledger</a></div>
+{error_html}
+{summary}
+{archived_card}
+{archive_card}
+{merge_card}
+<p class="small muted" style="margin-top:14px">Archiving is not deletion. Reports, ledgers and the audit
+trail keep the account code and its posted entries. Merged balances move through a journal, never by
+editing posted lines.</p>"""
+        return layout("Archive or merge account", body, "ledger", user, tenant)
+
+    def page_opening_import(self, conn, user, tenant, sess, q, values=None,
+                            preview=None, error: str = "") -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<a class="btn ghost" href="/ledger">Back to ledger</a></div>')
+            return layout("Bulk opening balances", body, "ledger/opening-balances", user, tenant)
+
+        today = date.today()
+        default_date = fiscal_start(today, tenant["fiscal_year_start_month"])
+        csv_text = ""
+        filename = ""
+        if values:
+            default_date = values.get("default_as_of") or default_date
+            csv_text = values.get("csv_text", "")
+            filename = values.get("filename", "")
+
+        notices = ""
+        posted = (q.get("posted") or [""])[0]
+        if posted:
+            notices += (f'<div class="notice">{esc(posted)} opening balance entr'
+                        f'{"y" if posted == "1" else "ies"} posted against Opening Balance Equity. '
+                        'Open the ledger to review each account.</div>')
+        if error:
+            notices += f'<div class="err" style="margin-bottom:14px">{esc(error)}</div>'
+
+        preview_card = ""
+        if preview:
+            error_count = len(preview["errors"])
+            net = preview["total_credit"] - preview["total_debit"]
+            if net > 0:
+                equity_effect = f"{money.fmt(net)} Cr"
+            elif net < 0:
+                equity_effect = f"{money.fmt(-net)} Dr"
+            else:
+                equity_effect = "Nil"
+            rows_html = ""
+            for row in preview["rows"]:
+                if row["error"]:
+                    check = f'<span class="small" style="color:var(--danger)">{esc(row["error"])}</span>'
+                    status = '<span class="badge bad">Fix</span>'
+                else:
+                    check = '<span class="small muted">Ready</span>'
+                    status = '<span class="badge ok">OK</span>'
+                amount = money.fmt(row["amount_paise"]) if row["amount_paise"] else esc(row["amount_text"])
+                side = {"debit": "Dr", "credit": "Cr"}.get(row["side"], esc(row["side_text"]))
+                rows_html += (
+                    f'<tr><td>{row["line"]}</td><td><b>{esc(row["code"])}</b></td>'
+                    f'<td>{esc(row["account_name"] or "—")}</td><td>{esc(side)}</td>'
+                    f'<td class="num">{amount}</td><td>{esc(row["as_of"])}</td>'
+                    f'<td>{esc(row["note"])}</td><td>{status}</td><td>{check}</td></tr>'
+                )
+            errors_html = ""
+            if preview["errors"]:
+                items = "".join(
+                    f'<li>Line {e["line"]}{" · " + esc(e["code"]) if e["code"] else ""}: '
+                    f'{esc(e["message"])}</li>'
+                    for e in preview["errors"]
+                )
+                errors_html = (f'<div class="card pad" style="margin-bottom:14px">'
+                               f'<h3 style="margin:0 0 8px">Fix these rows before posting</h3>'
+                               f'<ul class="small" style="margin:0;padding-left:20px">{items}</ul></div>')
+            post_button = ""
+            if not preview["errors"] and preview["valid_count"] == preview["count"]:
+                post_button = (f'<button class="btn" type="submit" name="action" value="post">'
+                               f'Post all {preview["count"]} opening balances</button>')
+            preview_card = f"""
+<div class="sect">
+<div class="sect-head"><div><h2>Preview</h2>
+<div class="small muted">Nothing has been posted yet. Each ready row becomes one balanced
+opening journal; the net is absorbed by Opening Balance Equity.</div></div>
+<span class="badge {'ok' if not preview['errors'] else 'bad'}">
+{preview['valid_count']}/{preview['count']} ready</span></div>
+<div class="kpis">
+  {kpi("Rows", str(preview["count"]), f'{preview["valid_count"]} ready')}
+  {kpi("Account Dr openings", money.fmt(preview["total_debit"]), "valid rows")}
+  {kpi("Account Cr openings", money.fmt(preview["total_credit"]), "valid rows")}
+  {kpi("Opening Balance Equity", equity_effect, "balancing side")}
+</div>
+{errors_html}
+<div class="card table-wrap"><table>
+<thead><tr><th>Line</th><th>Code</th><th>Account</th><th>Side</th><th class="num">Amount</th>
+<th>As of</th><th>Note</th><th>Status</th><th>Check</th></tr></thead>
+<tbody>{rows_html}</tbody></table></div>
+<p class="small muted" style="margin-top:10px">Debit and credit openings do not need to match each
+other. Every row is a separate balanced journal, so the books stay in balance and Opening Balance
+Equity carries the net difference.</p>
+</div>"""
+
+        file_script = """
+<script>
+(function () {
+  const file = document.getElementById('opening_file');
+  if (!file) return;
+  file.addEventListener('change', function () {
+    const picked = this.files && this.files[0];
+    if (!picked) return;
+    document.getElementById('opening_filename').value = picked.name;
+    const reader = new FileReader();
+    reader.onload = function () {
+      document.getElementById('opening_text').value = reader.result;
+    };
+    reader.readAsText(picked);
+  });
+})();
+</script>"""
+
+        body = f"""
+<div class="sect-head"><div><h2>Bulk opening balances</h2>
+<div class="small muted">Migrate many ledgers at once from a CSV. Use this only for starting
+balances, not for normal transactions.</div></div>
+<div class="entry-actions"><a class="btn ghost small" href="/ledger">Back to ledger</a></div></div>
+{notices}
+<div class="card pad sect">
+<h2 style="margin-bottom:8px">How this works</h2>
+<p class="small muted" style="margin-top:0">Preview first. Nothing is written until you press
+<b>Post all</b>. Each row posts a separate opening journal against
+<b>Opening Balance Equity</b>, so every entry is balanced and auditable. Existing opening
+balances are rejected and must be reversed first. A future date, a locked period, or a date after
+the account's first posted entry is also rejected.</p>
+<div class="row c2">
+  <div><div class="small muted">Required columns</div><div><code>code, side, amount</code></div></div>
+  <div><div class="small muted">Optional columns</div><div><code>as_of, note</code></div></div>
+</div>
+<div class="small muted" style="margin-top:10px">Example: <code>1000,debit,25000.00,2026-04-01,Cash opening</code>.
+<code>side</code> accepts debit/Dr/d or credit/Cr/c. If <code>as_of</code> is blank, the default date below is used.</div>
+</div>
+<div class="card pad sect">
+<h2 style="margin-bottom:12px">Import CSV or Excel</h2>
+<form method="post" action="/ledger/opening-balances" enctype="multipart/form-data">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="filename" id="opening_filename" value="{esc(filename)}">
+<div class="row c3">
+  <div class="field"><label>Default as-of date</label>
+  <input type="date" name="default_as_of" required value="{esc(default_date)}"></div>
+  <div class="field"><label>CSV file (read in browser)</label>
+  <input type="file" id="opening_file" accept=".csv,text/csv,text/plain"></div>
+  <div class="field"><label>Excel .xlsx file (server-side)</label>
+  <input type="file" name="xlsx_file" id="opening_xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>
+</div>
+<div class="field"><label>Or paste CSV rows</label>
+<textarea name="csv_text" id="opening_text" rows="10" spellcheck="false"
+placeholder="code,side,amount,as_of,note">{esc(csv_text)}</textarea></div>
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <button class="btn" type="submit" name="action" value="preview">Preview / validate</button>
+  {post_button if preview else ''}
+  <a class="btn ghost" href="/ledger/opening-balances/template.csv">Download CSV template</a>
+</div>
+</form>
+<p class="small muted" style="margin:10px 0 0">Use the first worksheet; the header must be the first non-empty row.
+The default date applies only where a row leaves <code>as_of</code> blank. Files are not stored;
+the posted journals and audit log are the record.</p>
+</div>
+{preview_card}
+{file_script}"""
+        return layout("Bulk opening balances", body, "ledger/opening-balances", user, tenant)
+
+    def page_ledger(self, conn, user, tenant, q, sess) -> str:
+        accounts = acct.account_balances(conn, tenant["id"])
+        if not accounts:
+            return layout("Ledger", '<div class="card pad">No accounts.</div>', "ledger", user, tenant)
+        active_accounts = [a for a in accounts if a["status"] == "active"]
+        default_account = (active_accounts or accounts)[0]
+        account_id = (q.get("account") or [default_account["id"]])[0]
+        if account_id not in {a["id"] for a in accounts}:
+            account_id = default_account["id"]
+        today = date.today()
+        date_from = (q.get("from") or [fiscal_start(today, tenant["fiscal_year_start_month"])])[0]
+        date_to = (q.get("to") or [today.isoformat()])[0]
+        try:
+            gl = acct.general_ledger(conn, tenant["id"], account_id, date_from, date_to)
+        except acct.AccountingError:
+            gl = None
+        if not gl:
+            return layout("Ledger", '<div class="card pad">Account not found.</div>', "ledger", user, tenant)
+        is_archived = gl["account"].get("status") == "archived"
+
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+            can_manage = True
+        except security.AuthError:
+            can_manage = False
+        try:
+            security.require(conn, user["id"], tenant["id"], "ledger.reverse")
+            can_reverse = True
+        except security.AuthError:
+            can_reverse = False
+
+        profile = acct.account_profile(conn, tenant["id"], account_id) or {}
+        bank_row = conn.execute(
+            "SELECT * FROM bank_account WHERE tenant_id=? AND account_id=?",
+            (tenant["id"], account_id),
+        ).fetchone()
+        merged_target = None
+        if gl["account"].get("merged_into_id"):
+            merged_target = conn.execute(
+                "SELECT id, code, name FROM account WHERE id=? AND tenant_id=?",
+                (gl["account"]["merged_into_id"], tenant["id"])).fetchone()
+        details = []
+        if profile.get("legal_name"):
+            details.append(("Legal name", profile["legal_name"]))
+        if profile.get("contact_person"):
+            details.append(("Contact person", profile["contact_person"]))
+        if profile.get("phone"):
+            details.append(("Phone", profile["phone"]))
+        if profile.get("email"):
+            details.append(("Email", profile["email"]))
+        if profile.get("website"):
+            details.append(("Website", profile["website"]))
+        if profile.get("organisation_type"):
+            details.append(("Organisation type", profile["organisation_type"]))
+        if profile.get("industry"):
+            details.append(("Industry", profile["industry"]))
+        address = " · ".join(x for x in [
+            profile.get("address"), profile.get("city"),
+            profile.get("pincode"), profile.get("country"),
+        ] if x)
+        if address:
+            details.append(("Address", address))
+        if profile.get("gstin"):
+            details.append(("GSTIN", profile["gstin"]))
+        if profile.get("pan"):
+            details.append(("PAN", profile["pan"]))
+        if profile.get("cin"):
+            details.append(("CIN", profile["cin"]))
+        if profile.get("credit_days") or profile.get("credit_limit_paise"):
+            details.append(("Credit terms", f'{profile.get("credit_days", 0)} day(s) · limit '
+                                            f'{money.fmt(profile.get("credit_limit_paise", 0))}'))
+        if profile.get("loan_lender"):
+            details.append(("Lender", profile["loan_lender"]))
+        if profile.get("loan_account_no"):
+            details.append(("Loan account", profile["loan_account_no"]))
+        if profile.get("loan_sanction_date"):
+            details.append(("Sanction date", profile["loan_sanction_date"]))
+        if profile.get("loan_maturity_date"):
+            details.append(("Maturity date", profile["loan_maturity_date"]))
+        if profile.get("interest_rate_bp"):
+            details.append(("Interest", f'{profile["interest_rate_bp"] / 100:.2f}% p.a.'))
+        if profile.get("tenure_months"):
+            details.append(("Tenure", f'{profile["tenure_months"]} month(s)'))
+        if profile.get("emi_paise"):
+            details.append(("EMI", money.fmt(profile["emi_paise"])))
+        if profile.get("security_details"):
+            details.append(("Security", profile["security_details"]))
+        if profile.get("notes"):
+            details.append(("Notes", profile["notes"]))
+        if bank_row:
+            details.append(("Bank", " · ".join(x for x in [
+                bank_row["bank_name"], f'A/c {bank_row["account_number"]}',
+                f'IFSC {bank_row["ifsc"]}' if bank_row["ifsc"] else "",
+                bank_row["branch"], bank_row["holder_name"],
+            ] if x)))
+        if is_archived:
+            details.append(("Status", f'Archived {gl["account"]["archived_at"] or ""}'.strip()))
+            if merged_target:
+                details.append(("Merged into",
+                                f'{merged_target["code"]} — {merged_target["name"]}'))
+        party_link = ""
+        if profile.get("party_type") in ("customer", "vendor") and profile.get("party_id"):
+            party_link = (f'<a class="small" href="/{profile["party_type"]}s/{profile["party_id"]}">'
+                          f'Open {profile["party_type"]} statement</a>')
+        profile_actions = ""
+        if can_manage:
+            merge_note = "Restore / view archive" if is_archived else "Archive or merge"
+            profile_actions = (
+                f'<a class="btn ghost small" style="margin-left:auto" '
+                f'href="/ledger/account/{account_id}/edit">Edit account details</a>'
+                f'<a class="btn ghost small" href="/ledger/account/{account_id}/archive">'
+                f'{merge_note}</a>')
+        detail_rows = "".join(
+            f'<tr><td class="muted" style="width:190px">{esc(label)}</td><td>{esc(value)}</td></tr>'
+            for label, value in details)
+        profile_card = f"""
+<details class="card pad" style="margin-bottom:14px" open>
+<summary style="cursor:pointer;font-weight:650">Account profile · {esc(acct.account_group_label(gl["account"]["group_code"], gl["account"]["type"]))}{' <span class="pill">archived</span>' if is_archived else ''}</summary>
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 6px">
+<span class="small muted">Company, contact, tax and loan details are part of this ledger. They never change posted amounts.</span>
+{profile_actions}
+</div>
+{f'<table><tbody>{detail_rows}</tbody></table>' if detail_rows else '<p class="small muted" style="margin:0">No extra profile details yet. Use Edit account details to add company name, GSTIN, contact, credit terms, bank or loan information.</p>'}
+{party_link}
+</details>"""
+
+        opening_entry = acct.opening_balance_entry(conn, tenant["id"], account_id)
+        is_opening_equity = (gl["account"]["type"] == "equity"
+                             and gl["account"]["name"] == acct.OPENING_EQUITY_NAME)
+        opening_card = ""
+        if opening_entry:
+            opening_amount = opening_entry["debit_paise"] or opening_entry["credit_paise"]
+            opening_side = "Dr" if opening_entry["debit_paise"] else "Cr"
+            reverse_opening = ""
+            if can_reverse and not is_archived:
+                reverse_opening = (
+                    f'<a class="btn ghost small" style="margin-top:10px" '
+                    f'href="/journal?reverse={esc(opening_entry["id"])}">Reverse opening entry</a>')
+            opening_card = f"""
+<details class="card pad" style="margin-bottom:14px">
+<summary style="cursor:pointer;font-weight:650">Opening balance entry · {money.fmt(opening_amount)} {opening_side}</summary>
+<p class="small muted" style="margin:10px 0 0">Posted as <b>{esc(opening_entry["entry_no"])}</b> on
+{esc(opening_entry["entry_date"])} against Opening Balance Equity. To replace it, reverse that entry first;
+posted entries are never edited.</p>
+{reverse_opening}
+</details>"""
+        elif is_opening_equity:
+            opening_card = """
+<div class="card pad small muted" style="margin-bottom:14px">
+This equity account is created automatically when the first opening balance is posted. It collects the
+other side of opening balances so the books stay balanced.
+</div>"""
+        elif can_manage and not is_archived:
+            default_side = "credit" if gl["account"]["type"] in ("liability", "equity", "income") else "debit"
+            open_attr = " open" if q.get("created") else ""
+            opening_card = f"""
+<details class="card pad" style="margin-bottom:14px"{open_attr}>
+<summary style="cursor:pointer;font-weight:650">Set opening balance</summary>
+<p class="small muted" style="margin:10px 0">Use this for the starting balance of a new account. It posts a
+balanced journal against <b>Opening Balance Equity</b>; it does not edit the account directly. The date must
+be on or before the account's first posted transaction. It is normally used for asset, liability and equity
+accounts; income/expense openings are for migration only.</p>
+<form method="post" action="/opening-balance" style="margin-top:10px">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<div class="row c3">
+<div class="field"><label>Opening amount</label><input name="amount" inputmode="decimal" required placeholder="0.00"></div>
+<div class="field"><label>Balance</label><select name="side">
+<option value="debit"{' selected' if default_side == 'debit' else ''}>Debit (Dr)</option>
+<option value="credit"{' selected' if default_side == 'credit' else ''}>Credit (Cr)</option>
+</select></div>
+<div class="field"><label>As of</label><input type="date" name="as_of" required value="{esc(fiscal_start(today, tenant['fiscal_year_start_month']))}"></div>
+</div>
+<button class="btn small" type="submit">Post opening balance</button>
+</form>
+</details>"""
+
+        type_labels = [("asset", "Assets"), ("liability", "Liabilities"), ("equity", "Equity"),
+                       ("income", "Income"), ("expense", "Expenses")]
+
+        def balance_label(value: int) -> str:
+            if not value:
+                return money.fmt(0)
+            return f'{money.fmt(abs(value))} {"Dr" if value > 0 else "Cr"}'
+
+        grouped = ""
+        for typ, label in type_labels:
+            rows_for_type = [a for a in active_accounts if a["type"] == typ]
+            if not rows_for_type:
+                continue
+            links = "".join(
+                f'<a class="ledger-item{" on" if a["id"] == account_id else ""}" '
+                f'href="/ledger?account={a["id"]}" title="{esc(a["group_label"])}">'
+                f'<span class="code">{esc(a["code"])}</span>'
+                f'<span class="name">{esc(a["name"])}</span>'
+                f'<span class="bal">{balance_label(a["balance"])}</span></a>'
+                for a in rows_for_type)
+            grouped += f'<div class="ledger-group"><div class="ledger-group-title">{label}</div>{links}</div>'
+        archived_accounts = [a for a in accounts if a["status"] == "archived"]
+        if archived_accounts:
+            archived_links = "".join(
+                f'<a class="ledger-item archived{" on" if a["id"] == account_id else ""}" '
+                f'href="/ledger?account={a["id"]}" '
+                f'title="{esc(a["group_label"])}{" - merged" if a["merged_into_id"] else ""}">'
+                f'<span class="code">{esc(a["code"])}</span>'
+                f'<span class="name">{esc(a["name"])}</span>'
+                f'<span class="pill">archived</span></a>'
+                for a in archived_accounts)
+            grouped += (
+                f'<details class="ledger-group"{" open" if is_archived else ""}>'
+                f'<summary class="ledger-group-title" style="cursor:pointer">'
+                f'Archived ({len(archived_accounts)})</summary>{archived_links}</details>')
+
+        add_form = ""
+        if can_manage:
+            add_form = f"""
+<div class="ledger-add">
+<form method="get" action="/ledger/account/new">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn small" type="submit" style="width:100%;justify-content:center">+ Add ledger account</button>
+</form>
+<a class="btn ghost small" href="/ledger/opening-balances"
+style="width:100%;justify-content:center;margin-top:8px">Bulk opening balances</a>
+<p class="small muted" style="margin:8px 0 0">Opens the full account form: group, opening balance,
+company/contact details, GSTIN/PAN, credit terms, bank or loan details. Use bulk opening balances
+to migrate many ledgers from a CSV.</p>
+</div>"""
+
+        bank_accounts = bank_mod.bank_accounts(conn, tenant["id"])
+        bank_ids = {a["id"] for a in bank_accounts}
+        cash_id = next((a["id"] for a in accounts if a["code"] == "1000"), accounts[0]["id"])
+        bank_id = next((a["id"] for a in bank_accounts if a["code"] == "1010"),
+                       bank_accounts[0]["id"] if bank_accounts else account_id)
+        bank_target = account_id if account_id in bank_ids else bank_id
+        entry_actions = ""
+        if not is_archived:
+            entry_actions = f"""
+<div class="entry-actions">
+<a class="btn small" href="/entries/cash?account={cash_id}">Cash entry</a>
+<a class="btn small ghost" href="/entries/bank?account={bank_target}">Bank entry</a>
+<a class="btn small ghost" href="/entries/journal?account={account_id}">Journal entry</a>
+</div>"""
+
+        rows = ""
+        for r in gl["rows"]:
+            badges = ""
+            if r["status"] == "reversed":
+                badges = ' <span class="pill">reversed</span>'
+            elif r["source_type"] == "reversal":
+                badges = ' <span class="pill">reversal</span>'
+            action = ""
+            if (can_reverse and not is_archived
+                    and r["source_type"] in ("manual", "opening") and r["status"] != "reversed"):
+                action = (f'<a class="small" href="/journal?reverse={esc(r["entry_id"])}">Reverse</a>')
+            elif r["source_type"] not in ("manual", "reversal", "opening"):
+                action = f'<span class="small muted">{esc(r["source_type"].replace("_", " "))}</span>'
+            rows += (f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}{badges}</td>'
+                     f'<td>{esc(r["narration"])}</td>'
+                     f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["balance"])}</td><td>{action}</td></tr>')
+        rows = rows or '<tr><td colspan="7" class="empty">No movement in this period</td></tr>'
+
+        notice = ""
+        if q.get("posted"):
+            notice += '<div class="notice">Entry posted. The ledger below includes it.</div>'
+        if q.get("created"):
+            notice += ('<div class="notice">Ledger account created with its profile. Review the details '
+                       'below; posted amounts were not changed.</div>')
+        if q.get("updated"):
+            notice += '<div class="notice">Account details updated and recorded in the audit log. Posted amounts were not changed.</div>'
+        if q.get("opening"):
+            notice += '<div class="notice">Opening balance posted against Opening Balance Equity.</div>'
+        if q.get("reversed"):
+            notice += '<div class="notice">Reversal entry posted. The original entry is marked reversed.</div>'
+        if q.get("archived"):
+            notice += ('<div class="notice">Account archived. Its posted history remains visible; '
+                       'new postings are blocked.</div>')
+        if q.get("restored"):
+            notice += '<div class="notice">Account restored. It can receive postings again.</div>'
+        if q.get("merged"):
+            notice += ('<div class="notice">The source ledger was merged into this account and archived. '
+                       'The reclassification journal is shown in both ledgers.</div>')
+
+        side = f"""
+<aside class="card ledger-side">
+<div class="sect-head" style="margin-bottom:8px"><h2>Ledger accounts</h2>
+<span class="badge neutral">{len(accounts)}</span></div>
+<p class="small muted" style="margin:0 0 4px">Click any account to open its full ledger.</p>
+{grouped}
+{add_form}
+</aside>"""
+
+        body = f"""
+{notice}
+<div class="ledger-layout">
+{side}
+<section style="min-width:0">
+<div class="sect-head">
+<div><h2>{esc(gl["account"]["code"])} — {esc(gl["account"]["name"])}{' <span class="pill">archived</span>' if is_archived else ''}</h2>
+<div class="small muted">{esc(gl["account"]["type"]).title()} · {esc(acct.account_group_label(gl["account"]["group_code"], gl["account"]["type"]))} · period opening {money.fmt(gl["opening"])}</div></div>
+{entry_actions}
+</div>
+{f'<div class="card pad small muted" style="margin-bottom:14px"><b>Archived ledger.</b> New postings are blocked. Posted history and balances remain visible; use Restore on the archive page if this was a mistake.</div>' if is_archived else ''}
+{profile_card}
+{opening_card}
+<form method="get" action="/ledger" class="card pad sect">
+<input type="hidden" name="account" value="{esc(account_id)}">
+<div class="row c3">
+<div class="field"><label>From</label><input type="date" name="from" value="{esc(date_from)}"></div>
+<div class="field"><label>To</label><input type="date" name="to" value="{esc(date_to)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
+</div></form>
+<div class="card table-wrap"><table>
+<thead><tr><th>Date</th><th>Ref</th><th>Narration</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th><th>Action</th></tr></thead>
+<tbody><tr><td colspan="5" class="muted">Opening balance (before period)</td><td class="num"><b>{money.fmt(gl["opening"])}</b></td><td></td></tr>
+{rows}</tbody>
+<tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(gl["closing"])}</td><td></td></tr></tfoot></table></div>
+<p class="small muted" style="margin-top:12px">Posted entries are never edited. Manual journals and opening balances can be reversed with a reason; reversals create a mirrored entry and keep both sides in the audit trail.</p>
+</section></div>"""
         return layout(f'Ledger — {gl["account"]["name"]}', body, "ledger", user, tenant)
 
     def page_tb(self, conn, user, tenant, q) -> str:
@@ -2061,6 +4397,239 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
 </div></div>"""
         return layout("Balance Sheet", body, "reports/balance-sheet", user, tenant)
 
+    def page_analytics(self, conn, user, tenant, q) -> str:
+        default = analytics_mod.resolve_period(tenant)
+        dfrom = (q.get("from") or [default["from"]])[0] or default["from"]
+        dto = (q.get("to") or [default["to"]])[0] or default["to"]
+        error = ""
+        try:
+            data = analytics_mod.overview(conn, tenant, dfrom, dto)
+        except analytics_mod.AnalyticsError as e:
+            error = e.message
+            dfrom, dto = default["from"], default["to"]
+            data = analytics_mod.overview(conn, tenant, dfrom, dto)
+        except acct.AccountingError as e:
+            error = e.message
+            dfrom, dto = default["from"], default["to"]
+            data = analytics_mod.overview(conn, tenant, dfrom, dto)
+
+        m = data["metrics"]
+        months = data["monthly"]["months"]
+        insight_payload = insights_mod.grounded(conn, tenant, dfrom, dto)
+        insight_q = urllib.parse.urlencode({"from": dfrom, "to": dto})
+        insight_rows = "".join(
+            f'<tr><td><b>{esc(o["label"])}</b></td><td>{esc(o["text"])}</td>'
+            f'<td class="small muted">{esc(o["basis"])}</td></tr>'
+            for o in insight_payload["observations"]
+        )
+        peak = max([max(int(x["revenue_paise"]), int(x["expense_paise"])) for x in months] + [1])
+        chart = "".join(
+            f'<div class="m">'
+            f'<i class="rev" style="height:{max(2, int((int(x["revenue_paise"]) / peak) * 140))}px"'
+            f' title="Revenue {esc(money.fmt(x["revenue_paise"]))}"></i>'
+            f'<i class="exp" style="height:{max(2, int((int(x["expense_paise"]) / peak) * 140))}px"'
+            f' title="Expense {esc(money.fmt(x["expense_paise"]))}"></i>'
+            f'<span>{esc(x["month"][5:] + "/" + x["month"][2:4])}</span></div>'
+            for x in months)
+
+        exp_total = int(data["expense_breakdown"]["total_paise"])
+        exp_rows = "".join(
+            f'<tr><td>{esc(r["code"])} {esc(r["name"])}</td>'
+            f'<td class="num">{money.fmt(r["amount_paise"])}</td>'
+            f'<td><div class="mini-bar"><i style="width:{int((r["amount_paise"] / exp_total) * 100) if exp_total else 0}%"></i></div></td></tr>'
+            for r in data["expense_breakdown"]["rows"])
+        other = int(data["expense_breakdown"]["other_paise"])
+        if other:
+            exp_rows += (f'<tr><td>Other expense ledgers</td><td class="num">{money.fmt(other)}</td>'
+                         f'<td><div class="mini-bar"><i style="width:{int((other / exp_total) * 100) if exp_total else 0}%"></i></div></td></tr>')
+        exp_rows = exp_rows or '<tr><td colspan="3" class="empty">No expense actuals in this period</td></tr>'
+
+        def party_rows(items: list[dict]) -> str:
+            return "".join(
+                f'<tr><td>{esc(r["name"])}</td><td class="num">{r["documents"]}</td>'
+                f'<td class="num">{money.fmt(r["amount_paise"])}</td></tr>'
+                for r in items) or '<tr><td colspan="3" class="empty">None in this period</td></tr>'
+
+        tb_badge = ('<span class="badge ok">Balanced</span>' if data["checks"]["trial_balance_balanced"]
+                    else '<span class="badge bad">Out of balance</span>')
+        bs_badge = ('<span class="badge ok">A = L + E</span>' if data["checks"]["balance_sheet_balanced"]
+                    else f'<span class="badge bad">Difference {money.fmt(data["checks"]["balance_sheet_difference_paise"])}</span>')
+        err_html = (f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
+                    f'<b>Could not use that period.</b> {esc(error)} Showing the default period instead.</div>'
+                    if error else "")
+        api_q = urllib.parse.urlencode({"from": dfrom, "to": dto})
+        chart_payload = {
+            "months": [x["month"] for x in months],
+            "revenue": [round(int(x["revenue_paise"]) / 100, 2) for x in months],
+            "expense": [round(int(x["expense_paise"]) / 100, 2) for x in months],
+            "profit": [round(int(x["profit_paise"]) / 100, 2) for x in months],
+        }
+        expense_payload = {
+            "labels": ([f'{r["code"]} {r["name"]}' for r in data["expense_breakdown"]["rows"]]
+                       + (["Other expense ledgers"] if other else [])),
+            "values": ([round(int(r["amount_paise"]) / 100, 2)
+                        for r in data["expense_breakdown"]["rows"]]
+                       + ([round(other / 100, 2)] if other else [])),
+        }
+        chart_json = json.dumps(chart_payload, ensure_ascii=False).replace("</", "<\\/")
+        expense_json = json.dumps(expense_payload, ensure_ascii=False).replace("</", "<\\/")
+        chart_script = """
+<script src="/static/echarts.min.js"></script>
+<script>
+(function () {
+  const el = document.getElementById('echarts-monthly');
+  if (!el || !window.echarts) return;
+  const data = __DATA__;
+  const expenseData = __EXPENSE_DATA__;
+  const chart = echarts.init(el, null, { renderer: 'canvas' });
+  const inr = function (value) {
+    return '\\u20b9' + Number(value).toLocaleString('en-IN', {
+      minimumFractionDigits: 2, maximumFractionDigits: 2
+    });
+  };
+  chart.setOption({
+    animationDuration: 400,
+    color: ['#0C3157', '#D97706', '#2E7D8F'],
+    tooltip: { trigger: 'axis', valueFormatter: inr },
+    legend: { top: 0, data: ['Revenue', 'Expenses', 'Profit'] },
+    grid: { left: 72, right: 28, top: 42, bottom: 34 },
+    xAxis: { type: 'category', data: data.months, axisLabel: { color: '#52606D' } },
+    yAxis: {
+      type: 'value',
+      axisLabel: {
+        color: '#52606D',
+        formatter: function (value) {
+          if (Math.abs(value) >= 10000000) return (value / 10000000).toFixed(1) + ' Cr';
+          if (Math.abs(value) >= 100000) return (value / 100000).toFixed(1) + ' L';
+          return value;
+        }
+      },
+      splitLine: { lineStyle: { color: '#E4EBF2' } }
+    },
+    series: [
+      { name: 'Revenue', type: 'bar', data: data.revenue, barMaxWidth: 28 },
+      { name: 'Expenses', type: 'bar', data: data.expense, barMaxWidth: 28 },
+      { name: 'Profit', type: 'line', smooth: true, data: data.profit, symbolSize: 6 }
+    ]
+  });
+  window.addEventListener('resize', function () { chart.resize(); });
+  const expenseEl = document.getElementById('echarts-expense');
+  if (expenseEl && expenseData.labels.length) {
+    const expenseChart = echarts.init(expenseEl, null, { renderer: 'canvas' });
+    expenseChart.setOption({
+      animationDuration: 400,
+      color: ['#0C3157', '#2E7D8F', '#D97706', '#7C3AED', '#059669', '#B45309', '#64748B'],
+      tooltip: { trigger: 'item', valueFormatter: inr },
+      legend: { type: 'scroll', bottom: 0, textStyle: { color: '#52606D' } },
+      series: [{
+        name: 'Expense actuals', type: 'pie', radius: ['46%', '70%'], center: ['50%', '44%'],
+        avoidLabelOverlap: true,
+        label: { formatter: function (p) { return p.name + '  ' + p.percent + '%'; }, color: '#27313B', fontSize: 11 },
+        data: expenseData.labels.map(function (name, i) {
+          return { name: name, value: expenseData.values[i] };
+        })
+      }]
+    });
+    window.addEventListener('resize', function () { expenseChart.resize(); });
+  }
+})();
+</script>"""
+        chart_script = chart_script.replace("__DATA__", chart_json).replace("__EXPENSE_DATA__", expense_json)
+        expense_chart_html = ('<div id="echarts-expense" style="height:280px;width:100%"></div>'
+                              if exp_total else
+                              '<p class="small muted">No expense actuals to chart in this period.</p>')
+        body = f"""
+{err_html}
+<form method="get" action="/reports/analytics" class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">Actuals only</span>
+</form>
+<div class="kpis">
+  {kpi("Revenue", money.fmt(m["revenue_paise"]), "posted income journals")}
+  {kpi("Expenses", money.fmt(m["expense_paise"]), "posted expense journals")}
+  {kpi("Net profit", money.fmt(m["net_profit_paise"]), "revenue minus expenses")}
+  {kpi("Cash + bank", money.fmt(m["cash_and_bank_paise"]), "as of period end")}
+  {kpi("Receivable", money.fmt(m["receivable_paise"]), f'{m["open_invoices"]} open invoice(s)')}
+  {kpi("Payable", money.fmt(m["payable_paise"]), f'{m["open_bills"]} open bill(s)')}
+  {kpi("GST net", money.fmt(m["gst_net_payable_paise"]), "output minus input; working aid")}
+  {kpi("Inventory", money.fmt(m["inventory_paise"]), "perpetual valuation")}
+</div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>AI Insights</h2>
+    <span class="badge neutral">Grounded rules · no provider configured</span></div>
+  <p class="small" style="margin:0 0 10px">{esc(insight_payload["summary"])}</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Observation</th><th>What the actuals show</th><th>Basis</th></tr></thead>
+    <tbody>{insight_rows}</tbody></table></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <a class="btn ghost small" href="/api/v1/analytics/insights?{esc(insight_q)}">Open insight JSON</a>
+    <span class="small muted" style="align-self:center">No external model was called. No forecast is included.</span>
+  </div>
+</div>
+<div class="grid2">
+  <div class="card pad">
+    <div class="sect-head"><h2>Revenue and expenses by month</h2>
+      <div class="legend"><span><i class="rev"></i>Revenue</span><span><i class="exp"></i>Expense</span></div></div>
+    <div class="chart2">{chart}</div>
+    <div style="height:24px"></div>
+    <table><thead><tr><th>Period</th><th class="num">Revenue</th><th class="num">Expense</th><th class="num">Profit</th></tr></thead>
+      <tbody><tr><td>{esc(dfrom)} to {esc(dto)}</td><td class="num">{money.fmt(data["monthly"]["total_revenue_paise"])}</td>
+      <td class="num">{money.fmt(data["monthly"]["total_expense_paise"])}</td>
+      <td class="num">{money.fmt(data["monthly"]["total_profit_paise"])}</td></tr></tbody></table>
+    <p class="small muted" style="margin:10px 0 0">Monthly gaps are shown as zero actuals, never estimates. Forecasts are deliberately excluded from this view.</p>
+  </div>
+  <div class="card pad">
+    <div class="sect-head"><h2>Checks and freshness</h2>{tb_badge}</div>
+    <table style="margin:0 0 12px">
+      <tr><td>Trial balance</td><td class="num">{tb_badge}</td></tr>
+      <tr><td>Balance sheet</td><td class="num">{bs_badge}</td></tr>
+      <tr><td>Unbalanced entries</td><td class="num">{data["checks"]["unbalanced_entries"]}</td></tr>
+      <tr><td>Journal entries</td><td class="num">{data["freshness"]["journal_entries"]}</td></tr>
+      <tr><td>Journal lines</td><td class="num">{data["freshness"]["journal_lines"]}</td></tr>
+      <tr><td>Last entry date</td><td class="num">{esc(data["freshness"]["last_entry_date"] or "none")}</td></tr>
+      <tr><td>Last posted at</td><td class="num small">{esc(data["freshness"]["last_posted_at"] or "none")}</td></tr>
+    </table>
+    <p class="small muted" style="margin:0 0 10px">Every figure is computed from posted journal lines. No AI, cache or forecast writes an authoritative total.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn small" href="/export/workbook.xlsx?{esc(api_q)}">Download Excel workbook</a>
+      <a class="btn ghost small" href="/export/powerbi.zip?{esc(api_q)}">Power BI pack</a>
+      <a class="btn ghost small" href="/api/v1/analytics/overview?{esc(api_q)}">Open JSON contract</a>
+    </div>
+    <p class="small muted" style="margin:10px 0 0">The .xlsx pack includes KPI, P&amp;L, balance sheet, trial balance, monthly charts, ageing, GST, inventory, journal and grounded insight sheets. The Power BI pack is a static import ZIP, not a .pbix or a scheduled Service dataset. Actuals only; no forecasts.</p>
+  </div>
+</div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Interactive monthly view</h2>
+    <span class="badge neutral">ECharts · actuals only</span></div>
+  <div id="echarts-monthly" style="height:340px;width:100%"></div>
+  <p class="small muted" style="margin:8px 0 0">Same posted-journal actuals as the chart above. Hover for rupee values; no forecast or estimate is plotted.</p>
+</div>
+<div class="grid2" style="margin-top:16px">
+  <div class="card pad">
+    <div class="sect-head"><h2>Expense breakdown</h2><span class="badge neutral">{money.fmt(exp_total)}</span></div>
+    {expense_chart_html}
+    <table><thead><tr><th>Ledger</th><th class="num">Actual</th><th>Share</th></tr></thead><tbody>{exp_rows}</tbody></table>
+  </div>
+  <div>
+    <div class="card pad">
+      <div class="sect-head"><h2>Top customers</h2><a class="btn ghost small" href="/reports/ar-ageing">Ageing</a></div>
+      <table><thead><tr><th>Customer</th><th class="num">Invoices</th><th class="num">Net sales</th></tr></thead>
+      <tbody>{party_rows(data["top_customers"])}</tbody></table>
+    </div>
+    <div style="height:14px"></div>
+    <div class="card pad">
+      <div class="sect-head"><h2>Top vendors</h2><a class="btn ghost small" href="/reports/ap-ageing">Ageing</a></div>
+      <table><thead><tr><th>Vendor</th><th class="num">Bills</th><th class="num">Purchases</th></tr></thead>
+      <tbody>{party_rows(data["top_vendors"])}</tbody></table>
+    </div>
+  </div>
+</div>
+<p class="small muted" style="margin-top:14px">GST figures are working aids, not filed returns. Receivable and payable ageing use posted invoices and bills as of the period end.</p>
+{chart_script}"""
+        return layout("Analytics overview", body, "reports/analytics", user, tenant)
+
     def page_customers(self, conn, user, tenant, sess) -> str:
         rows = acct.customer_balances(conn, tenant["id"])
         trs = "".join(
@@ -2129,24 +4698,57 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
 
     def page_items(self, conn, user, tenant, sess) -> str:
         rows = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name", (tenant["id"],)).fetchall()
+
+        def item_margin(row) -> int:
+            if row["margin_bp"] or not row["cost_paise"]:
+                return row["margin_bp"]
+            return max(0, ((row["sale_price_paise"] - row["cost_paise"]) * 10000)
+                       // row["cost_paise"])
+
         trs = "".join(
-            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["sale_price_paise"])}</td>'
-            f'<td class="num">{r["tax_rate_bp"]/100:.0f}%</td><td class="num">{r["stock_milli"]/1000:.3f}</td>'
-            f'<td class="num">{money.fmt(r["cost_paise"])}</td></tr>' for r in rows) or '<tr><td colspan="6" class="empty">No items</td></tr>'
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}'
+            f'{"<div class=\"small muted\">" + esc(r["brand"]) + "</div>" if r["brand"] else ""}</td>'
+            f'<td>{esc(r["category"]) or "—"}</td><td>{esc(r["hsn"]) or "—"}</td>'
+            f'<td class="num">{money.fmt(r["sale_price_paise"])}</td>'
+            f'<td class="num">{item_margin(r)/100:.2f}%</td>'
+            f'<td class="num">{r["tax_rate_bp"]/100:.2f}%</td>'
+            f'<td class="num">{r["stock_milli"]/1000:.3f}</td>'
+            f'<td class="num">{money.fmt(r["cost_paise"])}</td></tr>' for r in rows) or \
+            '<tr><td colspan="9" class="empty">No items</td></tr>'
+        income_accounts = conn.execute(
+            "SELECT code, name FROM account WHERE tenant_id=? AND type='income'"
+            " AND status='active' ORDER BY code", (tenant["id"],)).fetchall()
+        revenue_options = "".join(
+            f'<option value="{esc(a["code"])}"{" selected" if a["code"] == "4000" else ""}>'
+            f'{esc(a["code"])} — {esc(a["name"])}</option>' for a in income_accounts)
         body = f"""
+<div class="sect-head"><div><h2>Products / services</h2>
+<div class="small muted">Price, margin, GST, HSN and stock belong to the item master. A ledger account
+only classifies the accounting posting, so one Sales ledger can hold many products.</div></div></div>
 <div class="grid2">
-<div class="card"><table><thead><tr><th>SKU</th><th>Name</th><th class="num">Price</th><th class="num">GST</th><th class="num">Stock</th><th class="num">Cost</th></tr></thead><tbody>{trs}</tbody></table></div>
-<div class="card pad"><h2 style="margin-bottom:12px">Add item</h2>
+<div class="card table-wrap"><table><thead><tr><th>SKU</th><th>Name</th><th>Category</th><th>HSN</th>
+<th class="num">Sale price</th><th class="num">Margin</th><th class="num">GST</th><th class="num">Stock</th><th class="num">Cost</th></tr></thead>
+<tbody>{trs}</tbody></table></div>
+<div class="card pad"><h2 style="margin-bottom:12px">Add product / service</h2>
 <form method="post" action="/items">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
-<div class="row c2"><div class="field"><label>SKU</label><input name="sku" required maxlength="40"></div>
-<div class="field"><label>Name</label><input name="name" required maxlength="120"></div></div>
-<div class="row c3"><div class="field"><label>Sale price</label><input name="price" value="0" inputmode="decimal"></div>
-<div class="field"><label>Cost</label><input name="cost" value="0" inputmode="decimal"></div>
-<div class="field"><label>GST %</label><input name="tax" value="18" inputmode="decimal"></div></div>
-<div class="row c2"><div class="field"><label>Opening stock</label><input name="stock" value="0" inputmode="decimal"></div>
-<div class="field"><label>Track stock</label><select name="track"><option value="1">Yes (goods)</option><option value="0">No (service)</option></select></div></div>
-<button class="btn" type="submit">Save item</button></form></div></div>"""
+<div class="row c2"><div class="field"><label>SKU / code</label><input name="sku" required maxlength="40" placeholder="SKU-001"></div>
+<div class="field"><label>Name</label><input name="name" required maxlength="120" placeholder="Consultation / Item name"></div></div>
+<div class="row c2"><div class="field"><label>Category</label><input name="category" maxlength="60" placeholder="Clinical consumables"></div>
+<div class="field"><label>Brand</label><input name="brand" maxlength="60" placeholder="Optional"></div></div>
+<div class="row c3"><div class="field"><label>HSN / SAC</label><input name="hsn" maxlength="12" placeholder="3004 / 9983"></div>
+<div class="field"><label>Barcode</label><input name="barcode" maxlength="40" placeholder="Optional"></div>
+<div class="field"><label>Sales ledger</label><select name="revenue_code">{revenue_options}</select></div></div>
+<div class="row c4"><div class="field"><label>Cost price</label><input name="cost" value="0" inputmode="decimal"></div>
+<div class="field"><label>Margin % (on cost)</label><input name="margin" inputmode="decimal" placeholder="20"></div>
+<div class="field"><label>Sale price</label><input name="price" inputmode="decimal" placeholder="Blank = cost + margin"></div>
+<div class="field"><label>MRP</label><input name="mrp" inputmode="decimal" placeholder="0.00"></div></div>
+<div class="row c3"><div class="field"><label>GST %</label><input name="tax" value="18" inputmode="decimal"></div>
+<div class="field"><label>Opening stock</label><input name="stock" value="0" inputmode="decimal"></div>
+<div class="field"><label>Stock tracking</label><select name="track"><option value="1">Yes (goods)</option><option value="0">No (service)</option></select></div></div>
+<button class="btn" type="submit">Save product</button>
+<p class="small muted" style="margin:8px 0 0">GST is a working rate for invoices, not a claim of input
+credit. HSN/SAC is required for GST-ready invoices.</p></form></div></div>"""
         return layout("Items", body, "items", user, tenant)
 
     def page_settings(self, conn, user, tenant, sess, q) -> str:
@@ -2155,8 +4757,24 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
             can_edit = True
         except security.AuthError:
             can_edit = False
+        theme = theme_for(user)
+        theme_saved = ('<div class="badge ok" style="margin-bottom:12px">Theme saved</div>'
+                       if q.get("theme_saved") else "")
+        theme_card = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Appearance</h2>
+<p class="small muted" style="margin:0 0 12px">Choose a colour theme for your workspace. This changes
+only your screens; business data, reports and other users' preferences are untouched.</p>
+{theme_saved}
+<form method="post" action="/preferences/theme">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="small muted" style="margin-bottom:8px">Colour theme</div>
+<div class="theme-grid" role="radiogroup" aria-label="Colour theme">{theme_options(theme)}</div>
+<div class="theme-save"><button class="btn" type="submit">Save theme</button>
+<span class="small muted">Current: <b>{esc(THEMES[theme]['label'])}</b></span></div>
+</form></div>"""
         if not can_edit:
-            body = f"""
+            body = f"""{theme_card}
 <div class="card pad sect"><div class="err">Only the business owner can change these details.</div>
 <p class="small muted" style="margin:0">GSTIN, address and bank details are used on tax invoices and in
 GST exports. Ask the owner to update them.</p></div>
@@ -2206,13 +4824,25 @@ Changing them never alters posted entries.</p>
 <button class="btn" type="submit">Save settings</button>
 </form></div>
 <div class="card pad small muted">Fiscal year starts in month {tenant['fiscal_year_start_month']:02d}.
-Currency {esc(tenant['currency'])}. GSTIN, PIN code and IFSC are validated on save.</div>"""
+Currency {esc(tenant['currency'])}. GSTIN, PIN code and IFSC are validated on save.</div>
+{theme_card}"""
         return layout("Settings", body, "settings", user, tenant)
 
     def _settings_error(self, user, tenant, message: str):
         body = (f'<div class="card pad"><div class="err">{esc(message)}</div>'
                 '<a class="btn ghost" href="/settings">Back to settings</a></div>')
         return self._send(layout("Settings", body, "settings", user, tenant), 400)
+
+    def _save_theme(self, conn, user, tenant, form):
+        theme = first(form, "theme").strip()
+        if theme not in THEMES:
+            return self._settings_error(user, tenant, "Choose a valid colour theme.")
+        old = theme_for(user)
+        conn.execute("UPDATE user SET theme=? WHERE id=?", (theme, user["id"]))
+        acct.audit(conn, tenant["id"], user["id"], "user.theme_updated", "user", user["id"],
+                   meta={"from": old, "to": theme})
+        cookie = f"ui_theme={theme}; Path=/; Max-Age=31536000; SameSite=Lax"
+        return self._redirect("/settings?theme_saved=1", {"Set-Cookie": cookie})
 
     def _save_settings(self, conn, user, tenant, form):
         try:
@@ -2283,7 +4913,7 @@ Currency {esc(tenant['currency'])}. GSTIN, PIN code and IFSC are validated on sa
 <div class="card pad sect">
 <h2 style="margin-bottom:8px">Restore verification</h2>
 <p class="small muted" style="margin-top:0">Every backup is opened in read-only mode and checked for SQLite integrity, foreign-key violations, balanced journals and matching row counts before it is marked verified. To repeat the drill from a terminal:</p>
-<pre class="small" style="background:#F4F7F4;padding:12px;border-radius:10px;overflow:auto">python scripts/backup.py
+<pre class="small" style="background:#F8FAFC;padding:12px;border-radius:10px;overflow:auto">python scripts/backup.py
 python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
 <p class="small muted">A failed backup is recorded as failed and never presented as safe. Restores are a manual, verified operation in this build — there is no one-click destructive restore.</p>
 </div>"""
@@ -2485,10 +5115,10 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                          "Your password is not changed.") if existing else "Use at least 12 characters."
         confirm = "" if existing else """
 <div class="field"><label>Confirm password</label><input type="password" name="confirm" required autocomplete="new-password"></div>"""
-        note = (f'<div class="card pad small" style="background:#F7F9F7;margin-bottom:14px">'
+        note = (f'<div class="card pad small" style="background:#F8FAFC;margin-bottom:14px">'
                 f'<b>{esc(invite["email"])}</b> already has an ARTHIVIO login. Enter its current password to join '
                 f'<b>{esc(invite["tenant_name"])}</b> as {esc(role_name(invite["role"]))}.</div>') if existing else (
-                f'<div class="card pad small" style="background:#F7F9F7;margin-bottom:14px">'
+                f'<div class="card pad small" style="background:#F8FAFC;margin-bottom:14px">'
                 f'You are joining <b>{esc(invite["tenant_name"])}</b> as {esc(role_name(invite["role"]))}. '
                 f'Use this email as your login.</div>')
         return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -2535,7 +5165,7 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                      f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
-        rows = rows or '<tr><td colspan="6" style="text-align:center;color:#5A685F;padding:18px">No transactions in this period</td></tr>'
+        rows = rows or '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No transactions in this period</td></tr>'
         business_addr = ", ".join(x for x in (tenant["address"], tenant["city"], tenant["state_name"],
                                               tenant["pincode"]) if x)
         party_addr = ", ".join(x for x in (party.get("address", ""), state_name(party.get("state_code", ""))) if x)
@@ -2543,17 +5173,17 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         counterparty = "Customer" if is_customer else "Vendor"
         closing_label = "Amount due from customer" if is_customer else "Amount payable to vendor"
         extra_css = """
-.stmt-title{margin:0 0 2px;font-size:18px;font-weight:700;color:#123F2E}
-.stmt-period{font-size:11px;color:#44564F;margin-top:2px}
-.stmt-note{margin-top:10px;font-size:10px;color:#5A685F}
-.stmt-total td{font-weight:700;border-top:2px solid #176B4D}
+.stmt-title{margin:0 0 2px;font-size:18px;font-weight:700;color:var(--ink)}
+.stmt-period{font-size:11px;color:var(--ink-soft);margin-top:2px}
+.stmt-note{margin-top:10px;font-size:10px;color:var(--muted)}
+.stmt-total td{font-weight:700;border-top:2px solid var(--primary)}
 .stmt-toolbar{justify-content:space-between;align-items:center}
-.stmt-toolbar .tag{font-size:11px;color:#5A685F;letter-spacing:.03em}
+.stmt-toolbar .tag{font-size:11px;color:var(--muted);letter-spacing:.03em}
 """
-        return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+        return f"""<!doctype html><html lang="en" data-theme="{DEFAULT_THEME}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <meta name="description" content="Shared statement of account issued by {esc(tenant["name"])} from ARTHIVIO.">
-<title>{esc(heading)} · {esc(tenant["name"])}</title><style>{PRINT_CSS}{extra_css}</style></head>
+<title>{esc(heading)} · {esc(tenant["name"])}</title><style>{THEME_CSS}{PRINT_CSS}{extra_css}</style></head>
 <body>
 <div class="toolbar stmt-toolbar"><span class="tag">Shared statement · {esc(tenant["name"])}</span>
 <div><a href="/login">ARTHIVIO</a> &nbsp; <button type="button" onclick="window.print()">Print / Save PDF</button></div></div>
@@ -2580,7 +5210,7 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
   <table>
     <thead><tr><th>Date</th><th>Reference</th><th>Particulars</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
     <tbody>
-      <tr><td colspan="5" style="color:#5A685F">Opening balance</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
+      <tr><td colspan="5" style="color:var(--muted)">Opening balance</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
       {rows}
     </tbody>
     <tfoot><tr class="stmt-total"><td colspan="5">Closing balance</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
@@ -2605,7 +5235,7 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         if token:
             link = f"{self._base_url()}/share/statement/{token}"
             shared = f"""
-<div class="card pad" style="margin:0 0 14px;background:#F7F9F7">
+<div class="card pad" style="margin:0 0 14px;background:#F8FAFC">
 <div class="sect-head" style="margin-bottom:6px"><b>Share link created</b><span class="badge ok">Shown once</span></div>
 <div class="field" style="margin-bottom:8px"><input readonly value="{esc(link)}" onclick="this.select()" style="font-family:ui-monospace,monospace;font-size:13px"></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn small" href="{esc(link)}" target="_blank" rel="noopener">Open print view</a>
@@ -2648,6 +5278,285 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
 </div>"""
 
     # ---------------- actions ----------------
+    def _profile_from_form(self, form) -> dict:
+        def integer(name: str, label: str) -> int:
+            text = first(form, name).strip()
+            if not text:
+                return 0
+            if not re.fullmatch(r"-?[0-9]{1,6}", text):
+                raise acct.AccountingError("BAD_PROFILE_NUMBER",
+                                           f"{label} must be a whole number.")
+            return int(text)
+
+        def amount(name: str, label: str) -> int:
+            text = first(form, name).strip()
+            if not text:
+                return 0
+            try:
+                return money.parse_amount(text)
+            except money.MoneyError as exc:
+                raise acct.AccountingError("BAD_PROFILE_AMOUNT",
+                                           f"{label}: {exc}") from exc
+
+        profile = {}
+        for name in ("legal_name", "contact_person", "phone", "email", "website",
+                     "address", "city", "state_code", "pincode", "country", "gstin",
+                     "pan", "cin", "organisation_type", "industry", "loan_lender",
+                     "loan_account_no", "loan_sanction_date", "loan_maturity_date",
+                     "security_details", "notes"):
+            profile[name] = first(form, name).strip()
+        profile["credit_days"] = integer("credit_days", "Credit days")
+        profile["credit_limit_paise"] = amount("credit_limit", "Credit limit")
+        profile["tenure_months"] = integer("tenure_months", "Loan tenure")
+        profile["emi_paise"] = amount("emi", "EMI")
+        try:
+            profile["interest_rate_bp"] = money.parse_percent(
+                first(form, "interest_rate") or "0")
+        except money.MoneyError as exc:
+            raise acct.AccountingError("BAD_PROFILE_INTEREST",
+                                       f"Interest rate: {exc}") from exc
+        return profile
+
+    def _bank_from_form(self, form) -> dict:
+        return {
+            "bank_name": first(form, "bank_name").strip(),
+            "account_number": first(form, "bank_account_number").strip(),
+            "ifsc": first(form, "ifsc").strip().upper(),
+            "branch": first(form, "branch").strip(),
+            "holder_name": first(form, "holder_name").strip(),
+        }
+
+    def _create_account(self, conn, user, tenant, form, sess):
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<a class="btn ghost" href="/ledger">Back to ledger</a></div>')
+            return self._send(layout("Forbidden", body, "ledger", user, tenant), 403)
+        try:
+            group_code = first(form, "group_code").strip().lower()
+            account_type = first(form, "type").strip().lower()
+            if not group_code and account_type:
+                group_code = acct.default_group_for_type(account_type)
+            group = acct.ACCOUNT_GROUPS.get(group_code)
+            if group:
+                account_type = group["type"]
+            profile = self._profile_from_form(form)
+            opening = None
+            opening_text = first(form, "opening_amount").strip()
+            if opening_text:
+                opening_amount = money.parse_amount(opening_text)
+                if opening_amount > 0:
+                    opening_date = first(form, "opening_as_of").strip()
+                    if not opening_date:
+                        raise acct.AccountingError(
+                            "OPENING_DATE_REQUIRED",
+                            "Choose an as-of date for the opening balance.")
+                    group = acct.ACCOUNT_GROUPS.get(group_code) or {}
+                    side = (first(form, "opening_side").strip().lower()
+                            or group.get("default_side", "debit"))
+                    opening = {"amount": opening_amount, "as_of": opening_date,
+                               "side": side}
+            bank_details = self._bank_from_form(form) if group_code == "bank" else None
+            account_id = acct.create_account(
+                conn, tenant["id"], first(form, "code"), first(form, "name"),
+                account_type, created_by=user["id"], group_code=group_code,
+                profile=profile, opening=opening, bank_details=bank_details)
+        except acct.AccountingError as e:
+            return self._send(self.page_account_new(conn, user, tenant, sess, form,
+                                                    error=e.message), 400)
+        except money.MoneyError as e:
+            return self._send(self.page_account_new(conn, user, tenant, sess, form,
+                                                    error=str(e)), 400)
+        return self._redirect(f"/ledger?account={account_id}&created=1")
+
+    def _update_account(self, conn, user, tenant, form, sess):
+        account_id = first(form, "account_id")
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    f'<a class="btn ghost" href="/ledger?account={esc(account_id)}">Back to ledger</a></div>')
+            return self._send(layout("Forbidden", body, "ledger", user, tenant), 403)
+        try:
+            profile = self._profile_from_form(form)
+            bank_details = self._bank_from_form(form)
+            acct.update_account_profile(
+                conn, tenant["id"], account_id, first(form, "name"), profile,
+                bank_details=bank_details, updated_by=user["id"])
+        except acct.AccountingError as e:
+            return self._send(self.page_account_edit(conn, user, tenant, sess, account_id,
+                                                     form, error=e.message), 400)
+        return self._redirect(f"/ledger?account={account_id}&updated=1")
+
+    def _archive_account(self, conn, user, tenant, form, sess):
+        account_id = first(form, "account_id")
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+            acct.archive_account(conn, tenant["id"], account_id, first(form, "reason"),
+                                 archived_by=user["id"])
+        except security.AuthError as e:
+            return self._send(self.page_account_archive(
+                conn, user, tenant, sess, account_id, {}, error=e.message), 403)
+        except acct.AccountingError as e:
+            return self._send(self.page_account_archive(
+                conn, user, tenant, sess, account_id, {}, error=e.message), 400)
+        return self._redirect(f"/ledger?account={account_id}&archived=1")
+
+    def _restore_account(self, conn, user, tenant, form, sess):
+        account_id = first(form, "account_id")
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+            acct.restore_account(conn, tenant["id"], account_id, first(form, "reason"),
+                                 restored_by=user["id"])
+        except security.AuthError as e:
+            return self._send(self.page_account_archive(
+                conn, user, tenant, sess, account_id, {}, error=e.message), 403)
+        except acct.AccountingError as e:
+            return self._send(self.page_account_archive(
+                conn, user, tenant, sess, account_id, {}, error=e.message), 400)
+        return self._redirect(f"/ledger?account={account_id}&restored=1")
+
+    def _merge_account(self, conn, user, tenant, form, sess):
+        source_id = first(form, "account_id")
+        target_id = first(form, "target_id")
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+            acct.merge_accounts(conn, tenant["id"], source_id, target_id,
+                                first(form, "reason"), merged_by=user["id"])
+        except security.AuthError as e:
+            return self._send(self.page_account_archive(
+                conn, user, tenant, sess, source_id, {}, error=e.message), 403)
+        except acct.AccountingError as e:
+            return self._send(self.page_account_archive(
+                conn, user, tenant, sess, source_id, {}, error=e.message), 400)
+        return self._redirect(f"/ledger?account={target_id}&merged=1")
+
+    def _opening_template(self, conn, user, tenant):
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError:
+            return self._send("Forbidden", 403)
+        return self._send_bytes(
+            opening_mod.template_csv().encode("utf-8"),
+            "text/csv; charset=utf-8",
+            "arthivio-opening-balances.csv",
+        )
+
+    def _bulk_opening_import(self, conn, user, tenant, sess, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            return self._send(
+                self.page_opening_import(conn, user, tenant, sess, {}, error=e.message), 403)
+
+        csv_text = first(form, "csv_text")
+        default_as_of = (first(form, "default_as_of")
+                         or fiscal_start(date.today(), tenant["fiscal_year_start_month"]))
+        filename = first(form, "filename")
+        upload = getattr(self, "_uploaded_files", {}).get("xlsx_file")
+        if upload and upload.get("content"):
+            try:
+                csv_text = xlsx_mod.xlsx_to_csv(upload["content"])
+            except xlsx_mod.XlsxImportError as e:
+                return self._send(
+                    self.page_opening_import(conn, user, tenant, sess, {}, error=e.message), 400)
+            filename = upload.get("filename") or "opening-balances.xlsx"
+        values = {"csv_text": csv_text, "default_as_of": default_as_of, "filename": filename}
+        action = first(form, "action") or "preview"
+
+        if action == "post":
+            try:
+                result = opening_mod.post_import(
+                    conn, tenant["id"], csv_text, default_as_of, filename, user["id"])
+            except opening_mod.OpeningImportError as e:
+                return self._send(
+                    self.page_opening_import(conn, user, tenant, sess, {}, values=values,
+                                             preview=e.preview, error=e.message), 400)
+            except acct.AccountingError as e:
+                try:
+                    current = opening_mod.preview(conn, tenant["id"], csv_text, default_as_of)
+                except opening_mod.OpeningImportError:
+                    current = None
+                return self._send(
+                    self.page_opening_import(conn, user, tenant, sess, {}, values=values,
+                                             preview=current, error=e.message), 400)
+            return self._redirect(f"/ledger/opening-balances?posted={result['count']}")
+
+        try:
+            current = opening_mod.preview(conn, tenant["id"], csv_text, default_as_of)
+        except opening_mod.OpeningImportError as e:
+            return self._send(
+                self.page_opening_import(conn, user, tenant, sess, {}, values=values,
+                                         error=e.message), 400)
+        return self._send(self.page_opening_import(conn, user, tenant, sess, {},
+                                                   values=values, preview=current))
+
+    def _set_opening_balance(self, conn, user, tenant, form):
+        account_id = first(form, "account_id")
+        back = f"/ledger?account={account_id}" if account_id else "/ledger"
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+            amount = money.parse_amount(first(form, "amount"))
+            acct.set_opening_balance(
+                conn, tenant["id"], account_id, first(form, "as_of"), amount,
+                first(form, "side"), created_by=user["id"])
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    f'<a class="btn ghost" href="{esc(back)}">Back to ledger</a></div>')
+            return self._send(layout("Forbidden", body, "ledger", user, tenant), 403)
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, back)
+        except money.MoneyError as e:
+            return self._error_page(user, tenant, str(e), back)
+        return self._redirect(f"{back}{'&' if '?' in back else '?'}opening=1")
+
+    def _create_bank_account(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<a class="btn ghost" href="/bank-accounts">Back to bank accounts</a></div>')
+            return self._send(layout("Forbidden", body, "bank-accounts", user, tenant), 403)
+        try:
+            bank_mod.create_bank_account(
+                conn, tenant["id"], first(form, "code"), first(form, "name"),
+                first(form, "bank_name"), first(form, "account_number"),
+                first(form, "ifsc"), first(form, "branch"), first(form, "holder_name"),
+                created_by=user["id"])
+        except bank_mod.BankError as e:
+            return self._error_page(user, tenant, e.message, "/bank-accounts")
+        return self._redirect("/bank-accounts?created=1")
+
+    def _reverse_journal(self, conn, user, tenant, form):
+        entry_id = first(form, "entry_id")
+        back = "/ledger"
+        try:
+            security.require(conn, user["id"], tenant["id"], "ledger.reverse")
+            entry = conn.execute(
+                "SELECT * FROM journal_entry WHERE id=? AND tenant_id=?",
+                (entry_id, tenant["id"])).fetchone()
+            if not entry:
+                raise acct.AccountingError("ENTRY_NOT_FOUND", "Journal entry not found")
+            if entry["source_type"] not in ("manual", "opening"):
+                raise acct.AccountingError(
+                    "NOT_MANUAL",
+                    "Only manual journals and opening balances can be reversed here. "
+                    "Use the source document or a credit/debit note.")
+            first_line = conn.execute(
+                "SELECT account_id FROM journal_line WHERE entry_id=? ORDER BY line_no LIMIT 1",
+                (entry_id,)).fetchone()
+            if first_line:
+                back = f'/ledger?account={first_line["account_id"]}'
+            reverse_id = acct.reverse_entry(
+                conn, tenant["id"], entry_id, first(form, "reason"), created_by=user["id"])
+            acct.audit(conn, tenant["id"], user["id"], "journal.reverse", "journal_entry", entry_id,
+                       meta={"reversal_entry": reverse_id,
+                             "reason": first(form, "reason").strip()[:200]})
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, e.message, back)
+        return self._redirect(f"{back}{'&' if '?' in back else '?'}reversed=1")
+
     def _create_customer(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "customer.manage")
         name = first(form, "name").strip()
@@ -2666,21 +5575,48 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         sku = first(form, "sku").strip()
         name = first(form, "name").strip()
         if not sku or not name:
-            return self._redirect("/items")
+            return self._item_error(user, tenant, "SKU and item name are required.")
         try:
-            price = money.parse_amount(first(form, "price") or "0")
             cost = money.parse_amount(first(form, "cost") or "0")
-            rate = int(round(float(first(form, "tax") or "18") * 100))
+            margin_bp = money.parse_percent(first(form, "margin") or "0")
+            price_text = first(form, "price").strip()
+            price = money.parse_amount(price_text) if price_text else 0
+            if not price and cost:
+                price = (cost * (10000 + margin_bp) + 5000) // 10000
+            if price and not margin_bp and cost:
+                margin_bp = max(0, ((price - cost) * 10000) // cost)
+            rate = money.parse_percent(first(form, "tax") or "18")
             stock = money.parse_qty(first(form, "stock") or "0")
-        except (money.MoneyError, ValueError):
-            return self._redirect("/items")
+            mrp = money.parse_amount(first(form, "mrp") or "0")
+        except money.MoneyError as e:
+            return self._item_error(user, tenant, str(e))
+        revenue_code = first(form, "revenue_code") or "4000"
+        revenue = conn.execute(
+            "SELECT 1 FROM account WHERE tenant_id=? AND code=? AND type='income'"
+            " AND status='active'", (tenant["id"], revenue_code)).fetchone()
+        if not revenue:
+            return self._item_error(user, tenant, "Choose a valid income ledger for sales.")
+        if mrp and price > mrp:
+            return self._item_error(user, tenant, "MRP cannot be lower than the sale price.")
         iid = db.new_id()
-        conn.execute("INSERT INTO item (id, tenant_id, sku, name, sale_price_paise, cost_paise,"
-                     " tax_rate_bp, stock_milli, track_stock) VALUES (?,?,?,?,?,?,?,?,?)",
-                     (iid, tenant["id"], sku[:40], name[:120], price, cost, rate, stock,
-                      1 if first(form, "track") != "0" else 0))
-        acct.audit(conn, tenant["id"], user["id"], "item.create", "item", iid)
-        return self._redirect("/items")
+        conn.execute(
+            "INSERT INTO item (id, tenant_id, sku, name, sale_price_paise, cost_paise,"
+            " tax_rate_bp, hsn, stock_milli, track_stock, revenue_code, category, brand,"
+            " barcode, mrp_paise, margin_bp)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (iid, tenant["id"], sku[:40], name[:120], price, cost, rate,
+             first(form, "hsn").strip()[:12], stock,
+             1 if first(form, "track") != "0" else 0, revenue_code,
+             first(form, "category").strip()[:60], first(form, "brand").strip()[:60],
+             first(form, "barcode").strip()[:40], mrp, margin_bp))
+        acct.audit(conn, tenant["id"], user["id"], "item.create", "item", iid,
+                   meta={"sku": sku[:40], "margin_bp": margin_bp, "tax_rate_bp": rate})
+        return self._redirect("/items?created=1")
+
+    def _item_error(self, user, tenant, message: str):
+        body = (f'<div class="card pad"><div class="err">{esc(message)}</div>'
+                '<a class="btn ghost" href="/items">Back to items</a></div>')
+        return self._send(layout("Items", body, "items", user, tenant), 400)
 
     def _create_invoice(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "invoice.create")
@@ -2824,9 +5760,20 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
     def _gstr2b_import(self, conn, user, tenant, form):
         security.require(conn, user["id"], tenant["id"], "gst.reconcile")
         month = first(form, "month") or date.today().strftime("%Y-%m")
+        csv_text = first(form, "csv_text")
+        filename = first(form, "filename")
+        upload = getattr(self, "_uploaded_files", {}).get("xlsx_file")
+        if upload and upload.get("content"):
+            try:
+                csv_text = xlsx_mod.xlsx_to_csv(upload["content"])
+            except xlsx_mod.XlsxImportError as e:
+                return self._send(self.page_gstr2b(conn, user, tenant,
+                                                   {"csrf_token": form.get("_csrf", [""])[0]},
+                                                   {"month": [month]}, e.message), 400)
+            filename = upload.get("filename") or "gstr2b.xlsx"
         try:
             result = gstr2b_mod.import_2b(conn, tenant["id"], month,
-                                          first(form, "csv_text"), first(form, "filename"),
+                                          csv_text, filename,
                                           user["id"])
         except gstr2b_mod.Gstr2bError as e:
             return self._send(self.page_gstr2b(conn, user, tenant,
@@ -2980,11 +5927,20 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
     def _bank_import(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "bank.reconcile")
         account_id = first(form, "account_id")
+        csv_text = first(form, "csv_text")
+        filename = first(form, "filename")
+        upload = getattr(self, "_uploaded_files", {}).get("xlsx_file")
+        if upload and upload.get("content"):
+            try:
+                csv_text = xlsx_mod.xlsx_to_csv(upload["content"])
+            except xlsx_mod.XlsxImportError as e:
+                return self._error_page(user, tenant, e.message, "/bank-recon")
+            filename = upload.get("filename") or "bank-statement.xlsx"
         try:
-            rows = bank_mod.parse_csv(first(form, "csv_text"))
+            rows = bank_mod.parse_csv(csv_text)
             result = bank_mod.import_statement(
                 conn, tenant["id"], account_id, rows,
-                filename=first(form, "filename"), created_by=user["id"])
+                filename=filename, created_by=user["id"])
         except bank_mod.BankError as e:
             return self._error_page(user, tenant, e.message, "/bank-recon")
         qs = urllib.parse.urlencode({
@@ -3070,6 +6026,9 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                 conn, tenant["id"], first(form, "entry_date") or date.today().isoformat(),
                 first(form, "narration") or "Manual journal", lines, source_type="manual",
                 created_by=user["id"])
+            first_account = lines[0]["account_id"] if lines else ""
+            if first_account:
+                return self._redirect(f"/ledger?account={first_account}&posted=1")
             return self._redirect("/daybook")
         except (acct.AccountingError, money.MoneyError) as e:
             return self._error_page(user, tenant, getattr(e, "message", str(e)), "/journal")
@@ -3080,9 +6039,47 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(data)
+
+    def export_workbook(self, conn, user, tenant, q):
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.export")
+        except security.AuthError as e:
+            return self._send(e.message, 403)
+        dfrom = (q.get("from") or [None])[0]
+        dto = (q.get("to") or [None])[0]
+        try:
+            data = excel_mod.build_workbook(conn, tenant, dfrom, dto)
+        except analytics_mod.AnalyticsError as e:
+            return self._send(f"Invalid period: {e.message}", 400)
+        except excel_mod.ExcelError as e:
+            return self._send(str(e), 500)
+        except acct.AccountingError as e:
+            return self._send(f"Could not build the workbook: {e.message}", 400)
+        self._send_bytes(
+            data,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            excel_mod.filename(tenant, dto or date.today().isoformat()),
+        )
+
+    def export_powerbi_pack(self, conn, user, tenant, q):
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.export")
+        except security.AuthError as e:
+            return self._send(e.message, 403)
+        dfrom = (q.get("from") or [None])[0]
+        dto = (q.get("to") or [None])[0]
+        try:
+            data = bi_mod.build_pack(conn, tenant, dfrom, dto)
+        except analytics_mod.AnalyticsError as e:
+            return self._send(f"Invalid period: {e.message}", 400)
+        except acct.AccountingError as e:
+            return self._send(f"Could not build the Power BI pack: {e.message}", 400)
+        self._send_bytes(data, "application/zip",
+                         bi_mod.filename(tenant, dto or date.today().isoformat()))
 
     def export_csv(self, conn, user, tenant, path, q):
         security.require(conn, user["id"], tenant["id"], "report.export")
@@ -3438,9 +6435,13 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
 
 
 def main(port: int = 8000):
+    host = os.environ.get("ARTHIVIO_HOST", "127.0.0.1")
     db.init_db(db.connect(DB_PATH))
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"ARTHIVIO running on http://127.0.0.1:{port}  (db: {DB_PATH})")
+    srv = ThreadingHTTPServer((host, port), Handler)
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    print(f"ARTHIVIO running on http://{shown}:{port}  (db: {DB_PATH})")
+    if host in ("0.0.0.0", "::"):
+        print("LAN access is enabled by ARTHIVIO_HOST. Use only on a trusted network.")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

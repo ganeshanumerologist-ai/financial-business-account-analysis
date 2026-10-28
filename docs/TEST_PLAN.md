@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 (baseline, pre-implementation) |
-| Date | 2026-10-24 |
-| Status | **Active as a plan; not executable yet** — no application code exists |
+| Version | 1.1 (active; Build 0.12) |
+| Date | 2026-10-28 |
+| Status | **Active; 245 automated tests execute on the local build** (see `docs/TEST_RESULTS.md` section 25) |
 | Owner | Project owner (approval), OpenCode agent (authoring & execution) |
 | Data policy | Synthetic data only. No real bank credentials, no real customer financial data. |
 
@@ -254,13 +254,13 @@ Define how ARTHIVIO will be verified so that no financial or security claim is m
 |---|---|
 | Test plan authored | ✅ DONE |
 | Tests executable | ✅ YES (stdlib + temporary SQLite) |
-| Test cases defined | 162 automated application tests plus 12 audit-time checks |
-| Test cases executed | 162 application tests in `RUN-2026-10-25-02` |
-| Test cases passed | 162 |
+| Test cases defined | 222 automated application tests plus 12 audit-time checks |
+| Test cases executed | 222 application tests in `RUN-2026-10-27-03` |
+| Test cases passed | 222 |
 | Test cases failed | 0 |
 | Test cases blocked | 0 |
-| Application tests executed | **162** |
-| Last verified | 2026-10-25, Python 3.14.6, Windows |
+| Application tests executed | **222** |
+| Last verified | 2026-10-27, Python 3.14.6, Windows |
 
 See `docs/TEST_RESULTS.md` for the literal run evidence and `docs/BUG_REPORT.md` for defects.
 
@@ -283,3 +283,176 @@ See `docs/TEST_RESULTS.md` for the literal run evidence and `docs/BUG_REPORT.md`
 
 Operational checks in the same run: live GSTR-2B August 2026 reconciliation and ITC acceptance,
 public statement creation/print/revoke, backup integrity + restore, and Lighthouse audits.
+
+### Build 0.8 additions
+
+- `T-801`: unauthenticated `/` returns the public product home page (200, no login redirect),
+  contains the headline, trust strip and synthetic-data note, and still leaves
+  `/dashboard-does-not-exist` protected.
+- `T-802`: `/demo` is opt-in, loopback-only, creates a normal session and audit event, and returns
+  404 when disabled.
+- `T-803`: authenticated `/` still renders the dashboard.
+- `T-804`: Lighthouse on `/home` returns 100 / 100 / 100 for accessibility, best practices and SEO.
+- `T-805`: desktop and narrow-mobile browser checks; the hero, detailed preview, six feature cards,
+  five reasons and trust strip stay readable and no horizontal scrollbar appears.
+- `T-806`: the reference's customer, country and uptime figures are visibly marked `*` and footnoted
+  as illustrative marketing metrics, not verified production claims.
+
+### Build 0.9 additions
+
+- `T-901`: grouped Tally-style top navigation renders Transactions, Books, Reports, Tax Returns,
+  Masters and Settings as dropdown parents, with credit/debit notes, GST working papers,
+  ledger/cash book/bank book and the existing reports inside the correct groups.
+- `T-902`: `/reports/cash-book` renders the cash account book from posted journal lines with
+  opening, receipts, payments and closing balance.
+- `T-903`: `/reports/bank-book` renders the bank account book from posted journal lines with
+  opening, receipts, payments and closing balance. The old Tax Returns parent in `T-901` is
+  superseded by Build 0.10's single Reports parent.
+
+### Build 0.10 additions
+
+- `T-1001`: `/ledger` lists every account by type, shows Dr/Cr balances, opens the selected
+  account's full ledger, and exposes the inline add-account form for permitted roles.
+- `T-1002`: account creation validates code/name/type, rejects duplicates, audits
+  `account.create`, and redirects to the new ledger.
+- `T-1003`: `/accounts` returns 403 for a read-only member; `account.manage` is granted only to
+  owner, admin and accountant.
+- `T-1004`: `/bank-accounts` creates an asset ledger plus full bank details atomically, rejects
+  duplicate codes and bad IFSC, lists the legacy 1010 account, and links Bank Book/Reconciliation.
+- `T-1005`: a new bank account opens in Bank Book with its full details and in Bank Entry with the
+  account preselected.
+- `T-1006`: `/entries/cash`, `/entries/bank` and `/entries/journal` render separate entry modes;
+  cash and bank controls are preselected, and posting redirects to the affected ledger.
+- `T-1007`: a posted manual journal can be reversed only with permission and a reason; the
+  original is marked reversed, a mirrored entry is posted, and `journal.reverse` is audited.
+- `T-1008`: grouped navigation has Dashboard plus Transactions, Entries, Books, Reports, Masters
+  and Settings; the old Tax Returns parent is absent and all report/GST links are under Reports.
+- `T-1009`: dashboard cash includes cash 1000 plus every linked bank account.
+- `T-1010`: ledger balances show Dr/Cr by normal side; zero balances stay plain `₹0.00`.
+- `T-1011`: setting a debit opening balance posts a balanced journal to the selected account and
+  the auto-created `3200 Opening Balance Equity`; the trial balance remains balanced.
+- `T-1012`: a credit opening balance on a liability posts the expected credit to the account and
+  debit to Opening Balance Equity.
+- `T-1013`: a duplicate opening balance is rejected; after a permission-controlled reversal with a
+  reason, a replacement opening balance can be posted and only the replacement remains effective.
+- `T-1014`: an opening balance dated after the account's first posted transaction is rejected, while
+  a date on or before the first activity is accepted.
+- `T-1015`: zero/negative amounts, invalid sides and future dates are rejected; the account page
+  exposes the form before and after account creation and the web flow posts, reverses and re-posts
+  an opening balance.
+- `T-1016`: creating a debtor account with a full company/contact/GSTIN/PAN/CIN/industry/credit
+  profile and an opening balance saves one atomic profile, links a customer sub-ledger, tags the
+  opening line with the party and keeps the trial balance balanced.
+- `T-1017`: an invoice and receipt for a linked debtor post to that debtor's ledger, clear the party
+  statement and leave the control total consistent; the equivalent vendor bill/payment path is
+  covered for a linked creditor.
+- `T-1018`: incompatible group/type, bad GSTIN, loan without a lender, bank without bank details
+  and an invalid opening date are rejected without leaving partial accounts or parties behind.
+- `T-1019`: profile edit updates the ledger name, profile and linked customer/vendor details,
+  preserves the group, never changes posted amounts and writes `account.update`.
+- `T-1020`: a bank account created through the Account 360 form saves bank/IFSC/branch/holder and
+  opening balance, appears in Bank Book, and a loan account saves lender/account/sanction/maturity/
+  interest/tenure/EMI/security.
+- `T-1021`: the product master saves category, brand, barcode, HSN/SAC, MRP, cost, margin, GST,
+  stock, tracking and sales ledger; a blank sale price is computed as cost + margin; MRP below the
+  sale price is rejected.
+- `T-1022`: percentage parsing accepts whole/decimal percentages into basis points and rejects
+  floats and more than two decimal places; the new `account_profile` table is included in backup
+  row-count verification.
+- `T-1023`: an existing database whose `account`, `customer`, `vendor` and `item` tables predate
+  Account 360 upgrades cleanly, gains the new columns and then the indexes that depend on them, and
+  keeps its rows.
+- `T-1024`: running `init_db` twice on that database is idempotent and leaves exactly one
+  `account_profile` and `bank_account` table.
+- `T-1025`: creating a Sundry Debtors ledger with the name of an existing customer links that
+  customer to the new ledger and preserves phone, GSTIN, email, address, state and credit terms that
+  were left blank on the account form.
+- `T-1026`: the new-account form exposes one Account type / group selector containing cash, bank,
+  debtors, creditors, inventory, fixed assets, loans, tax, suspense, capital, drawings, retained
+  earnings, P&L, purchase, sales, depreciation and other classifications; posting only
+  `group_code=suspense` stores a liability account, and the form no longer posts a separate `type`
+  field.
+
+### Build 0.11 additions
+
+- `T-1027`: `/ledger/opening-balances` previews a CSV with `code, side, amount, as_of, note`,
+  normalises Dr/d and Cr/c, shows row status and Dr/Cr totals, and writes nothing until Post all;
+  the downloadable template has the required headers.
+- `T-1028`: bulk import rejects a missing/duplicate header, empty file, duplicate code, unknown or
+  non-postable account, malformed or non-positive amount, invalid side, future date, locked period,
+  date after first activity, existing opening and the Opening Balance Equity account, reporting every
+  bad row without posting a good one.
+- `T-1029`: posting a valid file creates one balanced opening journal per account against Opening
+  Balance Equity, appends the CSV note to narration, writes `opening_balance.set` per account plus one
+  `opening_balance.bulk_import`, and keeps the trial balance balanced; re-posting the same file is
+  rejected and does not duplicate entries.
+- `T-1030`: a simulated failure on the second row rolls back the first row, the Opening Balance Equity
+  account and the bulk-import audit; codes that exist only in another tenant are rejected; the page
+  requires `account.manage` and appears under Books → Ledgers.
+- `T-1031`: the signed-in workspace stylesheet has four light palettes — Ocean, Emerald, Violet and
+  Sunset — plus a white topbar, neutral charcoal ink `#212529`, electric-blue default accents and
+  success green; no `#0B1F3A` / `#04162F` navy token or legacy ivory/emerald/gold token is present in
+  the app CSS; the workspace logo keeps the cyan/blue mark and printed documents resolve their colours
+  from the theme variables rather than a hard-coded blue. It also checks the four `LANDING_THEMES`
+  dark variants, the `--lp-*` landing variables, the visible Colour picker, the Royal Violet
+  landing document and Ocean fallback for an invalid theme key.
+- `T-1032`: a signed-in user can open Settings → Appearance, see all four palette cards, save a
+  different palette, and get the new `data-theme` on the dashboard, sign-in page and invoice print;
+  the choice persists in `user.theme`, writes one `user.theme_updated` audit event, rejects an
+  unknown palette with HTTP 400, and the test restores Ocean. The same test requests
+  `/home?theme=emerald`, checks the landing `data-theme` and hero tokens, confirms the cookie keeps
+  Emerald on the next `/home` request, then restores Ocean.
+- `T-1033`: a zero-balance ordinary ledger can be archived with a reason, writes
+  `account.archive`, keeps its history and becomes non-postable; restore clears the archive state,
+  writes `account.restore`, and makes it postable again.
+- `T-1034`: archiving is rejected for a non-zero balance, a system/control account, a
+  customer/vendor-linked ledger (including a legacy pointer without `account_profile`) and an income
+  ledger referenced by products; the error names the guard rail instead of partially changing data.
+- `T-1035`: merging two expense ledgers with balances posts one balanced `source_type='merge'`
+  journal for the source's net balance, leaves the source ledger at zero and archived, combines the
+  target balance, preserves the trial balance and keeps profit & loss total expense unchanged.
+- `T-1036`: merge rejects different accounting types, different customer/vendor parties, bank to
+  non-bank combinations, a system/control source or target, and an archived source or target;
+  posting into the archived source is rejected with `ACCOUNT_ARCHIVED`.
+- `T-1037`: merging income ledgers repoints products to the target sales ledger; merging a
+  same-party ledger repoints the customer/vendor account pointer; archived bank ledgers disappear
+  from the Bank Book account list; opening-balance import rejects an archived account.
+- `T-1038`: the HTTP ledger page exposes **Archive or merge**, shows the all-time balance and
+  compatible target choices, posts a merge, shows the archived source with its merged target,
+  archives a second ledger, blocks a journal into it, restores it, and locks the cash control
+  account page (`test_web.test_39`).
+- `T-1039`: the analytics registry exposes the required actual-only metric keys with a written
+  formula, `report.view` permission and drill-down, and contains no forecast/estimate kind
+  (`tests/test_analytics.py`).
+- `T-1040`: the snapshot's revenue, expense, profit, cash+bank, trial-balance and balance-sheet
+  checks reconcile to the posted journal rows and existing report functions; freshness carries the
+  entry count and last entry date.
+- `T-1041`: the monthly series returns every month in the range, zero-fills a month with no
+  postings, and its totals equal the posted income and expense actuals.
+- `T-1042`: expense composition ranks expense accounts correctly; top customers ranks posted
+  invoices by net sales and invoice count.
+- `T-1043`: analytics is tenant-scoped (a second tenant sees zeroes/empty lists); invalid dates raise
+  `BAD_DATE` and a reversed period raises `BAD_PERIOD`.
+- `T-1044`: `v_analytics_journal` row count equals the tenant's journal-line count and
+  `v_analytics_monthly` income/expense totals equal the posted actuals.
+- `T-1045`: HTTP analytics requires sign-in (`401` JSON), then serves the catalog and overview for a
+  member with `report.view`, returns `400 BAD_DATE` for a bad date, renders the Analytics Overview
+  page, and falls back to the default period with a visible error (`test_web.test_40`).
+- `T-1046`: the real `.xlsx` workbook opens with 20 expected sheets, contains native Excel charts,
+  preserves exact integer-paise KPI source values beside displayed INR amounts, stays actuals-only
+  and rejects an inverted period (`tests/test_excel.py`, `test_web.test_41`).
+- `T-1047`: the Power BI import ZIP contains the manifest, analytics JSON, metric catalog,
+  journal/monthly facts, account/party dimensions, Power Query starter and README; manifest hashes
+  match the files, money stays integer paise, and a second tenant cannot leak into the pack
+  (`tests/test_bi.py`, `test_web.test_42`).
+- `T-1048`: the Analytics page serves the locally vendored ECharts asset, renders the actual monthly
+  and expense-composition chart containers with fallback tables, and makes no external CDN request
+  (`test_web.test_43`).
+- `T-1049`: the insights endpoint is deterministic (`engine=deterministic_rules_v1`,
+  `generative_ai=false`, `actuals_only=true`, `forecast_included=false`), every observation carries
+  a written basis and metric keys, and an empty period says "not generated" rather than inventing
+  a finding (`tests/test_insights.py`, `test_web.test_44`).
+- `T-1050`: a real `.xlsx` upload is parsed server-side into neutral CSV for opening balances, bank
+  statements and GSTR-2B; dates and decimals survive, cached formula values are used, blank rows and
+  trailing empty columns are dropped, oversized/malformed files fail visibly, and the existing
+  preview/confirm rules still control posting (`tests/test_xlsx_import.py`, `test_web.test_45`).

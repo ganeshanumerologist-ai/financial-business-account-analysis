@@ -2,15 +2,20 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
-| Status | Draft for owner approval |
+| Version | 1.1 |
+| Date | 2026-10-28 |
+| Status | Draft for owner approval. The per-row status column below is the original full-scope baseline and is stale; current Build 0.12 evidence is in `docs/REQUIREMENTS_TRACEABILITY.md` section 20. |
 | Source of truth | `docs/PROJECT_SPEC.md` (763 lines, SHA-256 `4556C714…`) |
-| Stack | Option A — Next.js + FastAPI (approved 2026-10-24) |
+| Stack | Original Option A was Next.js + FastAPI; the delivered local prototype is standard-library Python + SQLite under D-007, with approved `openpyxl` for `.xlsx` workbooks |
 
 Priority: **P0** = release-gate / must exist before any financial feature · **P1** = required for usable product · **P2** = valuable, later phase.
 
 ---
+
+> **Status note (2026-10-28):** This is the original full-scope requirements list. The `Status`
+> column has not been maintained row-by-row and must not be read as the current build state. See
+> `docs/REQUIREMENTS_TRACEABILITY.md` section 20 for the evidence-backed status through Build 0.12
+> and `docs/FEATURE_INVENTORY.md` section 20 for the honest implemented/partial/missing inventory.
 
 ## 1. Product requirements
 
