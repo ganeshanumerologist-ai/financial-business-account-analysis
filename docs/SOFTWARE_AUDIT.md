@@ -10,7 +10,7 @@
 | Mode | Read-only. No application files were created, modified or deleted during the audit. |
 | Overall result | **BLOCKED — no application source code exists in the workspace** |
 
-> **Historical baseline (2026-10-24).** This audit describes the empty workspace before implementation. It is preserved as history and is **not** the current status. For Build 0.12 evidence, see `docs/TEST_RESULTS.md` section 25 and `docs/FEATURE_INVENTORY.md` section 20.
+> **Historical baseline (2026-10-24).** This audit describes the empty workspace before implementation. It is preserved as history and is **not** the current status. For Build 0.13 evidence, see `docs/TEST_RESULTS.md` section 27 and `docs/FEATURE_INVENTORY.md` section 21.
 
 ---
 

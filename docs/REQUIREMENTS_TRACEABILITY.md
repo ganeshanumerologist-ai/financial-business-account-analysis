@@ -2,15 +2,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.1 |
-| Date | 2026-10-28 |
+| Version | 1.2 |
+| Date | 2026-11-04 |
 | Purpose | Prove every requirement has a planned module, a test, and a documented status |
 | Source | `docs/PROJECT_SPEC.md` → `docs/REQUIREMENTS.md` → modules → tests |
 
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 20 (Build 0.12); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 21 (Build 0.13); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -370,4 +370,19 @@ accounting data.
 | Full 66 reports / ~150 templates / saved dashboards / EN-HI | **Not implemented** | 19/66 catalogued reports plus an uncounted Analytics pilot; saved layouts, full drill-down and EN/HI remain Phase B |
 | Mobile / screen-reader / contrast / cross-browser / 4K | **Not verified** | the public phone URL is an access check only; no real viewport or accessibility matrix was run |
 | Dependency approval | **Recorded** | owner approved dependencies; `openpyxl==3.1.5` is the only new runtime package; ECharts is vendored locally (D-035) |
+
+## 21. Status after Report Library and management reports (Build 0.13, 2026-11-04)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Report Library | **Verified** | `/reports/library` lists 66 catalogued reports with group, source/formula and working/partial/planned status; filters and honest empty states; `test_web.test_46` |
+| Cash flow | **Verified as a working paper** | R-104 direct cash movement plus indirect bridge; clean demo seed reconciles to ₹0 difference; a non-zero difference is displayed; `tests/test_reports.py` |
+| Financial ratios | **Verified** | R-108 current/quick ratio, gross/net margin, ROE, ROCE, debt-equity, asset turnover and working capital from posted records; zero denominators show `n/a` |
+| Period comparison | **Verified** | R-109 compares equal-length current and prior periods with delta and delta %; missing prior values are `n/a`, not estimates |
+| Audit and activity registers | **Verified** | R-202 reversal register keeps original and reason; R-203 shows line count, debit, credit and net per account |
+| Sales and purchase registers | **Verified** | R-301 and R-401 show posted documents with taxable, GST, round-off and total; totals reconcile; CSV exports available |
+| Expense and working-capital reports | **Verified** | R-903 expense breakdown with share; R-905 DSO + DIO − DPO with explicit inputs and `n/a` handling |
+| Report coverage | **28 of 66** | 19 prior working reports plus nine Build 0.13 reports; 1 partial and 37 planned remain |
+| Remaining report/chart library | **Not implemented** | 38 catalogued report screens, saved dashboards, full drill-down, EN/HI labels and the ~150-template target remain Phase B |
+| Mobile / screen-reader / contrast / cross-browser / 4K | **Not verified** | no real viewport or accessibility matrix was run for the new report pages |
 

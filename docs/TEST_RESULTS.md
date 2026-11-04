@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.12.** The latest application run is `RUN-2026-10-28-01` with
-> **245 tests, OK**, Python 3.14.6, Windows - see section 25. The table immediately below is the original
+> **Current status: Build 0.13.** The latest application run is `RUN-2026-11-04-01` with
+> **256 tests, OK**, Python 3.14.6, Windows - see section 27. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1261,3 +1261,39 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
 - Added `Dockerfile`, `.dockerignore`, `render.yaml` and `docs/DEPLOYMENT.md`.
 - Not verified: Render build, cold-start time, free-plan sleep/wake, persistent disk, TLS/custom
   domain or production security. The free plan is demo-only and its SQLite data is ephemeral.
+
+## 27. Application run `RUN-2026-11-04-01` - Report Library and nine management reports
+
+### 27.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **256 tests, OK**, 35.767 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_reports -v` | 10 report tests, OK |
+| `python -m unittest tests.test_web.WebTest.test_46_report_library_and_management_reports -v` | HTTP report library, nine report pages and four CSV exports, OK |
+| Live report library | `/reports/library` shows 28 working, 1 partial and 37 planned of 66 |
+| Live cash-flow reconciliation | Clean demo seed: opening ₹0, closing ₹4,90,760, direct movement = indirect bridge, difference ₹0 |
+| Live ratios | Balance-sheet check balanced; current ratio, margins and working capital populated from posted records |
+| Live registers | 11 posted sales invoices and 3 posted purchase bills; totals reconcile to taxable + GST + round-off |
+
+### 27.2 What changed
+
+- `app/reports.py`: deterministic report module with no cache, forecast or fabricated data. Money stays
+  in integer paise; ratios are floats with explicit `n/a` handling for zero denominators.
+- `app/server.py`: Report Library route and nine report pages, grouped navigation entries, and CSV
+  exports for cash flow, sales register, purchase register and expense breakdown.
+- `tests/test_reports.py`: ten formula, reconciliation, audit, custom-ledger and tenant-isolation tests.
+- `tests/test_web.py`: HTTP test 46 for the library, nine pages and four CSV endpoints.
+- `docs/REPORT_CATALOG.md`, `README.md`, `docs/DEVELOPMENT_ROADMAP.md`: coverage updated to 28 of 66
+  and Build 0.13 recorded.
+
+### 27.3 Explicitly NOT verified / not delivered
+
+- The remaining 38 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
+  ~150-template library are still not delivered.
+- Cash flow is a working paper built from posted journals, not a statutory cash-flow statement and
+  not a forecast. A non-zero bridge difference is displayed, never hidden.
+- Financial ratios use closing balances and the default chart's classifications; they are management
+  aids, not lender or investor opinions.
+- No real phone viewport, screen-reader, contrast, cross-browser or 4K matrix was run for the new pages.
+- No Render deployment was executed; the public hosting action still requires owner authorization.

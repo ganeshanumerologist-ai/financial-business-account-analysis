@@ -2,10 +2,10 @@
 
 Baseline inventory built from the governing specification, verified against the actual workspace.
 
-> **Current status is Build 0.12, not the empty baseline below.** Sections 1–13 preserve the
+> **Current status is Build 0.13, not the empty baseline below.** Sections 1–13 preserve the
 > original 2026-10-24 audit of an empty workspace so the starting point stays honest. The
 > implemented and verified features are recorded in the later build sections, most recently
-> **§18 (Build 0.11 account archive/merge plus bulk opening-balance import, four user-selectable light workspace palettes and a dark landing-page colour picker)**. Use §18
+> **§21 (Build 0.13 Report Library plus nine management reports)**. Use §21
 > for the current feature list, not the baseline table in this header.
 
 | Field | Value |
@@ -586,3 +586,28 @@ and documentation agree.
 - Mobile/tablet, screen-reader, automated contrast, cross-browser, 4K and load testing
 - Bank-account deactivate, partial/one-to-many bank matching, bank-charge auto-posting
 - Email delivery, ownership transfer, SSO and per-permission editor
+
+## 21. Status after Report Library and management reports (Build 0.13, 2026-11-04)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Report Library | `/reports/library`, `app/reports.py::catalog` | all 66 catalogued reports with group, source/formula and working/partial/planned status; group and status filters; planned rows have no route and no sample data; `test_web.test_46` |
+| R-104 Cash Flow | `/reports/cash-flow` | direct cash movement classified by counterpart plus indirect bridge; non-zero difference displayed; `tests/test_reports.py` |
+| R-108 Financial Ratios | `/reports/ratios` | current/quick ratio, gross/net margin, ROE, ROCE, debt-equity, asset turnover, working capital; `n/a` for zero denominators |
+| R-109 Period Comparison | `/reports/comparison` | equal-length current and prior periods with delta and delta % |
+| R-202 Reversal Register | `/reports/reversals` | original entry, reversal entry and reason; original stays visible |
+| R-203 Account Activity | `/reports/account-activity` | line count, debit, credit and net per account |
+| R-301 Sales Register | `/reports/sales-register` | posted invoices with taxable, GST, round-off and total; CSV export |
+| R-401 Purchase Register | `/reports/purchase-register` | posted bills with taxable, GST, round-off and total; CSV export |
+| R-903 Expense Breakdown | `/reports/expense-breakdown` | expense by account with share; CSV export |
+| R-905 Working Capital Cycle | `/reports/working-capital` | DSO + DIO − DPO with explicit inputs and formula |
+| Report coverage | Reports menu | 28 of 66 working; 1 partial; 37 planned |
+
+### Still not implemented
+
+- 38 catalogued report screens, saved dashboards, full drill-down and EN/HI labels
+- ~150-template report/chart library
+- Generative AI, Power BI Service and AI-authored workbook formulas
+- Mobile/screen-reader/contrast/cross-browser/4K and load testing

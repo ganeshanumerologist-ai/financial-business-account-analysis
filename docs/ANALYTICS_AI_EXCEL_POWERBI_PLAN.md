@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.3 (Phase A plus first Excel/BI/insight slices) |
-| Date | 2026-10-28 |
-| Status | **Phase A and first Excel/Power BI/grounded-insight slices implemented; Phase B and full AI/Service scope pending** |
+| Version | 0.4 (Phase A, first Excel/BI/insight slices and report library) |
+| Date | 2026-11-04 |
+| Status | **Phase A, first Excel/Power BI/grounded-insight slices and nine management reports implemented; Phase B and full AI/Service scope pending** |
 | Scope | Financial/business analytics, chart and report library, Excel import/export and AI-assisted workbooks, Power BI data model, grounded AI insights |
 | Governing rules | Deterministic accounting totals, integer paise, balanced postings, audit trail, tenant isolation, no fabricated numbers, actual vs estimate vs forecast separation, AI must not calculate authoritative figures |
 
@@ -17,6 +17,12 @@
 > three existing import flows, a static Power BI ZIP, locally vendored ECharts views and an AI
 > Insights layer that is explicitly rule-based. It does **not** add a generative model or a
 > Power BI Service dataset.
+>
+> **Update 2026-11-04:** Build 0.13 adds a Report Library for all 66 catalogued reports and nine
+> deterministic management reports (cash flow, ratios, period comparison, reversal register,
+> account activity, sales register, purchase register, expense breakdown and working-capital
+> cycle). Coverage is now **28 of 66**. The remaining 38 reports, saved dashboards, EN/HI and the
+> ~150-template library are still Phase B.
 
 ---
 
@@ -26,7 +32,7 @@
 |---|---|---|
 | Double-entry accounting core | Working: invoices, bills, receipts, payments, journals, GST working papers, bank reconciliation, opening balances, audit | **Yes, foundation** |
 | Financial statements | Trial balance, P&L, balance sheet, ledger, day book, cash book, bank book, ageing, GST summaries | **Partial** |
-| Report library | 19 of 66 catalogued reports have a working screen or export, plus a cross-cutting Analytics Overview pilot; target is ~150 templates | **No** |
+| Report library | 28 of 66 catalogued reports have a working screen or export, plus a Report Library page and an uncounted Analytics Overview pilot; target is ~150 templates | **Partial** |
 | Charts and visual analytics | Analytics Overview pilot: actual monthly revenue/expense bars, expense composition, top-party tables and checks; dashboard bars and landing SVG remain; no full chart engine or custom dashboards | **Partial / early** |
 | Excel import | Real `.xlsx` upload for opening balances, bank statements and GSTR-2B; not a general workbook importer | **Partial / real slice** |
 | Excel export | Real 20-sheet `.xlsx` actuals workbook with native charts and exact paise source; no formula-driven AI workbook or pivot model | **Partial / real slice** |
@@ -57,7 +63,7 @@ These are real foundations, not placeholders:
   overview API and an Analytics Overview page (Build 0.11 Phase A).
 - Real `.xlsx` actuals workbook, `.xlsx` import for three flows, static Power BI import ZIP,
   vendored ECharts and deterministic grounded insights (Build 0.12).
-- Backups, integrity checks and 245 passing automated tests.
+- Backups, integrity checks and 256 passing automated tests.
 - User-selectable workspace themes and a separate dark public landing page.
 
 The analytics layer should read these records, not duplicate or override them.
@@ -82,6 +88,16 @@ The analytics layer should read these records, not duplicate or override them.
 | Static Power BI pack | `/export/powerbi.zip`: analytics JSON, metric catalog, integer-paise journal/monthly facts, account/party dimensions, Power Query starter, README, manifest SHA-256 | `app/bi.py`, `tests/test_bi.py` (4), `test_web.test_42` |
 | Interactive charts | ECharts 5.5.1 vendored locally; actual monthly revenue/expense/profit view and expense-composition donut, both with accessible fallback tables; no runtime CDN call | `app/static/echarts.min.js`, `test_web.test_43` |
 | Grounded insights | Deterministic rules over actuals: margin, largest expense, overdue share, GST working amount, ledger checks, open documents and freshness; every observation has a basis, metric keys, drill-down and source | `app/insights.py`, `tests/test_insights.py` (3), `test_web.test_44` |
+
+### 2.3 Build 0.13 slice actually delivered
+
+| Item | Delivered | Evidence |
+|---|---|---|
+| Report Library | `/reports/library` lists all 66 catalogued reports with group, source/formula and working/partial/planned status; filters by group and status; planned rows have no route and no sample data | `app/reports.py::catalog`, `test_web.test_46` |
+| Cash flow | R-104 direct cash movement classified by counterpart, plus an indirect bridge from net profit and working-capital changes; non-zero difference is displayed | `reports.cash_flow`, `tests/test_reports.py` |
+| Ratios and comparison | R-108 liquidity, margin, return, leverage and asset-turnover ratios; R-109 equal-length prior-period line comparison | `reports.financial_ratios`, `reports.period_comparison` |
+| Audit and registers | R-202 reversal register, R-203 account activity, R-301 sales register, R-401 purchase register, R-903 expense breakdown and R-905 working-capital cycle | `app/reports.py`, nine report tests, `test_web.test_46` |
+| Exports | CSV for cash flow, sales register, purchase register and expense breakdown; all money exported as exact decimal strings | `app/server.py::export_csv` |
 
 **Still Phase B/F work:** token-authenticated API for external BI, pagination, full fact/dimension
 model (invoices, bills, payments, notes, inventory, bank), saved dashboards, the full chart/report

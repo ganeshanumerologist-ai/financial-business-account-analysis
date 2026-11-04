@@ -305,3 +305,23 @@ The frontend receives **no** secrets — only a public API base URL.
   stores no observation and returns `no-store` JSON. The deterministic rules can still surface
   sensitive financial aggregates to any member with `report.view`; permission scope is unchanged
   from the rest of reporting.
+
+
+## 16. Build 0.13 addendum - Report Library and management-report exports
+
+- **Read-only reports:** the Report Library and nine management reports require an active session and
+  tenant membership; they read only the active tenant's posted rows. They add no write endpoint and
+  no schema change.
+- **Export permission:** `/export/cash-flow.csv`, `/export/sales-register.csv`,
+  `/export/purchase-register.csv` and `/export/expense-breakdown.csv` require `report.export`,
+  are tenant-scoped and send `Cache-Control: no-store`.
+- **No fabricated or cross-tenant data:** planned reports have no route and no sample rows. Every
+  working report recomputes from posted records and shows an explicit empty state rather than
+  inventing values.
+- **Sensitive aggregates:** ratios, cash flow, customer/vendor registers and working-capital metrics
+  reveal financial aggregates to any member with the relevant report permission. Permission scope is
+  unchanged from the rest of reporting; there is no per-report ACL beyond the existing permission
+  keys.
+- **Residual risk:** the CSV exports are not signed or encrypted in transit beyond the deployment's
+  TLS. On the free public demo, anyone with the demo owner login can export the synthetic data; do
+  not enter real financial data.

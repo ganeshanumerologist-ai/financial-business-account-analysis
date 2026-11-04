@@ -26,6 +26,7 @@ from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
 from . import insights as insights_mod
 from . import opening_import as opening_mod
+from . import reports as reports_mod
 from . import sharing
 from . import xlsx_import as xlsx_mod
 
@@ -447,16 +448,32 @@ NAV = [
         "icon": "rep",
         "groups": [
             ("Analysis", [
+                ("reports/library", "rep", "Report Library"),
                 ("reports/analytics", "rep", "Analytics Overview"),
             ]),
             ("Financial statements", [
                 ("reports/trial-balance", "rep", "Trial Balance"),
                 ("reports/pnl", "rep", "Profit &amp; Loss"),
                 ("reports/balance-sheet", "rep", "Balance Sheet"),
+                ("reports/cash-flow", "rep", "Cash Flow"),
+                ("reports/ratios", "rep", "Financial Ratios"),
+                ("reports/comparison", "rep", "Period Comparison"),
+            ]),
+            ("Accounting &amp; audit", [
+                ("reports/reversals", "audit", "Reversal Register"),
+                ("reports/account-activity", "audit", "Account Activity"),
+            ]),
+            ("Sales &amp; purchases", [
+                ("reports/sales-register", "rep", "Sales Register"),
+                ("reports/purchase-register", "rep", "Purchase Register"),
             ]),
             ("Receivables &amp; payables", [
                 ("reports/ar-ageing", "rep", "Receivables Ageing"),
                 ("reports/ap-ageing", "rep", "Payables Ageing"),
+                ("reports/working-capital", "rep", "Working Capital Cycle"),
+            ]),
+            ("Expense analysis", [
+                ("reports/expense-breakdown", "rep", "Expense Breakdown"),
             ]),
             ("GST &amp; tax working papers", [
                 ("reports/gst", "gst", "GST Summary &amp; GSTR-1"),
@@ -1270,7 +1287,7 @@ def kpi(label: str, value: str, sub: str = "") -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ARTHIVIO/0.12"
+    server_version = "ARTHIVIO/0.13"
 
     # ---------------- plumbing ----------------
     def log_message(self, fmt, *args):  # quieter console
@@ -1547,8 +1564,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_pnl(conn, user, tenant, q))
             if path == "/reports/balance-sheet":
                 return self._send(self.page_bs(conn, user, tenant, q))
+            if path == "/reports/library":
+                return self._send(self.page_report_library(conn, user, tenant, q))
             if path == "/reports/analytics":
                 return self._send(self.page_analytics(conn, user, tenant, q))
+            if path == "/reports/cash-flow":
+                return self._send(self.page_cash_flow(conn, user, tenant, q))
+            if path == "/reports/ratios":
+                return self._send(self.page_ratios(conn, user, tenant, q))
+            if path == "/reports/comparison":
+                return self._send(self.page_comparison(conn, user, tenant, q))
+            if path == "/reports/reversals":
+                return self._send(self.page_reversals(conn, user, tenant, q))
+            if path == "/reports/account-activity":
+                return self._send(self.page_account_activity(conn, user, tenant, q))
+            if path == "/reports/sales-register":
+                return self._send(self.page_sales_register(conn, user, tenant, q))
+            if path == "/reports/purchase-register":
+                return self._send(self.page_purchase_register(conn, user, tenant, q))
+            if path == "/reports/expense-breakdown":
+                return self._send(self.page_expense_breakdown(conn, user, tenant, q))
+            if path == "/reports/working-capital":
+                return self._send(self.page_working_capital(conn, user, tenant, q))
             if path == "/customers":
                 return self._send(self.page_customers(conn, user, tenant, sess))
             if re.fullmatch(r"/customers/[0-9a-f]{32}", path):
@@ -4397,6 +4434,436 @@ to migrate many ledgers from a CSV.</p>
 </div></div>"""
         return layout("Balance Sheet", body, "reports/balance-sheet", user, tenant)
 
+    def _report_period(self, tenant, q):
+        default = reports_mod.resolve_period(tenant)
+        dfrom = (q.get("from") or [default["from"]])[0] or default["from"]
+        dto = (q.get("to") or [default["to"]])[0] or default["to"]
+        try:
+            reports_mod.resolve_period(tenant, dfrom, dto)
+        except reports_mod.ReportError:
+            dfrom, dto = default["from"], default["to"]
+        return dfrom, dto
+
+    def page_report_library(self, conn, user, tenant, q) -> str:
+        data = reports_mod.catalog()
+        status = (q.get("status") or ["all"])[0]
+        group_filter = (q.get("group") or ["all"])[0]
+        groups = data["groups"]
+        if group_filter != "all":
+            groups = [g for g in groups if g["name"] == group_filter]
+
+        def badge(value: str) -> str:
+            cls = "ok" if value == "working" else ("warn" if value == "partial" else "neutral")
+            return f'<span class="badge {cls}">{esc(value)}</span>'
+
+        sections = []
+        for group in groups:
+            rows = []
+            for r in group["reports"]:
+                if status != "all" and r["status"] != status:
+                    continue
+                title = (f'<a href="{esc(r["route"])}">{esc(r["title"])}</a>'
+                         if r["route"] else esc(r["title"]))
+                rows.append(
+                    f'<tr><td>{esc(r["id"])}</td><td>{title}</td><td>{badge(r["status"])}</td>'
+                    f'<td class="small muted">{esc(r["formula"])}</td></tr>')
+            if rows:
+                sections.append(
+                    f'<div class="card pad sect"><div class="sect-head"><h2>{esc(group["name"])}</h2>'
+                    f'<span class="badge neutral">{len(rows)} shown</span></div>'
+                    f'<div class="table-wrap"><table><thead><tr><th>ID</th><th>Report</th>'
+                    f'<th>Status</th><th>Formula / source</th></tr></thead><tbody>'
+                    f'{"".join(rows)}</tbody></table></div></div>')
+        group_options = "".join(
+            f'<option value="{esc(g["name"])}"{" selected" if g["name"] == group_filter else ""}>'
+            f'{esc(g["name"])}</option>' for g in data["groups"])
+        status_options = "".join(
+            f'<option value="{value}"{" selected" if value == status else ""}>{label}</option>'
+            for value, label in (("all", "All statuses"), ("working", "Working"),
+                                 ("partial", "Partial"), ("planned", "Planned")))
+        body = f"""
+<div class="sect-head"><div><h2>Report library</h2>
+<div class="small muted">Every catalogued report with its source formula and current delivery state.
+Only working reports have a route; planned rows are not simulated.</div></div>
+<span class="badge ok">{data["working"]} of {data["total"]} working</span></div>
+<div class="kpis">
+  {kpi("Working", str(data["working"]), "route + automated check")}
+  {kpi("Partial", str(data["partial"]), "working paper only")}
+  {kpi("Planned", str(data["planned"]), "formula defined, screen not built")}
+  {kpi("Catalogued", str(data["total"]), "Phase 2–6 priorities")}
+</div>
+<form method="get" action="/reports/library" class="card pad sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>Group</label><select name="group"><option value="all">All groups</option>{group_options}</select></div>
+<div><label>Status</label><select name="status">{status_options}</select></div>
+<button class="btn" type="submit">Filter</button>
+<a class="btn ghost" href="/reports/library">Reset</a>
+</form>
+{"".join(sections) or '<div class="card pad">No reports match this filter.</div>'}
+<p class="small muted">The catalogue is a delivery map, not a claim that every report is live. Each working
+report declares its formula on its own screen. Planned reports are deliberately not filled with sample data.</p>"""
+        return layout("Report library", body, "reports/library", user, tenant)
+
+    def page_cash_flow(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.cash_flow(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}</td>'
+            f'<td>{esc(r["category"])}</td><td>{esc(r["narration"])}</td>'
+            f'<td class="num">{money.fmt(r["amount"])}</td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="5" class="empty">No cash movements in this period</td></tr>'
+        cats = "".join(
+            f'<tr><td>{esc(c["category"])}</td>'
+            f'<td class="num">{money.fmt(c["amount"])}</td>'
+            f'<td>{esc(c["direction"])}</td></tr>'
+            for c in data["categories"]) or '<tr><td colspan="3" class="empty">No cash movements</td></tr>'
+        bridge_rows = "".join(
+            f'<tr><td>{esc(r["label"])}</td><td class="num">{money.fmt(r["amount"])}</td>'
+            f'<td class="small muted">{esc(r["basis"])}</td></tr>'
+            for r in data["bridge"]) or '<tr><td colspan="3" class="empty">No bridge lines</td></tr>'
+        diff_badge = ('<span class="badge ok">Reconciled</span>'
+                      if data["difference"] == 0 else
+                      f'<span class="badge bad">Difference {money.fmt(data["difference"])}</span>')
+        body = f"""
+<form method="get" action="/reports/cash-flow" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-104 · actual cash only</span>{diff_badge}</form>
+<div class="kpis">
+  {kpi("Opening cash + bank", money.fmt(data["opening"]), "as of day before period")}
+  {kpi("Closing cash + bank", money.fmt(data["closing"]), "as of period end")}
+  {kpi("Net change", money.fmt(data["net_change"]), "closing minus opening")}
+  {kpi("Operating inflow", money.fmt(data.get("operating_in", 0)), "customer and trading receipts")}
+  {kpi("Operating outflow", money.fmt(data.get("operating_out", 0)), "supplier, expense and tax payments")}
+</div>
+<div class="grid2">
+  <div class="card pad">
+    <div class="sect-head"><h2>Cash movement by category</h2>
+      <span class="badge neutral">{data["cash_accounts"]} cash/bank account(s)</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Amount</th><th>Direction</th></tr></thead>
+      <tbody>{cats}</tbody></table></div>
+    <p class="small muted" style="margin:10px 0 0">Each line is a posted journal that touches a cash or bank
+    account. Transfers between cash and bank net to zero and are omitted.</p>
+  </div>
+  <div class="card pad">
+    <div class="sect-head"><h2>Indirect reconciliation</h2>{diff_badge}</div>
+    <table><thead><tr><th>Bridge line</th><th class="num">Amount</th><th>Basis</th></tr></thead>
+      <tbody>{bridge_rows}</tbody>
+      <tfoot><tr><td>Bridge total</td><td class="num">{money.fmt(data["bridge_total"])}</td>
+      <td class="small muted">actual change {money.fmt(data["net_change"])}</td></tr></tfoot></table>
+    <p class="small muted" style="margin:10px 0 0">The bridge starts with posted net profit and adjusts for
+    receivables, inventory, payables, net GST, fixed assets and equity. A non-zero difference is shown,
+    never hidden.</p>
+  </div>
+</div>
+<div class="card pad sect"><div class="sect-head"><h2>Movement detail</h2>
+<a class="btn ghost small" href="/export/cash-flow.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></div>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Ref</th><th>Category</th><th>Narration</th><th class="num">Cash effect</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted">This is a working report. It does not forecast cash and does not replace a bank statement.</p>"""
+        return layout("Cash flow", body, "reports/cash-flow", user, tenant)
+
+    def _ratio_value(self, row) -> str:
+        value = row["value"]
+        if value is None:
+            return "n/a"
+        if row["kind"] == "percent":
+            return f"{value * 100:.1f}%"
+        if row["kind"] == "money":
+            return money.fmt(int(value))
+        return f"{value:.2f}"
+
+    def page_ratios(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.financial_ratios(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td><b>{esc(r["label"])}</b></td><td class="num"><b>{self._ratio_value(r)}</b></td>'
+            f'<td class="small muted">{esc(r["formula"])}</td><td class="small muted">{esc(r["note"])}</td></tr>'
+            for r in data["rows"])
+        inputs = data["inputs"]
+        input_rows = "".join(
+            f'<tr><td>{esc(label)}</td><td class="num">{money.fmt(inputs[key])}</td></tr>'
+            for label, key in (
+                ("Current assets", "current_assets"), ("Current liabilities", "current_liabilities"),
+                ("Inventory", "inventory"), ("Fixed assets", "fixed_assets"),
+                ("Total assets", "total_assets"), ("Total liabilities", "total_liabilities"),
+                ("Total equity", "equity"), ("Revenue", "revenue"), ("COGS", "cogs"),
+                ("Gross profit", "gross_profit"), ("Net profit", "net_profit"),
+                ("Capital employed", "capital_employed")))
+        badge = ('<span class="badge ok">Balance sheet balanced</span>'
+                 if data["balanced"] else
+                 f'<span class="badge bad">Balance sheet difference {money.fmt(data["difference"])}</span>')
+        body = f"""
+<form method="get" action="/reports/ratios" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-108 · actuals only</span>{badge}</form>
+<div class="card pad sect"><div class="sect-head"><h2>Financial ratios</h2>
+<span class="small muted">P&amp;L uses the selected period; balance-sheet values use the To date.</span></div>
+<div class="table-wrap"><table><thead><tr><th>Ratio</th><th class="num">Value</th><th>Formula</th><th>Interpretation</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted" style="margin:10px 0 0">“n/a” means the denominator is zero; it is not a zero ratio.
+Ratios are derived from posted journals and the chart of accounts.</p></div>
+<div class="grid2">
+  <div class="card pad"><div class="sect-head"><h2>Inputs</h2></div>
+  <table><tbody>{input_rows}</tbody></table></div>
+  <div class="card pad"><div class="sect-head"><h2>Scope and limits</h2></div>
+  <p class="small muted">All liabilities in the default chart are treated as current for liquidity and
+  debt ratios. There is no interest-expense line in this build, so ROCE uses net profit. Custom account
+  groups are included through their account type, not guessed.</p>
+  <p class="small muted">This report is a management aid, not a lender or investor opinion.</p></div>
+</div>"""
+        return layout("Financial ratios", body, "reports/ratios", user, tenant)
+
+    def page_comparison(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.period_comparison(conn, tenant, dfrom, dto)
+
+        def metric_card(label, key):
+            item = data["metrics"][key]
+            delta = item["current"] - item["previous"]
+            pct = (delta / item["previous"] * 100) if item["previous"] else None
+            pct_text = f"{pct:+.1f}%" if pct is not None else "n/a"
+            return kpi(label, money.fmt(item["current"]),
+                       f'previous {money.fmt(item["previous"])} · {pct_text}')
+
+        rows = "".join(
+            f'<tr><td>{esc(r["section"])}</td><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{money.fmt(r["current"])}</td><td class="num">{money.fmt(r["previous"])}</td>'
+            f'<td class="num">{money.fmt(r["delta"])}</td>'
+            f'<td class="num">{f"{r["pct"] * 100:+.1f}%" if r["pct"] is not None else "n/a"}</td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="7" class="empty">No income or expense actuals in either period</td></tr>'
+        body = f"""
+<form method="get" action="/reports/comparison" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-109 · equal-length prior period</span></form>
+<div class="kpis">
+  {metric_card("Revenue", "revenue")}
+  {metric_card("Expenses", "expense")}
+  {metric_card("Net profit", "net_profit")}
+</div>
+<div class="card pad sect"><div class="sect-head"><h2>Line-by-line comparison</h2>
+<span class="small muted">Current {esc(dfrom)} → {esc(dto)} vs previous {esc(data["previous_from"])} → {esc(data["previous_to"])}</span></div>
+<div class="table-wrap"><table><thead><tr><th>Section</th><th>Code</th><th>Account</th>
+<th class="num">Current</th><th class="num">Previous</th><th class="num">Delta</th><th class="num">Delta %</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted" style="margin:10px 0 0">Delta % is n/a when the prior-period value is zero.
+The comparison never substitutes an estimate for a missing prior period.</p></div>"""
+        return layout("Period comparison", body, "reports/comparison", user, tenant)
+
+    def page_reversals(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.reversal_register(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["reversal_date"])}</td><td>{esc(r["reversal_no"])}</td>'
+            f'<td>{esc(r["original_date"])}</td><td>{esc(r["original_no"])}</td>'
+            f'<td>{esc(r["reason"])}</td><td class="num">{money.fmt(r["amount"])}</td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="6" class="empty">No reversals in this period</td></tr>'
+        body = f"""
+<form method="get" action="/reports/reversals" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-202 · audit trail</span></form>
+<div class="kpis">
+  {kpi("Reversals", str(len(data["rows"])), "posted reversal entries")}
+  {kpi("Original value reversed", money.fmt(data["total"]), "sum of original debit totals")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Reversal date</th><th>Reversal ref</th><th>Original date</th><th>Original ref</th><th>Reason</th><th class="num">Original value</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">A reversal is a separate balanced journal. The original entry
+remains visible and is marked reversed; nothing is deleted.</p>"""
+        return layout("Reversal register", body, "reports/reversals", user, tenant)
+
+    def page_account_activity(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.account_activity(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td>{esc(r["type"])}</td>'
+            f'<td class="num">{r["lines"]}</td><td class="num">{money.fmt(r["debit"])}</td>'
+            f'<td class="num">{money.fmt(r["credit"])}</td><td class="num">{money.fmt(r["net"])}</td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="7" class="empty">No account activity in this period</td></tr>'
+        body = f"""
+<form method="get" action="/reports/account-activity" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-203 · posted lines only</span></form>
+<div class="kpis">
+  {kpi("Accounts with activity", str(len(data["rows"])), "at least one posted line")}
+  {kpi("Posted lines", str(data["totals"]["lines"]), "journal_line rows")}
+  {kpi("Total debit", money.fmt(data["totals"]["debit"]), "period movement")}
+  {kpi("Total credit", money.fmt(data["totals"]["credit"]), "period movement")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Code</th><th>Account</th><th>Type</th><th class="num">Lines</th>
+<th class="num">Debit</th><th class="num">Credit</th><th class="num">Net (Dr+)</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="3">Totals</td><td class="num">{data["totals"]["lines"]}</td>
+<td class="num">{money.fmt(data["totals"]["debit"])}</td><td class="num">{money.fmt(data["totals"]["credit"])}</td>
+<td class="num">{money.fmt(data["totals"]["debit"] - data["totals"]["credit"])}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Account activity is a movement report, not a closing balance.
+Use the ledger or trial balance for the closing position.</p>"""
+        return layout("Account activity", body, "reports/account-activity", user, tenant)
+
+    def page_sales_register(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.sales_register(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td><a href="/invoices/{esc(r["id"])}">{esc(r["invoice_no"])}</a></td>'
+            f'<td>{esc(r["invoice_date"])}</td><td>{esc(r["customer"])}</td>'
+            f'<td class="num">{r["lines"]}</td><td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num">{money.fmt(r["tax"])}</td><td class="num">{money.fmt(r["round_off"])}</td>'
+            f'<td class="num">{money.fmt(r["total"])}</td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="8" class="empty">No posted invoices in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/sales-register" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-301 · posted invoices only</span>
+<a class="btn ghost small" href="/export/sales-register.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Invoices", str(t["count"]), "posted in period")}
+  {kpi("Taxable value", money.fmt(t["taxable"]), "before GST")}
+  {kpi("GST", money.fmt(t["tax"]), "output tax on these invoices")}
+  {kpi("Invoice total", money.fmt(t["total"]), "taxable + GST + round-off")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Lines</th>
+<th class="num">Taxable</th><th class="num">GST</th><th class="num">Round-off</th><th class="num">Total</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="4">Totals</td><td class="num">{money.fmt(t["taxable"])}</td>
+<td class="num">{money.fmt(t["tax"])}</td><td class="num">{money.fmt(t["round_off"])}</td>
+<td class="num">{money.fmt(t["total"])}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Only posted invoices appear. Draft and void documents are
+excluded. GST is a working aid, not a filed return.</p>"""
+        return layout("Sales register", body, "reports/sales-register", user, tenant)
+
+    def page_purchase_register(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.purchase_register(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td><a href="/bills/{esc(r["id"])}">{esc(r["bill_no"])}</a></td>'
+            f'<td>{esc(r["bill_date"])}</td><td>{esc(r["vendor"])}</td>'
+            f'<td>{esc(r["vendor_bill_no"] or "")}</td><td class="num">{r["lines"]}</td>'
+            f'<td class="num">{money.fmt(r["taxable"])}</td><td class="num">{money.fmt(r["tax"])}</td>'
+            f'<td class="num">{money.fmt(r["round_off"])}</td><td class="num">{money.fmt(r["total"])}</td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="9" class="empty">No posted bills in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/purchase-register" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-401 · posted bills only</span>
+<a class="btn ghost small" href="/export/purchase-register.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Bills", str(t["count"]), "posted in period")}
+  {kpi("Taxable value", money.fmt(t["taxable"]), "before GST")}
+  {kpi("GST", money.fmt(t["tax"]), "input tax on these bills")}
+  {kpi("Bill total", money.fmt(t["total"]), "taxable + GST + round-off")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Bill</th><th>Date</th><th>Vendor</th><th>Vendor bill no.</th><th class="num">Lines</th>
+<th class="num">Taxable</th><th class="num">GST</th><th class="num">Round-off</th><th class="num">Total</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="5">Totals</td><td class="num">{money.fmt(t["taxable"])}</td>
+<td class="num">{money.fmt(t["tax"])}</td><td class="num">{money.fmt(t["round_off"])}</td>
+<td class="num">{money.fmt(t["total"])}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Only posted bills appear. Input tax is a working aid and
+does not by itself establish ITC eligibility.</p>"""
+        return layout("Purchase register", body, "reports/purchase-register", user, tenant)
+
+    def page_expense_breakdown(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.expense_breakdown(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td>{esc(r["group"])}</td>'
+            f'<td class="num">{money.fmt(r["amount"])}</td>'
+            f'<td><div class="mini-bar"><i style="width:{int((r["share"] or 0) * 100)}%"></i></div></td>'
+            f'<td class="num">{f"{r["share"] * 100:.1f}%" if r["share"] is not None else "n/a"}</td></tr>'
+            for r in data["rows"]) or '<tr><td colspan="6" class="empty">No posted expenses in this period</td></tr>'
+        body = f"""
+<form method="get" action="/reports/expense-breakdown" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-903 · posted expense accounts</span>
+<a class="btn ghost small" href="/export/expense-breakdown.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Total expenses", money.fmt(data["total"]), "posted expense journals")}
+  {kpi("Expense accounts", str(len(data["rows"])), "with a non-zero movement")}
+  {kpi("Largest line", money.fmt(data["rows"][0]["amount"]) if data["rows"] else money.fmt(0),
+       data["rows"][0]["name"] if data["rows"] else "none")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Code</th><th>Expense account</th><th>Group</th><th class="num">Amount</th><th>Share</th><th class="num">%</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="3">Total</td><td class="num">{money.fmt(data["total"])}</td><td></td><td class="num">100.0%</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Expense amounts are debit minus credit on expense accounts.
+A credit balance is shown as a negative amount, not silently removed.</p>"""
+        return layout("Expense breakdown", body, "reports/expense-breakdown", user, tenant)
+
+    def page_working_capital(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.working_capital(conn, tenant, dfrom, dto)
+
+        def days(value):
+            return f"{value:.1f} days" if value is not None else "n/a"
+
+        inp = data["inputs"]
+        body = f"""
+<form method="get" action="/reports/working-capital" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-905 · {data["days"]} day period</span></form>
+<div class="kpis">
+  {kpi("DSO", days(data["dso"]), "receivable ÷ revenue × days")}
+  {kpi("DIO", days(data["dio"]), "inventory ÷ COGS × days")}
+  {kpi("DPO", days(data["dpo"]), "payable ÷ purchases × days")}
+  {kpi("Cash conversion cycle", days(data["ccc"]), "DSO + DIO − DPO")}
+</div>
+<div class="grid2">
+  <div class="card pad"><div class="sect-head"><h2>Inputs</h2></div>
+  <table><tbody>
+    <tr><td>Receivable (closing)</td><td class="num">{money.fmt(inp["receivable"])}</td></tr>
+    <tr><td>Inventory (closing)</td><td class="num">{money.fmt(inp["inventory"])}</td></tr>
+    <tr><td>Payable (closing)</td><td class="num">{money.fmt(inp["payable"])}</td></tr>
+    <tr><td>Revenue (period)</td><td class="num">{money.fmt(inp["revenue"])}</td></tr>
+    <tr><td>COGS (period)</td><td class="num">{money.fmt(inp["cogs"])}</td></tr>
+    <tr><td>Purchases (period bills)</td><td class="num">{money.fmt(inp["purchases"])}</td></tr>
+  </tbody></table></div>
+  <div class="card pad"><div class="sect-head"><h2>Formula and limits</h2></div>
+  <p class="small muted"><b>DSO</b> = closing receivable ÷ period revenue × period days.<br>
+  <b>DIO</b> = closing inventory ÷ period COGS × period days.<br>
+  <b>DPO</b> = closing payable ÷ period posted bills × period days.<br>
+  <b>CCC</b> = DSO + DIO − DPO.</p>
+  <p class="small muted">Closing balances are used, not averages. “n/a” means the denominator is zero.
+  The report is a management aid; it is not a forecast.</p></div>
+</div>"""
+        return layout("Working capital cycle", body, "reports/working-capital", user, tenant)
+
     def page_analytics(self, conn, user, tenant, q) -> str:
         default = analytics_mod.resolve_period(tenant)
         dfrom = (q.get("from") or [default["from"]])[0] or default["from"]
@@ -6202,6 +6669,51 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                          "Invoice Value appears once per invoice (first rate row)."])
             for w in g["warnings"]:
                 rows.append(["Warning", w])
+        elif key == "cash-flow":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.cash_flow(conn, tenant, dfrom, dto)
+            rows = [["Section", "Date", "Ref", "Category", "Narration", "Amount"]]
+            rows += [["Movement", r["date"], r["ref"], r["category"], r["narration"],
+                      money.to_str(r["amount"])] for r in data["rows"]]
+            rows.append(["Summary", "", "", "Opening cash + bank", "", money.to_str(data["opening"])])
+            rows.append(["Summary", "", "", "Closing cash + bank", "", money.to_str(data["closing"])])
+            rows.append(["Summary", "", "", "Net change", "", money.to_str(data["net_change"])])
+        elif key == "sales-register":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.sales_register(conn, tenant, dfrom, dto)
+            rows = [["Invoice", "Date", "Customer", "Lines", "Taxable", "GST", "Round-off", "Total"]]
+            rows += [[r["invoice_no"], r["invoice_date"], r["customer"], r["lines"],
+                      money.to_str(r["taxable"]), money.to_str(r["tax"]),
+                      money.to_str(r["round_off"]), money.to_str(r["total"])] for r in data["rows"]]
+            rows.append(["TOTAL", "", "", data["totals"]["count"],
+                         money.to_str(data["totals"]["taxable"]),
+                         money.to_str(data["totals"]["tax"]),
+                         money.to_str(data["totals"]["round_off"]),
+                         money.to_str(data["totals"]["total"])])
+        elif key == "purchase-register":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.purchase_register(conn, tenant, dfrom, dto)
+            rows = [["Bill", "Date", "Vendor", "Vendor bill no.", "Lines", "Taxable", "GST", "Round-off", "Total"]]
+            rows += [[r["bill_no"], r["bill_date"], r["vendor"], r["vendor_bill_no"] or "",
+                      r["lines"], money.to_str(r["taxable"]), money.to_str(r["tax"]),
+                      money.to_str(r["round_off"]), money.to_str(r["total"])] for r in data["rows"]]
+            rows.append(["TOTAL", "", "", "", data["totals"]["count"],
+                         money.to_str(data["totals"]["taxable"]),
+                         money.to_str(data["totals"]["tax"]),
+                         money.to_str(data["totals"]["round_off"]),
+                         money.to_str(data["totals"]["total"])])
+        elif key == "expense-breakdown":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.expense_breakdown(conn, tenant, dfrom, dto)
+            rows = [["Code", "Expense account", "Group", "Amount", "Share %"]]
+            rows += [[r["code"], r["name"], r["group"], money.to_str(r["amount"]),
+                      f'{r["share"] * 100:.2f}' if r["share"] is not None else ""]
+                     for r in data["rows"]]
+            rows.append(["", "TOTAL", "", money.to_str(data["total"]), "100.00"])
         elif key == "invoices":
             data = conn.execute(
                 "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"

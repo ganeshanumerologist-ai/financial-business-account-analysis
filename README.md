@@ -2,7 +2,7 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.12).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.13).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
 (purchase returns), day book, manual journals, bank reconciliation, cash book, bank book, GST
 summary, GSTR-1 working export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation
@@ -36,10 +36,14 @@ sheets and native Excel charts, plus server-side `.xlsx` import for opening bala
 and GSTR-2B. It also adds a **static Power BI import pack**, a locally vendored **ECharts** interactive
 monthly and expense-composition charts, and a **grounded deterministic insight layer** with an AI Insights page, JSON endpoint
 and workbook sheet. No generative AI provider is configured yet, so the insight engine is explicitly
-rule-based and cites every metric; no forecast is mixed into actuals. The full 66-report library,
-saved dashboards, EN/HI labels, Power BI Service refresh/RLS and a generative AI provider remain
-planned. Covered by **245 automated tests that pass on this machine** (see
-`docs/TEST_RESULTS.md`, run `RUN-2026-10-28-01`).
+rule-based and cites every metric; no forecast is mixed into actuals. Build 0.13 adds a **Report
+Library** and nine management reports: **R-104 Cash Flow** (direct movement plus indirect
+reconciliation), **R-108 Financial Ratios**, **R-109 Period-over-Period Comparison**, **R-202
+Reversal Register**, **R-203 Account Activity**, **R-301 Sales Register**, **R-401 Purchase
+Register**, **R-903 Expense Breakdown** and **R-905 Working Capital Cycle**. **28 of 66 catalogued
+reports now have a working screen or export.** Saved dashboards, EN/HI labels, Power BI Service
+refresh/RLS and a generative AI provider remain planned. Covered by **256 automated tests that pass
+on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-10-28-01`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
 email delivery, ownership transfer, PostgreSQL and the Next.js front end are not built. GSTR-1,
@@ -63,7 +67,7 @@ Or step by step:
 
 ```powershell
 python -m pip install -r requirements.txt  # approved openpyxl dependency
-python -m unittest discover -s tests       # 245 tests
+python -m unittest discover -s tests       # 256 tests
 python scripts/seed_demo.py                # demo books (idempotent)
 python -m app.server                       # http://127.0.0.1:8000
 ```
@@ -135,12 +139,13 @@ paid disk or a VPS; see `docs/DEPLOYMENT.md`.
 | Inventory | Perpetual stock, weighted-average cost, COGS at cost, negative-stock block, service items never touch stock | `test_cogs_and_stock`, `test_purchase_at_current_cost_keeps_average`, `test_service_invoice_does_not_touch_stock` |
 | Receivables / payables | Customer and vendor balances + statements, open-invoice and open-bill ageing (current / 31-60 / 61-90 / 90+), reconciled to control accounts | `TestReceipts`, `TestAgeingAndGST`, `test_customer_statement_matches_receivable_control` |
 | Reports | One Reports menu with trial balance, P&L, balance sheet (A = L + E), receivable/payable ageing and GST working papers; general ledger with running balance, cash book, bank book and day book remain read-only Books views | `test_04`, `test_balance_sheet_equation`, `TestAgeingAndGST`, `test_14_new_pages_render`, `test_27_grouped_dropdown_navigation` |
+| Report Library and management reports | `/reports/library` lists all 66 catalogued reports with source/formula and honest working/partial/planned state; nine new deterministic reports: cash flow with indirect bridge, financial ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown and working-capital cycle; 28 of 66 working; CSV exports for cash flow, sales, purchases and expenses | `tests/test_reports.py` (10), `test_web.test_46`, `RUN-2026-11-04-01` |
 | Analytics foundation | Read-only `v_analytics_journal` / `v_analytics_monthly` views; 19-metric actual-only registry; `/api/v1/analytics/catalog`, `/api/v1/analytics/overview` and `/api/v1/analytics/insights` (session + `report.view`, tenant-scoped, `no-store`); `/reports/analytics` shows KPI cards, monthly bars, expense composition, top customers/vendors, checks/freshness and a locally vendored ECharts interactive view; no forecast or authoritative total is invented | `tests/test_analytics.py` (6), `tests/test_insights.py` (3), `test_web.test_40`, `test_web.test_43`, `test_web.test_44`, `RUN-2026-10-28-01` |
 | Excel workbook export | Real `.xlsx` via approved `openpyxl`: `/export/workbook.xlsx` builds 20 sheets (cover, read-me, data dictionary, KPIs, monthly, P&L, balance sheet, trial balance, expense, top parties, AR/AP ageing, cash/bank, inventory, GST working/sales/purchases, journal, AI Insights) with native Excel charts; amounts show INR while the exact integer-paise source stays beside each KPI; permission `report.export`, `no-store` | `tests/test_excel.py` (6), `test_web.test_41`, `RUN-2026-10-28-01` |
 | Excel import | Real `.xlsx` upload for bulk opening balances, bank statements and GSTR-2B; server-side `openpyxl` reads the first worksheet (or named sheet), converts dates/numbers to neutral CSV, then the existing validators still preview and post atomically; 8 MB/50,000-row guard, formula cells use cached values only, malformed files fail visibly | `tests/test_xlsx_import.py` (5), `test_web.test_45`, `RUN-2026-10-28-01` |
 | Power BI import pack | `/export/powerbi.zip` packages the analytics snapshot, metric catalog, journal/monthly facts, account/party dimensions, a Power Query starter and a manifest with SHA-256 hashes; money stays integer paise; explicitly a static import pack, not a `.pbix`, Service dataset, RLS model or scheduled refresh | `tests/test_bi.py` (4), `test_web.test_42`, `RUN-2026-10-28-01` |
 | Grounded insights | Deterministic rules over the actuals contract: margin, largest expense, overdue share, GST working amount, ledger checks, open documents and freshness; every observation has a written basis, metric keys, drill-down and source; `/reports/analytics` AI Insights card and `/api/v1/analytics/insights`; no external model, no forecast, empty periods say "not generated" | `tests/test_insights.py` (3), `test_web.test_44`, `RUN-2026-10-28-01` |
-| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, debit notes, bank statement, ageing and GST registers (UTF-8 with BOM); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections; GSTR-3B working CSV; GSTR-2B reconciliation and ITC review CSV; real `.xlsx` actuals workbook and static Power BI ZIP | `test_13_csv_exports`, `test_17`, `test_18`, `test_19`, `test_20`, `test_21`, `test_24`, `tests/test_excel.py`, `tests/test_bi.py`, `test_web.test_41`, `test_web.test_42` |
+| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, debit notes, bank statement, ageing and GST registers (UTF-8 with BOM); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections; GSTR-3B working CSV; GSTR-2B reconciliation and ITC review CSV; Build 0.13 cash-flow, sales-register, purchase-register and expense-breakdown CSV; real `.xlsx` actuals workbook and static Power BI ZIP | `test_13_csv_exports`, `test_17`, `test_18`, `test_19`, `test_20`, `test_21`, `test_24`, `tests/test_excel.py`, `tests/test_bi.py`, `test_web.test_41`, `test_web.test_42`, `test_web.test_46` |
 | GSTR-3B working | Month-wise 3.1 outward supplies, 4 eligible ITC and head-wise payment view; output net of credit notes, ITC net of debit notes; six reconciliation checks against GSTR-1 and the tax ledger; negative-head carry-forward shown explicitly | `tests/test_gstr3b.py` (8), `test_21_gstr3b_page_and_csv`, browser check `RUN-2026-10-24-06` |
 | GSTR-2B working | Month-scoped CSV or server-side `.xlsx` import, SHA-256 duplicate detection, latest active import supersedes the prior one, supplier GSTIN + normalised invoice matching, amount differences reported but never corrected, missing-in-books and missing-in-2B lists, per-line ITC review (open / supplier follow-up / ITC hold / accepted) with notes and audit trail, **GSTR-3B eligible-ITC vs GSTR-2B comparison**, import history and CSV export; nothing is auto-posted and review states never change the books | `tests/test_gstr2b.py` (17), `test_24_gstr2b_import_and_export`, browser check `RUN-2026-10-25-02` |
 | Team access | One-time invite links (SHA-256 token hashes, 7-day expiry), new-user password setup or existing-user current-password join, role changes, suspend/reactivate/remove, immediate session revocation, protected owner role, audit trail, business switcher | `tests/test_team_sharing.py` (11), `test_22_team_invite_accept_and_role_change`, `test_25_business_switcher_checks_membership` |
@@ -192,7 +197,7 @@ app/
   backup.py       online backup + verification (integrity, FKs, balance, row counts)
   server.py       HTTP server + server-rendered UI (stdlib only)
   demo.py         synthetic demo books
-tests/            245 unittest cases (unit + end-to-end HTTP)
+tests/            256 unittest cases (unit + end-to-end HTTP)
 scripts/          seed_demo.py, backup.py, restore_verify.py
 dev.ps1           test → seed → run
 ```
@@ -209,7 +214,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **245 tests, OK, 22.188 s**, Python 3.14.6, Windows.
+Last verified: **256 tests, OK, 35.767 s**, Python 3.14.6, Windows.
 
 Backup drill:
 
@@ -225,7 +230,7 @@ python scripts/restore_verify.py --backup backups\<file>.db
 | `docs/PROJECT_SPEC.md` | Governing specification (hash-verified copy) |
 | `docs/SOFTWARE_AUDIT.md` | Evidence-based audit of the starting state |
 | `docs/TEST_RESULTS.md` | Executed runs and evidence (`RUN-2026-10-28-01`) |
-| `docs/TEST_PLAN.md` | 245 executed application cases |
+| `docs/TEST_PLAN.md` | 256 executed application cases |
 | `docs/BUG_REPORT.md` | Defects and known gaps |
 | `docs/ARCHITECTURE.md` | Design and current implementation status |
 | `docs/DATABASE_DESIGN.md` | Schema |

@@ -106,6 +106,22 @@
 | `/static/echarts.min.js` | Locally vendored chart asset; no CDN or third-party request |
 | `.xlsx` upload | Opening balances, bank statements and GSTR-2B; server-side conversion; no cloud storage |
 
+### 4.2 Build 0.13 internal report surfaces (not external integrations)
+
+| Surface | Status |
+|---|---|
+| `/reports/library` | All 66 catalogued reports with honest working/partial/planned state; session only |
+| `/reports/cash-flow` | R-104 direct movement and indirect bridge; no forecast |
+| `/reports/ratios` | R-108 ratios from posted P&L and balance sheet |
+| `/reports/comparison` | R-109 equal-length period comparison |
+| `/reports/reversals`, `/reports/account-activity` | R-202 and R-203 audit/activity views |
+| `/reports/sales-register`, `/reports/purchase-register` | R-301 and R-401 posted-document registers |
+| `/reports/expense-breakdown`, `/reports/working-capital` | R-903 and R-905 management views |
+| `/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`, `/export/expense-breakdown.csv` | Session + `report.export`; exact decimal strings; no external service |
+
+There is still no external BI token API. The session-authenticated JSON analytics API remains the
+only machine-readable external surface, and it exposes actuals only.
+
 ## 5. Sequencing rationale
 
 1. **Manual data paths first** (CSV import/export) — they solve 80% of reconciliation needs without credentials or cost.

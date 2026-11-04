@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.12)
+## 11. Implementation status (current Build 0.13)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -201,6 +201,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 | `app/excel.py` | real `.xlsx` actuals workbook, native charts, KPI paise trace | Implemented, tested |
 | `app/bi.py` | static Power BI import ZIP, facts/dimensions, manifest, Power Query starter | Implemented, tested |
 | `app/insights.py` | deterministic grounded observations with basis, metric keys and drill-down | Implemented, tested |
+| `app/reports.py` | Report Library catalogue and deterministic management reports (cash flow, ratios, comparison, registers, activity, working capital) | Implemented, tested |
 | `app/security.py` | scrypt hashing, sessions, CSRF token, RBAC, tenant authorisation, lockout | Implemented, tested |
 | `app/server.py` | HTTP routing, server-rendered UI, cookie/CSRF handling | Implemented, HTTP-tested |
 | `app/demo.py`, `scripts/seed_demo.py` | synthetic demo books | Implemented |
@@ -565,3 +566,42 @@ posting, duplicate detection and audit rules; the converter never posts and neve
   target remain open. ECharts currently powers two actuals views: monthly and expense composition.
 - No mobile viewport, screen-reader, contrast, cross-browser, 4K or load test was run for this
   release; the public phone URL is an access check only.
+
+## 18. Build 0.13: Report Library and management reports (2026-11-04)
+
+### 18.1 Report layer
+
+`app/reports.py` is a read-only layer over the same journal, invoice, bill and account tables. It
+adds no table, column, index or cached total. Money stays in integer paise; ratios and day counts are
+floats and show `n/a` when the denominator is zero. The module provides:
+
+- R-104 cash flow: direct movement classified by the non-cash counterpart plus an indirect bridge
+  starting from posted net profit and adjusting for receivables, inventory, payables, net GST, fixed
+  assets, equity and other balance-sheet movements. A non-zero difference is displayed, never hidden.
+- R-108 ratios: current/quick ratio, gross/net margin, ROE, ROCE, debt-equity, asset turnover and
+  working capital, with an inputs table and the balance-sheet check.
+- R-109 period comparison: current period versus the immediately preceding equal-length period,
+  line by line, with `n/a` for a zero prior value.
+- R-202 reversal register, R-203 account activity, R-301 sales register, R-401 purchase register,
+  R-903 expense breakdown and R-905 working-capital cycle.
+- `catalog()`: the 66-row report catalogue with group, formula/source and honest delivery state.
+
+### 18.2 Report Library
+
+`/reports/library` lists all 66 catalogued reports, filters by group and status, and shows
+**28 working, 1 partial and 37 planned**. Working rows link to a route. Planned rows have no route
+and no sample data, so a delivery map cannot be mistaken for a finished report.
+
+### 18.3 Export and security boundary
+
+`/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv` and
+`/export/expense-breakdown.csv` require `report.export`, are tenant-scoped and send `no-store`.
+Amounts are exported as exact decimal strings from integer paise.
+
+### 18.4 Deliberate limits
+
+- Cash flow and ratios are management working papers, not statutory statements, forecasts or
+  lender/investor opinions.
+- The remaining 38 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
+  ~150-template library are not delivered.
+- No mobile viewport, screen-reader, contrast, cross-browser or 4K matrix was run for the new pages.

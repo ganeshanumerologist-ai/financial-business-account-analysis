@@ -1734,6 +1734,44 @@ class WebTest(unittest.TestCase):
         self.assertIn("imported=1", url)
         self.assertIn("Bank reconciliation", body)
 
+    def test_46_report_library_and_management_reports(self):
+        self.login()
+        status, page = self.get("/reports/library")
+        self.assertEqual(status, 200)
+        self.assertIn("Report library", page)
+        self.assertIn("28 of 66 working", page)
+        self.assertIn("R-104", page)
+        self.assertIn("R-905", page)
+        self.assertIn("Planned reports are deliberately not filled with sample data", page)
+
+        routes = {
+            "/reports/cash-flow": "Cash flow",
+            "/reports/ratios": "Financial ratios",
+            "/reports/comparison": "Period comparison",
+            "/reports/reversals": "Reversal register",
+            "/reports/account-activity": "Account activity",
+            "/reports/sales-register": "Sales register",
+            "/reports/purchase-register": "Purchase register",
+            "/reports/expense-breakdown": "Expense breakdown",
+            "/reports/working-capital": "Working capital cycle",
+        }
+        for path, title in routes.items():
+            status, body = self.get(path)
+            self.assertEqual(status, 200, path)
+            self.assertIn(title, body, path)
+            self.assertIn("R-", body, path)
+
+        for path in (
+            "/export/cash-flow.csv?from=2026-04-01&to=2026-10-31",
+            "/export/sales-register.csv?from=2026-04-01&to=2026-10-31",
+            "/export/purchase-register.csv?from=2026-04-01&to=2026-10-31",
+            "/export/expense-breakdown.csv?from=2026-04-01&to=2026-10-31",
+        ):
+            status, body = self.get(path)
+            self.assertEqual(status, 200, path)
+            self.assertIn("TOTAL" if "register" in path or "expense" in path else "Movement",
+                          body, path)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

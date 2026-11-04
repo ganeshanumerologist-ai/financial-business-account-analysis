@@ -709,3 +709,30 @@ deterministic accounting engine:
 - Build 0.12 is verified by **245 tests, OK**, 23.224 s, Python 3.14.6, Windows, plus live read-only
   checks recorded in `docs/TEST_RESULTS.md` `RUN-2026-10-28-01`.
 
+
+## D-036 - Report Library is a delivery map, not a claim of completion
+
+**Date:** 2026-11-04. **Status:** accepted for Build 0.13.
+
+The owner asked to continue the next process. The next useful local increment was the report layer,
+not another visual mock-up:
+
+- `/reports/library` lists all 66 catalogued reports with group, source/formula and one of three
+  honest states: working, partial or planned. Working rows link to a route; planned rows have no
+  route and are never filled with sample data.
+- Nine deterministic reports were added: R-104 cash flow (direct movement plus indirect bridge),
+  R-108 financial ratios, R-109 period comparison, R-202 reversal register, R-203 account activity,
+  R-301 sales register, R-401 purchase register, R-903 expense breakdown and R-905 working-capital
+  cycle. Coverage is **28 of 66**.
+- `app/reports.py` adds no table, column, index or cached total. It reads the same posted journals,
+  invoices, bills and accounts; money remains integer paise and ratios use `n/a` for zero
+  denominators.
+- Cash flow is explicitly a working paper: the indirect bridge starts from posted net profit and
+  displays any non-zero difference. It is not a statutory statement or a forecast.
+- Sales and purchase registers show taxable, GST, round-off and total so the document totals
+  reconcile exactly. CSV exports use exact decimal strings.
+- The remaining 38 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
+  ~150-template library remain Phase B.
+- Build 0.13 is verified by **256 tests, OK**, 35.767 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-04-01`.
+

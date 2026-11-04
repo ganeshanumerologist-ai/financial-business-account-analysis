@@ -437,3 +437,20 @@ grounded-insight layer are read-only adapters over the existing journal and anal
   no table of AI claims that could drift from the ledger.
 - All Build 0.12 queries remain tenant-scoped and money remains integer paise. No posted row is
   rewritten by an export, an insight request or a `.xlsx` import preview.
+
+
+## 19. Build 0.13 Report Library and management reports: no schema change (2026-11-04)
+
+Build 0.13 adds **no table, no column and no index**. The Report Library catalogue is a static
+in-code list; the nine management reports are computed on request from the same posted journal,
+invoice, bill and account rows:
+
+- Cash flow, ratios, period comparison, reversal register, account activity, sales register,
+  purchase register, expense breakdown and working-capital cycle use tenant-scoped queries and the
+  existing `profit_and_loss`, `balance_sheet` and account-balance functions.
+- No report total is cached or persisted. Every screen recomputes from posted records, so a report
+  cannot drift from the ledger.
+- CSV exports stream the same computed rows; amounts are exact decimal strings derived from integer
+  paise. No export writes a journal or changes a posted row.
+- The `period_lock` table remains the posting guard; reports may read a locked period but cannot
+  post into it.

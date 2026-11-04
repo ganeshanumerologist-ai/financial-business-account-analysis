@@ -4,7 +4,7 @@
 |---|---|
 | Version | 1.1 |
 | Date | 2026-10-28 |
-| Status | In delivery; Build 0.12 verified, full Phase 6/8/10 gates remain |
+| Status | In delivery; Build 0.13 verified, full Phase 6/8/10 gates remain |
 | Rule | Each phase ends with a gate. No gate = no progression. |
 
 Effort bands are indicative for a single developer working part-time with AI assistance. They are **not commitments**.
@@ -93,7 +93,7 @@ Effort bands are indicative for a single developer working part-time with AI ass
 | | |
 |---|---|
 | Goal | Insight that equals the ledger |
-| Build | Report engine with defined source/formula, the 66 catalogued reports, dashboards, ECharts visualisations, drill-down, exports, freshness indicators, empty states, EN/HI, responsive 360-4K and WCAG AA. **Build 0.12 delivered:** analytics pilot, two ECharts actuals views (monthly and expense composition), 20-sheet `.xlsx` actuals workbook, static Power BI pack, freshness and empty states. **Still missing:** the remaining 66-report screens, saved dashboards, full drill-down, EN/HI and the ~150-template library. |
+| Build | Report engine with defined source/formula, the 66 catalogued reports, dashboards, ECharts visualisations, drill-down, exports, freshness indicators, empty states, EN/HI, responsive 360-4K and WCAG AA. **Build 0.12 delivered:** analytics pilot, two ECharts actuals views (monthly and expense composition), 20-sheet `.xlsx` actuals workbook, static Power BI pack, freshness and empty states. **Build 0.13 delivered:** Report Library plus nine management reports (cash flow, ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle), taking coverage to 28 of 66. **Still missing:** 38 catalogued report screens, saved dashboards, full drill-down, EN/HI and the ~150-template library. |
 | Gate | REP-001…007 pass; every displayed total = independent recalculation; accessibility and responsive checks recorded |
 | Effort | 4–6 weeks |
 | Risks | Performance on large books · silent filter leakage · chart legibility at 4K |
@@ -171,7 +171,7 @@ A working, testable accounting core (Phases 1–3) is realistic in roughly **6�
 
 ---
 
-## Current status - Build 0.11 (2026-10-27)
+## Current status - Build 0.13 (2026-11-04)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -189,8 +189,9 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.10 | Ledger hub with account creation and Dr/Cr balances, opening balances posted against Opening Balance Equity, separate Cash/Bank/Journal entries, permission-controlled reversal, multiple bank accounts, all reports in one menu, Account 360 profiles with linked debtor/creditor sub-ledgers, expanded single account type/group selector, rich product master | `RUN-2026-10-26-01`, `RUN-2026-10-26-02`, `RUN-2026-10-26-03` |
 | 0.11 | Bulk opening-balance CSV import under Books → Ledgers, validate-before-post preview, all-or-nothing posting, per-row opening journals, import notes and audit; white workspace topbar with neutral charcoal ink and four per-user light palettes (Ocean, Emerald, Violet, Sunset) under Settings → Appearance, with themed login and print pages and no navy app chrome; public landing hero slightly lightened and given four dark page-level colour choices through a visible picker; account archive/merge with a required reason, zero-balance archive, balanced merge reclassification, restore, system/party/bank guard rails and audit; analytics Phase A foundation (read-only views, 19-metric actual-only registry, JSON overview API, Analytics Overview pilot) | `RUN-2026-10-26-04`, `RUN-2026-10-26-05`, `RUN-2026-10-26-06`, `RUN-2026-10-27-01`, `RUN-2026-10-27-02`, `RUN-2026-10-27-03` |
 | 0.12 | Real 20-sheet actuals `.xlsx` workbook with native charts and KPI paise trace; server-side `.xlsx` import for opening balances, bank statements and GSTR-2B; static Power BI import ZIP with manifest/facts/dimensions/Power Query starter; ECharts 5.5.1 vendored locally for actual monthly and expense-composition views; deterministic grounded insights with AI Insights page, JSON API and workbook sheet (no generative provider); 245 tests | `RUN-2026-10-28-01` |
+| 0.13 | Report Library for all 66 catalogued reports with honest working/partial/planned state; nine new deterministic management reports (R-104 cash flow with indirect bridge, R-108 ratios, R-109 period comparison, R-202 reversal register, R-203 account activity, R-301 sales register, R-401 purchase register, R-903 expense breakdown, R-905 working-capital cycle); CSV exports for cash flow, sales, purchases and expenses; 28 of 66 working; 256 tests | `RUN-2026-11-04-01` |
 
-**Next:** finish analytics Phase B (remaining 66-report screens, saved dashboards, full drill-down,
+**Next:** finish analytics Phase B (remaining 38 catalogued report screens, saved dashboards, full drill-down,
 filters, EN/HI labels and the ~150-template library). The static Power BI pack can become an optional
 Service model only after an explicit Desktop-vs-Service scope and licensing decision; a generative
 AI provider needs consent, privacy and cost approval and must keep deterministic totals with

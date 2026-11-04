@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.2 |
-| Date | 2026-10-28 |
-| Status | **19 of 66 catalogued reports have a working screen or export** (Build 0.12 adds export/BI surfaces, not new catalogued report screens) |
+| Version | 1.3 |
+| Date | 2026-11-04 |
+| Status | **28 of 66 catalogued reports have a working screen or export** (Build 0.13 adds the Report Library and nine management-report screens) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -13,13 +13,18 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > **Build 0.11/0.12 pilot:** `/reports/analytics` is a cross-cutting **Analytics Overview** (actual
 > monthly revenue/expense, expense composition, top customers/vendors, balance checks, freshness,
 > locally vendored ECharts monthly and expense-composition views and deterministic grounded insights). It is **not
-> counted** in the 19/66 figure until it gets a catalogue ID and the full per-report metadata,
+> counted** in the 28/66 figure until it gets a catalogue ID and the full per-report metadata,
 > export and drill-down set above. It is not a substitute for the missing reports.
+>
+> **Build 0.13 Report Library:** `/reports/library` shows all 66 catalogued reports, their group,
+> formula/source and honest delivery state. It marks **28 working, 1 partial and 37 planned**; planned
+> rows have no route and are never filled with sample data. The nine new working reports are R-104,
+> R-108, R-109, R-202, R-203, R-301, R-401, R-903 and R-905.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
 > trial balance, P&L, balance sheet, ageing, cash/bank, inventory and GST working sheets, and the
 > static Power BI ZIP (`/export/powerbi.zip`) packages actuals facts and dimensions. These are
-> export/BI surfaces; they do not change the 19/66 screen count, and neither is the full ~150-template
+> export/BI surfaces; they do not change the screen count, and neither is the full ~150-template
 > report/chart library.
 
 ---
@@ -48,12 +53,12 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-101 | Trial Balance | journal_line, account | Per account: Σdebit, Σcredit, closing signed balance | To ledger | 2 | Working (Build 0.1) |
 | R-102 | Profit & Loss | journal_line, account type income/expense | Σincome(credit−debit) − Σexpense(debit−credit) | To ledger | 2 | Working (Build 0.1) |
 | R-103 | Balance Sheet | journal_line, account type A/L/E | Assets = Liabilities + Equity (retained earnings included) | To ledger | 2 | Working (Build 0.1) |
-| R-104 | Cash Flow (indirect) | journal_line + cash accounts | Net profit + non-cash adj ± working capital ± investing/financing | To ledger | 2 | Not implemented |
+| R-104 | Cash Flow (direct + indirect bridge) | journal_line + cash/bank accounts | Direct cash movements classified by counterpart; bridge = net profit ± working capital ± investing/financing | To movement detail | 2 | Working (Build 0.13) |
 | R-105 | General Ledger | journal_line | Running balance per account | To journal entry | 2 | Working (Build 0.1) |
 | R-106 | Journal Register / Day Book | journal_entry + lines | Chronological list, entry totals | To entry | 2 | Working (Build 0.1) |
 | R-107 | Opening vs Closing Balances | account_balance | Opening + movements = closing | To ledger | 2 | Partial (statement opening/closing) |
-| R-108 | Financial Ratios | P&L + BS | Current ratio, gross/net margin, ROCE, debt-equity | To source lines | 6 | Not implemented |
-| R-109 | Period-over-Period Comparison | account_balance | Δ amount and Δ % between two periods | To both periods | 6 | Not implemented |
+| R-108 | Financial Ratios | P&L + BS | Current/quick ratio, gross/net margin, ROE, ROCE, debt-equity, asset turnover, working capital | To inputs table | 6 | Working (Build 0.13) |
+| R-109 | Period-over-Period Comparison | account_balance | Δ amount and Δ % between two equal-length periods | To both periods | 6 | Working (Build 0.13) |
 | R-110 | Trial Balance Exception Report | journal_entry | Entries failing balance/precision checks | To entry | 2 | Not implemented |
 
 ---
@@ -63,8 +68,8 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
 | R-201 | Audit Trail | audit_log | Chronological actor/action/target | 1 | Working (Build 0.1) |
-| R-202 | Reversal & Correction Register | journal_entry (reversal_of) | List with reasons and links | 2 | Not implemented |
-| R-203 | Account Activity Summary | journal_line | Count + value per account per period | 2 | Not implemented |
+| R-202 | Reversal & Correction Register | journal_entry (reversal_of) | List with reasons and links | 2 | Working (Build 0.13) |
+| R-203 | Account Activity Summary | journal_line | Count + value per account per period | 2 | Working (Build 0.13) |
 | R-204 | Unposted / Draft Entries | journal_entry status=draft | List + age | 2 | Not implemented |
 | R-205 | Locked Period Register | fiscal_period | Periods with status + who locked | 2 | Not implemented |
 | R-206 | Rule Version Usage | journal_entry | Entries grouped by applied rule version | 2 | Not implemented |
@@ -75,7 +80,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-301 | Sales Register | invoice lines | Σ net, tax, gross per invoice | 3 | Not implemented |
+| R-301 | Sales Register | invoice + lines | Σ taxable, tax, round-off, gross per posted invoice | 3 | Working (Build 0.13) |
 | R-302 | Sales Summary by Period | invoice | Grouped totals + growth % | 3 | Not implemented |
 | R-303 | Top Customers | invoice | Rank by revenue, share % | 3 | Not implemented |
 | R-304 | Customer Ageing | open AR items | Buckets 0-30/31-60/61-90/90+ | 3 | Working (Build 0.2) |
@@ -91,7 +96,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-401 | Purchase Register | purchase lines | Σ net, tax, gross | 3 | Not implemented |
+| R-401 | Purchase Register | bill + lines | Σ taxable, tax, round-off, gross per posted bill | 3 | Working (Build 0.13) |
 | R-402 | Supplier Ageing | open AP items | Buckets 0-30/31-60/61-90/90+ | 3 | Working (Build 0.2) |
 | R-403 | Supplier Statement | purchase + payment | Opening + purchases − payments | 3 | Working + share link (Build 0.6) |
 | R-404 | Top Suppliers / Concentration | purchase | Rank + share % | 6 | Not implemented |
@@ -162,9 +167,9 @@ Every report must declare: source data, formula, applicability, permissions, fil
 |---|---|---|---|---|---|
 | R-901 | Budget vs Actual | budget + journal_line | Variance = actual − budget | 6 | Not implemented |
 | R-902 | Department / Branch P&L | journal_line + scoping | Contribution by scope | 6 | Not implemented |
-| R-903 | Expense Breakdown | journal_line (expense) | Σ by category + share % | 6 | Not implemented |
+| R-903 | Expense Breakdown | journal_line (expense) | Σ by account + share % | 6 | Working (Build 0.13) |
 | R-904 | KPI Dashboard Pack | multiple | Composite with definitions shown | 6 | Not implemented |
-| R-905 | Working Capital Cycle | BS + AR/AP | DSO + DIO − DPO | 6 | Not implemented |
+| R-905 | Working Capital Cycle | BS + AR/AP + bills | DSO + DIO - DPO | 6 | Working (Build 0.13) |
 
 ---
 
