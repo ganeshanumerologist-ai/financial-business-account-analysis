@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.13.** The latest application run is `RUN-2026-11-04-01` with
-> **256 tests, OK**, Python 3.14.6, Windows - see section 27. The table immediately below is the original
+> **Current status: Build 0.13.** The latest application run is `RUN-2026-11-04-02` with
+> **257 tests, OK**, Python 3.14.6, Windows - see section 28. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1297,3 +1297,39 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
   aids, not lender or investor opinions.
 - No real phone viewport, screen-reader, contrast, cross-browser or 4K matrix was run for the new pages.
 - No Render deployment was executed; the public hosting action still requires owner authorization.
+
+## 28. Application run `RUN-2026-11-04-02` - diagnostics and single-user trial
+
+### 28.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **257 tests, OK**, 27.099 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_web.WebTest.test_47_system_check_and_traceable_error_page -v` | System Check page, traceable 500 page and `X-Error-ID`, OK |
+| `GET /health` on the trial server | 200, `ARTHIVIO/0.13`, body `ok` |
+| Trial login through the public tunnel | 200, dashboard rendered |
+| `GET /system-check` through the public tunnel | 200, all checks passed |
+| Trial database | Separate `data/arthivio-trial.db`, 11 invoices, 30 journal entries, balanced |
+| Trial tunnel | Cloudflare quick tunnel, temporary `trycloudflare.com` URL |
+
+### 28.2 What changed
+
+- `app/diagnostics.py`: dependency-free file logging, error IDs, read-only health snapshot
+  (SQLite quick check, foreign keys, journal balance, backup count/latest, disk space, log tail).
+- `app/server.py`: `APP_VERSION`, global GET/POST exception handling, friendly 500 page with
+  `ERR-XXXXXXXXXX` and `X-Error-ID`, `/system-check` page under Settings > Controls, startup/stop log.
+- `tests/test_web.py`: test 47 for the System Check page and a forced traceable error.
+- `docs/TESTING_GUIDE.md`: A-to-Z single-user trial checklist and bug-report format.
+- `data/arthivio-trial.db`: separate synthetic trial database; the main local database was not used
+  for the public trial.
+
+### 28.3 Explicitly NOT verified / not delivered
+
+- The public URL is a temporary Cloudflare quick tunnel, not permanent hosting. It stops when the
+  tunnel or the host machine stops, and the URL changes when restarted.
+- No automatic watchdog/restart, Windows installer, Task Scheduler auto-start or UPS integration is
+  delivered in this run.
+- No real phone viewport, screen-reader, contrast, cross-browser or 4K matrix was run.
+- No real financial data was entered. The trial is synthetic and must not be used for statutory books.
+- No offline-to-online sync, standalone mobile app, generative AI provider or Power BI Service model
+  is delivered.

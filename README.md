@@ -42,8 +42,8 @@ reconciliation), **R-108 Financial Ratios**, **R-109 Period-over-Period Comparis
 Reversal Register**, **R-203 Account Activity**, **R-301 Sales Register**, **R-401 Purchase
 Register**, **R-903 Expense Breakdown** and **R-905 Working Capital Cycle**. **28 of 66 catalogued
 reports now have a working screen or export.** Saved dashboards, EN/HI labels, Power BI Service
-refresh/RLS and a generative AI provider remain planned. Covered by **256 automated tests that pass
-on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-10-28-01`).
+refresh/RLS and a generative AI provider remain planned. Covered by **257 automated tests that pass
+on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-11-04-02`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
 email delivery, ownership transfer, PostgreSQL and the Next.js front end are not built. GSTR-1,
@@ -67,7 +67,7 @@ Or step by step:
 
 ```powershell
 python -m pip install -r requirements.txt  # approved openpyxl dependency
-python -m unittest discover -s tests       # 256 tests
+python -m unittest discover -s tests       # 257 tests
 python scripts/seed_demo.py                # demo books (idempotent)
 python -m app.server                       # http://127.0.0.1:8000
 ```
@@ -153,6 +153,7 @@ paid disk or a VPS; see `docs/DEPLOYMENT.md`.
 | Tax invoice | A4 print view with seller/buyer GSTIN, HSN/SAC, CGST/SGST vs IGST, amount in words, bank details and terms; browser Print / Save as PDF | `test_16_settings_and_print_invoice` |
 | Business settings | Owner-editable legal name, GSTIN, GST state, address, contact, bank details and invoice terms; validated and audited | `test_16_settings_and_print_invoice`, `MigrationTest` |
 | Backups | Consistent online backup, SHA-256, integrity + foreign-key + balanced-journal + row-count verification, recorded runs, CLI restore drill | `TestBackup`, `test_15_backup_over_http`, `scripts/backup.py` |
+| Diagnostics | `/system-check` read-only page for SQLite quick check, foreign keys, journal balance, latest backup, disk space and recent log; unhandled request errors return a friendly 500 page with an `ERR-XXXXXXXXXX` ID and `X-Error-ID` header, matched to `logs/arthivio.log` | `app/diagnostics.py`, `test_47_system_check_and_traceable_error_page`, `RUN-2026-11-04-02` |
 | Security | scrypt password hashing, server sessions with idle/absolute expiry, CSRF on every POST, RBAC matrix, login lockout, audit log | `TestSecurity`, `test_06_csrf_required` |
 | Tenancy | Every query is tenant-scoped; cross-tenant account, ledger, invoice, statement, receipt and export access is blocked and tested | `test_cross_tenant_account_rejected`, `test_08`, `test_foreign_invoice_rejected` |
 | UI | Responsive server-rendered UI: Tally-style grouped top menu with accessible dropdowns (Transactions, Entries, Books, Reports, Masters, Settings), ledger hub with account sidebar, white topbar with neutral charcoal ink, four saved light palettes (Ocean, Emerald, Violet, Sunset) chosen per user under Settings → Appearance, and a public product home page with inline SVG cityscape, a slightly lighter dark hero, a page-level four-colour picker and a dashboard preview; reference metrics are visibly labelled illustrative; no stock photos | `test_27_grouped_dropdown_navigation`, `test_28`, `test_29`, `test_30`, `test_37`, `test_38`, manual browser checks at desktop width; earlier `/home` Lighthouse 100 / 100 / 100 baseline not re-run after the landing picker |
@@ -197,7 +198,7 @@ app/
   backup.py       online backup + verification (integrity, FKs, balance, row counts)
   server.py       HTTP server + server-rendered UI (stdlib only)
   demo.py         synthetic demo books
-tests/            256 unittest cases (unit + end-to-end HTTP)
+tests/            257 unittest cases (unit + end-to-end HTTP)
 scripts/          seed_demo.py, backup.py, restore_verify.py
 dev.ps1           test → seed → run
 ```
@@ -214,7 +215,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **256 tests, OK, 35.767 s**, Python 3.14.6, Windows.
+Last verified: **257 tests, OK, 27.099 s**, Python 3.14.6, Windows.
 
 Backup drill:
 
@@ -229,7 +230,8 @@ python scripts/restore_verify.py --backup backups\<file>.db
 |---|---|
 | `docs/PROJECT_SPEC.md` | Governing specification (hash-verified copy) |
 | `docs/SOFTWARE_AUDIT.md` | Evidence-based audit of the starting state |
-| `docs/TEST_RESULTS.md` | Executed runs and evidence (`RUN-2026-10-28-01`) |
+| `docs/TEST_RESULTS.md` | Executed runs and evidence (`RUN-2026-11-04-02`) |
+| `docs/TESTING_GUIDE.md` | A-to-Z single-user trial checklist and bug-report format |
 | `docs/TEST_PLAN.md` | 256 executed application cases |
 | `docs/BUG_REPORT.md` | Defects and known gaps |
 | `docs/ARCHITECTURE.md` | Design and current implementation status |
@@ -237,7 +239,7 @@ python scripts/restore_verify.py --backup backups\<file>.db
 | `docs/SECURITY_PLAN.md` | Threat model, RBAC, security gates |
 | `docs/ACCOUNTING_RULES.md` | Money, rounding, posting and report formulas |
 | `docs/REQUIREMENTS_TRACEABILITY.md` | Requirement → module → test → status |
-| `docs/DECISION_LOG.md` | Decisions D-000 to D-035 |
+| `docs/DECISION_LOG.md` | Decisions D-000 to D-037 |
 | `docs/REPORT_CATALOG.md` | 66 target reports |
 | `docs/ANALYTICS_AI_EXCEL_POWERBI_PLAN.md` | Analytics/AI/Excel/Power BI plan; Phase A and first Excel/Power BI/grounded-insight slices delivered |
 | `docs/DEVELOPMENT_ROADMAP.md` | Phases and gates |

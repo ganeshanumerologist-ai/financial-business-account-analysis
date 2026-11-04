@@ -37,6 +37,7 @@ class WebTest(unittest.TestCase):
         cls.db_path = os.path.join(cls.tmp, "test.db")
         server.DB_PATH = cls.db_path
         server.BACKUP_DIR = os.path.join(cls.tmp, "backups")
+        server.diagnostics.LOG_DIR = os.path.join(cls.tmp, "logs")
         conn = db.connect(cls.db_path)
         db.init_db(conn)
         seed_demo(conn)
@@ -1771,6 +1772,41 @@ class WebTest(unittest.TestCase):
             self.assertEqual(status, 200, path)
             self.assertIn("TOTAL" if "register" in path or "expense" in path else "Movement",
                           body, path)
+
+    def test_47_system_check_and_traceable_error_page(self):
+        self.login()
+        status, page = self.get("/system-check")
+        self.assertEqual(status, 200)
+        self.assertIn("System check", page)
+        self.assertIn("SQLite integrity", page)
+        self.assertIn("Recent server log", page)
+        self.assertIn("/health", page)
+
+        original = server.Handler.page_dashboard
+
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("intentional diagnostics test")
+
+        server.Handler.page_dashboard = boom
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.opener.open(self.url("/"), timeout=15)
+            err = ctx.exception
+            try:
+                body = err.read().decode("utf-8")
+                self.assertEqual(err.code, 500)
+                self.assertIn("Something went wrong", body)
+                match = re.search(r"ERR-[A-F0-9]{10}", body)
+                self.assertIsNotNone(match)
+                self.assertEqual(err.headers.get("X-Error-ID"), match.group(0))
+            finally:
+                err.close()
+        finally:
+            server.Handler.page_dashboard = original
+
+        status, page = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn("Dashboard", page)
 
 
 if __name__ == "__main__":

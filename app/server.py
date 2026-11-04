@@ -21,7 +21,7 @@ from . import analytics as analytics_mod
 from . import backup as backup_mod
 from . import bank as bank_mod
 from . import bi as bi_mod
-from . import db, money, security
+from . import db, diagnostics, money, security
 from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
 from . import insights as insights_mod
@@ -30,6 +30,7 @@ from . import reports as reports_mod
 from . import sharing
 from . import xlsx_import as xlsx_mod
 
+APP_VERSION = "0.13"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -508,6 +509,7 @@ NAV = [
             ]),
             ("Controls", [
                 ("backup", "audit", "Backups"),
+                ("system-check", "audit", "System Check"),
                 ("audit", "audit", "Audit Log"),
             ]),
         ],
@@ -709,6 +711,26 @@ def login_page(error: str = "", theme: str = DEFAULT_THEME) -> str:
 </form></div>
 <p class="footer-note">Demo accounts are seeded by <code>scripts/seed_demo.py</code>. No real customer data.</p>
 </div></div></body></html>"""
+
+
+def error_page(error_id: str) -> str:
+    """Friendly 500 page. The matching traceback is in logs/arthivio.log."""
+    body = f"""
+<div class="card pad">
+  <div class="err" style="margin-bottom:12px">Something went wrong while processing this request.</div>
+  <p class="small" style="margin:0 0 10px">The error has been logged. Nothing was posted twice and no partial
+  journal was saved.</p>
+  <p class="small muted" style="margin:0 0 14px">Share this error ID with support:</p>
+  <p style="font-size:22px;font-weight:800;letter-spacing:.04em;margin:0 0 18px">{esc(error_id)}</p>
+  <a class="btn" href="/">Back to dashboard</a>
+  <a class="btn ghost" href="javascript:history.back()">Go back</a>
+</div>
+<div class="card pad sect">
+  <h2 style="margin-bottom:8px">If it keeps happening</h2>
+  <p class="small muted" style="margin:0">Open <b>Settings &rarr; System Check</b> to see database,
+  backup and recent-error health. The server log is <code>logs/arthivio.log</code>.</p>
+</div>"""
+    return layout("Something went wrong", body)
 
 
 L_ICONS = {
@@ -1287,7 +1309,7 @@ def kpi(label: str, value: str, sub: str = "") -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ARTHIVIO/0.13"
+    server_version = f"ARTHIVIO/{APP_VERSION}"
 
     # ---------------- plumbing ----------------
     def log_message(self, fmt, *args):  # quieter console
@@ -1648,7 +1670,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_settings(conn, user, tenant, sess, q))
             if path == "/backup":
                 return self._send(self.page_backups(conn, user, tenant, sess, q))
+            if path == "/system-check":
+                return self._send(self.page_system_check(conn, user, tenant))
             return self._send(layout("Not found", '<div class="card pad">Page not found.</div>', user=user, tenant=tenant), 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001 - show a traceable error instead of a reset socket
+            error_id = diagnostics.new_error_id()
+            diagnostics.log_exception(error_id, "GET", self.path, exc)
+            try:
+                self._send(error_page(error_id), 500, headers={"X-Error-ID": error_id})
+            except Exception:
+                pass
         finally:
             conn.close()
 
@@ -1789,6 +1822,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._create_item(conn, user, tenant, sess, form)
 
             return self._send(layout("Not found", '<div class="card pad">Page not found.</div>', user=user, tenant=tenant), 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001 - show a traceable error instead of a reset socket
+            error_id = diagnostics.new_error_id()
+            diagnostics.log_exception(error_id, "POST", self.path, exc)
+            try:
+                self._send(error_page(error_id), 500, headers={"X-Error-ID": error_id})
+            except Exception:
+                pass
         finally:
             conn.close()
 
@@ -5386,6 +5428,77 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
 </div>"""
         return layout("Backups", body, "backup", user, tenant)
 
+    def page_system_check(self, conn, user, tenant) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("System check",
+                          f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "system-check", user, tenant)
+
+        snap = diagnostics.health_snapshot(DB_PATH, BACKUP_DIR, APP_VERSION)
+        status_badge = ('<span class="badge ok">All checks passed</span>'
+                        if snap["ok"] else '<span class="badge bad">Attention needed</span>')
+        errors = "".join(f"<li>{esc(x)}</li>" for x in snap["errors"]) or "<li>None</li>"
+        last = snap["last_backup"]
+        if last:
+            last_backup = (
+                f'{esc(last["created_at"][:19].replace("T", " "))} UTC &middot; '
+                f'<span class="badge {"ok" if last["status"] == "verified" else "bad"}">'
+                f'{esc(last["status"])}</span> &middot; {int(last["size_bytes"]):,} bytes'
+            )
+        else:
+            last_backup = "No backup recorded yet. Create one from Backups."
+        log_tail = "\n".join(snap["log_tail"]) or "No log entries yet."
+        db_mb = snap["db_size_bytes"] / (1024 * 1024)
+        disk_gb = snap["disk_free_bytes"] / (1024 ** 3)
+        uptime = str(timedelta(seconds=snap["uptime_seconds"]))
+        body = f"""
+<div class="kpis">
+  {kpi("Overall status", "Healthy" if snap["ok"] else "Check needed", snap["checked_at"])}
+  {kpi("Database", f"{db_mb:.2f} MB", snap["integrity"])}
+  {kpi("Backups", str(snap["backup_count"]), "recorded runs")}
+  {kpi("Free disk", f"{disk_gb:.2f} GB", "on database drive")}
+</div>
+<div class="card pad sect">
+  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+    <h2 style="margin:0">System check</h2>
+    <div>{status_badge} <a class="btn ghost small" href="/system-check">Run again</a></div>
+  </div>
+  <p class="small muted" style="margin:10px 0 0">Read-only checks. This page never writes to the books.</p>
+</div>
+<div class="card"><table>
+<tbody>
+<tr><td>Application</td><td><b>ARTHIVIO {esc(snap["version"])}</b></td></tr>
+<tr><td>Server uptime</td><td>{esc(uptime)}</td></tr>
+<tr><td>Python / platform</td><td>{esc(snap["python"])} &middot; {esc(snap["platform"])}</td></tr>
+<tr><td>Database file</td><td class="small"><code>{esc(snap["db_path"])}</code></td></tr>
+<tr><td>SQLite integrity</td><td><span class="badge {"ok" if snap["integrity"] == "ok" else "bad"}">{esc(snap["integrity"])}</span></td></tr>
+<tr><td>Foreign keys</td><td>{esc(snap["foreign_keys"])}</td></tr>
+<tr><td>Journal balance</td><td>{esc(snap["journals"])}</td></tr>
+<tr><td>Latest backup</td><td>{last_backup}</td></tr>
+<tr><td>Backup folder</td><td class="small"><code>{esc(snap["backup_dir"])}</code></td></tr>
+<tr><td>Log file</td><td class="small"><code>{esc(snap["log_path"])}</code></td></tr>
+</tbody></table></div>
+<div class="card pad sect">
+  <h2 style="margin-bottom:8px">Checks that need attention</h2>
+  <ul class="small" style="margin:0;padding-left:20px">{errors}</ul>
+</div>
+<div class="card pad sect">
+  <h2 style="margin-bottom:8px">Recent server log</h2>
+  <p class="small muted" style="margin-top:0">Last 20 lines. Error IDs shown here match the
+  message on screen.</p>
+  <pre class="small" style="background:#F8FAFC;padding:12px;border-radius:10px;overflow:auto;max-height:320px">{esc(log_tail)}</pre>
+</div>
+<div class="card pad">
+  <h2 style="margin-bottom:8px">What to do if something stops</h2>
+  <p class="small" style="margin:0 0 8px"><b>Local/offline:</b> start the server again and open this page. The
+  database and log files remain on disk. Committed entries survive a power cut; unsaved form text does not.</p>
+  <p class="small" style="margin:0"><b>Online:</b> use a free uptime monitor on <code>/health</code> so you get an
+  alert if the service stops. A 500 error page shows an error ID that can be matched to this log.</p>
+</div>"""
+        return layout("System check", body, "system-check", user, tenant)
+
     def page_audit(self, conn, user, tenant) -> str:
         rows = conn.execute(
             "SELECT * FROM audit_log WHERE tenant_id=? ORDER BY created_at DESC LIMIT 100",
@@ -6947,8 +7060,11 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
 
 
 def main(port: int = 8000):
+    diagnostics.setup_logging()
     host = os.environ.get("ARTHIVIO_HOST", "127.0.0.1")
     db.init_db(db.connect(DB_PATH))
+    diagnostics.log_info("server_start", version=APP_VERSION, host=host, port=port,
+                         db=os.path.abspath(DB_PATH), log=diagnostics.log_path())
     srv = ThreadingHTTPServer((host, port), Handler)
     shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host
     print(f"ARTHIVIO running on http://{shown}:{port}  (db: {DB_PATH})")
@@ -6958,6 +7074,9 @@ def main(port: int = 8000):
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
+    finally:
+        srv.server_close()
+        diagnostics.log_info("server_stop")
 
 
 if __name__ == "__main__":

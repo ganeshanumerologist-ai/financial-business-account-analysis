@@ -736,3 +736,26 @@ not another visual mock-up:
 - Build 0.13 is verified by **256 tests, OK**, 35.767 s, Python 3.14.6, Windows, recorded in
   `docs/TEST_RESULTS.md` `RUN-2026-11-04-01`.
 
+
+## D-037 - Traceable errors and a read-only System Check page
+
+**Date:** 2026-11-04. **Status:** accepted for the single-user trial.
+
+The owner asked how they would know if the software stopped or made a mistake during an A-to-Z
+check. A silent browser reset is not acceptable for an accounting trial.
+
+- Unhandled GET/POST exceptions now produce a friendly 500 page with a unique `ERR-XXXXXXXXXX` ID
+  and an `X-Error-ID` response header. The full traceback is written to `logs/arthivio.log` with the
+  same ID. The user can report the ID without exposing the whole stack trace.
+- `Settings > Controls > System Check` is a read-only page: SQLite quick check, foreign-key check,
+  journal balance, latest verified backup, disk space, server uptime, log path and the last 20 log
+  lines. It never writes to the books.
+- `/health` remains the simple liveness endpoint for Render or a free uptime monitor.
+- The trial runs on a separate synthetic database (`data/arthivio-trial.db`) through a temporary
+  Cloudflare quick tunnel. This is a checking aid only: the URL changes when the tunnel restarts and
+  there is no uptime guarantee.
+- No watchdog, Windows installer, Task Scheduler auto-start, UPS integration, permanent hosting or
+  offline-to-online sync is added by this decision.
+- Verified by **257 tests, OK**, 27.099 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-04-02`.
+
