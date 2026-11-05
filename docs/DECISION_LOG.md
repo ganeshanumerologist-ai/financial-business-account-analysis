@@ -69,7 +69,7 @@ No code will be written before this answer.
 |---|---|
 | Date | 2026-10-24 (second pass, same day) |
 | Status | **Supersedes the context of D-001; decision still PENDING** |
-| Trigger | Deeper machine inspection found portable **Node 20.20.2 / npm 10.8.2** (`C:\Users\vicky\node-portable\node-v20.20.2-win-x64`) and **git 2.56.0** (`C:\Users\vicky\git-portable`). Both run correctly when called by path. |
+| Trigger | Deeper machine inspection found portable **Node 20.20.2 / npm 10.8.2** (`$env:USERPROFILE\node-portable\node-v20.20.2-win-x64`) and **git 2.56.0** (`$env:USERPROFILE\git-portable`). Both run correctly when called by path. |
 
 **What changes**
 
@@ -108,7 +108,7 @@ No code will be written before this answer.
 |---|---|
 | Date | 2026-10-24 |
 | Status | Decided |
-| Context | B-007: spec lived only in `C:\Users\vicky\Downloads`, duplicated, unversioned. |
+| Context | B-007: spec lived only in `$env:USERPROFILE\Downloads`, duplicated, unversioned. |
 | Decision | Copy byte-for-byte to `docs/PROJECT_SPEC.md`. |
 | Verification | Line count 763; SHA-256 `4556C71479BB5D26F95641EA650F214DE0314FD1BCD925711B08F4062E967682` — identical to source and to the second copy. |
 | Consequence | Requirements now survive outside Downloads. The Downloads copies are **not** deleted (owner confirmation required). |

@@ -6,7 +6,7 @@
 | Auditor | OpenCode agent (automated code + environment inspection) |
 | Audit type | Baseline inspection / pre-implementation audit |
 | Workspace | `D:\financial business account data analysis` |
-| Governing spec | `C:\Users\vicky\Downloads\ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md` (763 lines, SHA-256 `4556C714…E967682`) |
+| Governing spec | `$env:USERPROFILE\Downloads\ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md` (763 lines, SHA-256 `4556C714…E967682`) |
 | Mode | Read-only. No application files were created, modified or deleted during the audit. |
 | Overall result | **BLOCKED — no application source code exists in the workspace** |
 
@@ -129,10 +129,10 @@ Get-PSDrive D
 |---|---|---|
 | Python | ✅ 3.14.6 (64-bit, MSC v.1944) | Working |
 | pip | ✅ 26.1.2 | Working |
-| Node.js | ✅ **v20.20.2 portable** | `C:\Users\vicky\node-portable\node-v20.20.2-win-x64` — **not on `PATH`** |
+| Node.js | ✅ **v20.20.2 portable** | `$env:USERPROFILE\node-portable\node-v20.20.2-win-x64` — **not on `PATH`** |
 | npm | ✅ **10.8.2** | Same portable folder |
 | npx / pnpm / yarn | npx ✅ shipped with npm · pnpm/yarn ❌ | pnpm/yarn not needed |
-| git | ✅ **2.56.0.windows.2 portable** | `C:\Users\vicky\git-portable` — **not on `PATH`**; verified by running `git --version` with the path prepended |
+| git | ✅ **2.56.0.windows.2 portable** | `$env:USERPROFILE\git-portable` — **not on `PATH`**; verified by running `git --version` with the path prepended |
 | PostgreSQL / psql | ❌ NOT FOUND | No server installed |
 | Docker | ❌ NOT FOUND | No container runtime; not required for local work |
 | Installed Python packages | ⚠️ None of the relevant set | `fastapi`, `uvicorn`, `jinja2`, `sqlalchemy`, `pydantic`, `alembic`, `pytest`, `openpyxl`, `pandas`, `reportlab`, `bcrypt`, `passlib`, `httpx` — **none installed** |
@@ -141,7 +141,7 @@ Get-PSDrive D
 Verification command and literal output:
 
 ```powershell
-$env:PATH="C:\Users\vicky\git-portable\cmd;C:\Users\vicky\git-portable\usr\bin;C:\Users\vicky\node-portable\node-v20.20.2-win-x64;$env:PATH"
+$env:PATH="$env:USERPROFILE\git-portable\cmd;$env:USERPROFILE\git-portable\usr\bin;$env:USERPROFILE\node-portable\node-v20.20.2-win-x64;$env:PATH"
 git --version   # git version 2.56.0.windows.2
 node -v         # v20.20.2
 npm -v          # 10.8.2
@@ -223,7 +223,7 @@ visibly footnoted as illustrative marketing values.
 
 ### 6.3 Master instruction file location
 
-The governing spec sits in `C:\Users\vicky\Downloads\`, **outside** the repository. Two byte-identical copies exist (identical SHA-256). Not a version conflict, but the spec must be copied into the repo so governance survives a machine change or cleanup of Downloads. Recorded as B-007.
+The governing spec sits in `$env:USERPROFILE\Downloads\`, **outside** the repository. Two byte-identical copies exist (identical SHA-256). Not a version conflict, but the spec must be copied into the repo so governance survives a machine change or cleanup of Downloads. Recorded as B-007.
 
 ---
 

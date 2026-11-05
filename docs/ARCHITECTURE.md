@@ -24,7 +24,7 @@
 | Sessions | Server-side session table + opaque cookie | — | Revocable, no JWT-in-localStorage risk |
 | Tests | pytest (+ Hypothesis later), Vitest/Playwright at Phase 6 | — | Deterministic finance tests are the release gate |
 
-Runtime note: `C:\Users\vicky\node-portable\node-v20.20.2-win-x64` (Node 20.20.2 / npm 10.8.2) and `C:\Users\vicky\git-portable` (git 2.56.0). Neither is on `PATH`; a `dev.ps1` bootstrap will set it per session.
+Runtime note: `$env:USERPROFILE\node-portable\node-v20.20.2-win-x64` (Node 20.20.2 / npm 10.8.2) and `$env:USERPROFILE\git-portable` (git 2.56.0). Neither is on `PATH`; a `dev.ps1` bootstrap will set it per session.
 
 ---
 

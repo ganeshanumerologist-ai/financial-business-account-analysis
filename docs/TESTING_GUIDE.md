@@ -8,7 +8,7 @@ in the public trial URL.
 
 - Local laptop: `http://127.0.0.1:8000/login`
 - Public trial URL: the current `trycloudflare.com` link shared in chat
-- Trial login: `vicky4558@gmail.com` / `Vicky4558!2026`
+- Trial login: `ganesha4558@gmail.com` / `Ganesha4558!2026`
 - Demo login: `owner@arthivio.test` / `ArthivioDemo!2026`
 
 The public trial runs against a separate database:

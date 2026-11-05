@@ -46,7 +46,7 @@ Get-ChildItem -Force -Recurse | Select-Object FullName, Length
 | Severity | **High** |
 | Area | Engineering process / data safety |
 | Status | Open |
-| Correction | The first pass said "git not installed". That was wrong: git **2.56.0** exists at `C:\Users\vicky\git-portable` and runs correctly. It is simply not on `PATH`. The absence of a *repository* is the actual defect. |
+| Correction | The first pass said "git not installed". That was wrong: git **2.56.0** exists at `$env:USERPROFILE\git-portable` and runs correctly. It is simply not on `PATH`. The absence of a *repository* is the actual defect. |
 
 **Description**
 The workspace is not a git repository. There is no change history, no diff, no rollback. The audit rules require that existing work never be corrupted; without version control that guarantee rests on manual discipline alone.
@@ -54,7 +54,7 @@ The workspace is not a git repository. There is no change history, no diff, no r
 **Reproduction**
 ```powershell
 Test-Path "D:\financial business account data analysis\.git"   # False
-$env:PATH="C:\Users\vicky\git-portable\cmd;$env:PATH"; git --version   # git version 2.56.0.windows.2
+$env:PATH="$env:USERPROFILE\git-portable\cmd;$env:PATH"; git --version   # git version 2.56.0.windows.2
 ```
 
 **Expected:** repository initialised, baseline commit tagged, `.gitignore` excluding secrets and databases.
@@ -75,7 +75,7 @@ $env:PATH="C:\Users\vicky\git-portable\cmd;$env:PATH"; git --version   # git ver
 | Status | Open |
 
 **Description**
-Node **v20.20.2** and npm **10.8.2** are present at `C:\Users\vicky\node-portable\node-v20.20.2-win-x64`, and git at `C:\Users\vicky\git-portable`. None is on `PATH`, so ordinary commands fail with "not recognized". PostgreSQL is genuinely absent.
+Node **v20.20.2** and npm **10.8.2** are present at `$env:USERPROFILE\node-portable\node-v20.20.2-win-x64`, and git at `$env:USERPROFILE\git-portable`. None is on `PATH`, so ordinary commands fail with "not recognized". PostgreSQL is genuinely absent.
 
 Two consequences:
 1. Every command must either use absolute paths or a session-scoped `PATH` prefix — easy to forget, produces confusing failures.
@@ -84,7 +84,7 @@ Two consequences:
 **Reproduction**
 ```powershell
 node -v                                              # fails: not recognized
-$env:PATH="C:\Users\vicky\node-portable\node-v20.20.2-win-x64;$env:PATH"; node -v   # v20.20.2
+$env:PATH="$env:USERPROFILE\node-portable\node-v20.20.2-win-x64;$env:PATH"; node -v   # v20.20.2
 Get-Command psql -ErrorAction SilentlyContinue       # nothing
 ```
 
@@ -182,11 +182,11 @@ python -c "<parse PNG IHDR / JPEG SOF>"   # PNG 1536x1024 · JPEG 1536x1024
 | Status | Open |
 
 **Description**
-The 763-line master spec resides at `C:\Users\vicky\Downloads\ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md`, outside the project. Two byte-identical copies exist (same SHA-256), so there is no version conflict today — but if Downloads is cleaned or the machine changes, the source of truth is lost, and any future edit to one copy diverges silently.
+The 763-line master spec resides at `$env:USERPROFILE\Downloads\ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md`, outside the project. Two byte-identical copies exist (same SHA-256), so there is no version conflict today — but if Downloads is cleaned or the machine changes, the source of truth is lost, and any future edit to one copy diverges silently.
 
 **Reproduction**
 ```powershell
-Get-FileHash "C:\Users\vicky\Downloads\ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md" -Algorithm SHA256
+Get-FileHash "$env:USERPROFILE\Downloads\ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md" -Algorithm SHA256
 ```
 
 **Expected:** spec committed inside the repo, versioned.
@@ -234,7 +234,7 @@ The two mockups are near-identical but differ in numbers: "Business Performance"
 The owner stated that the prompt/rules, a Git repository, and a home-page theme had been copied into `D:\financial business account data analysis`. Verification across three independent sources found none of them:
 
 1. **Local disk** — recursive listing: only the 2 PNG/JPEG mockups and the 7 audit documents created by this audit. No HTML/CSS/JS/TS files, no `.git`.
-2. **Machine-wide search** — no recent theme files anywhere outside an unrelated numerology website (`C:\Users\vicky\Documents\Default Project`, remote `ganesha_num.git`, last changed 2026-10-18). No portable ARTHIVIO copy.
+2. **Machine-wide search** — no recent theme files anywhere outside an unrelated numerology website (`$env:USERPROFILE\Documents\Default Project`, remote `ganesha_num.git`, last changed 2026-10-18). No portable ARTHIVIO copy.
 3. **GitHub** — `ganeshanumerologist-ai/financial-business-account-analysis` exists, public, but contains **only a 144-byte README.md**. Two commits, both README-only. No code, no theme.
 
 **Reproduction**

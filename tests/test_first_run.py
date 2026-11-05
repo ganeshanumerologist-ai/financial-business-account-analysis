@@ -86,8 +86,8 @@ class FirstRunTest(unittest.TestCase):
 
     def test_03_setup_requires_token(self):
         status, page, _ = self.post("/setup", {
-            "full_name": "Vicky Owner", "business_name": "Vicky Traders",
-            "email": "vicky@example.test", "state_code": "27",
+            "full_name": "Ganesha Owner", "business_name": "Ganesha Traders",
+            "email": "ganesha@example.test", "state_code": "27",
             "gstin": "", "password": "VeryLongPassword!2026",
             "confirm_password": "VeryLongPassword!2026",
         })
@@ -98,8 +98,8 @@ class FirstRunTest(unittest.TestCase):
         status, page, _ = self.get("/setup")
         token = self.token(page)
         status, page, _ = self.post("/setup", {
-            "_setup_csrf": token, "full_name": "Vicky Owner",
-            "business_name": "Vicky Traders", "email": "vicky@example.test",
+            "_setup_csrf": token, "full_name": "Ganesha Owner",
+            "business_name": "Ganesha Traders", "email": "ganesha@example.test",
             "state_code": "27", "gstin": "",
             "password": "short", "confirm_password": "short",
         })
@@ -107,8 +107,8 @@ class FirstRunTest(unittest.TestCase):
         self.assertIn("at least 12 characters", page)
 
         status, page, _ = self.post("/setup", {
-            "_setup_csrf": token, "full_name": "Vicky Owner",
-            "business_name": "Vicky Traders", "email": "vicky@example.test",
+            "_setup_csrf": token, "full_name": "Ganesha Owner",
+            "business_name": "Ganesha Traders", "email": "ganesha@example.test",
             "state_code": "27", "gstin": "",
             "password": "VeryLongPassword!2026",
             "confirm_password": "DifferentPassword!2026",
@@ -117,8 +117,8 @@ class FirstRunTest(unittest.TestCase):
         self.assertIn("do not match", page)
 
         status, page, _ = self.post("/setup", {
-            "_setup_csrf": token, "full_name": "Vicky Owner",
-            "business_name": "Vicky Traders", "email": "vicky@example.test",
+            "_setup_csrf": token, "full_name": "Ganesha Owner",
+            "business_name": "Ganesha Traders", "email": "ganesha@example.test",
             "state_code": "27", "gstin": "BAD",
             "password": "VeryLongPassword!2026",
             "confirm_password": "VeryLongPassword!2026",
@@ -130,8 +130,8 @@ class FirstRunTest(unittest.TestCase):
         status, page, _ = self.get("/setup")
         token = self.token(page)
         status, page, final = self.post("/setup", {
-            "_setup_csrf": token, "full_name": "Vicky Owner",
-            "business_name": "Vicky Traders", "email": "vicky@example.test",
+            "_setup_csrf": token, "full_name": "Ganesha Owner",
+            "business_name": "Ganesha Traders", "email": "ganesha@example.test",
             "state_code": "27", "gstin": "27ABCDE1234F1Z5",
             "password": "VeryLongPassword!2026",
             "confirm_password": "VeryLongPassword!2026",
@@ -146,11 +146,11 @@ class FirstRunTest(unittest.TestCase):
             self.assertEqual(
                 conn.execute("SELECT COUNT(*) FROM user").fetchone()[0], 1)
             tenant = conn.execute(
-                "SELECT * FROM tenant WHERE name='Vicky Traders'").fetchone()
+                "SELECT * FROM tenant WHERE name='Ganesha Traders'").fetchone()
             self.assertIsNotNone(tenant)
             self.assertEqual(tenant["gstin"], "27ABCDE1234F1Z5")
             user = conn.execute(
-                "SELECT * FROM user WHERE email='vicky@example.test'").fetchone()
+                "SELECT * FROM user WHERE email='ganesha@example.test'").fetchone()
             self.assertIsNotNone(user)
             membership = conn.execute(
                 "SELECT * FROM membership WHERE tenant_id=? AND user_id=?",
@@ -170,7 +170,7 @@ class FirstRunTest(unittest.TestCase):
         opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(jar))
         body = urllib.parse.urlencode({
-            "email": "vicky@example.test", "password": "VeryLongPassword!2026",
+            "email": "ganesha@example.test", "password": "VeryLongPassword!2026",
         }).encode()
         req = urllib.request.Request(self.url("/login"), data=body, method="POST")
         with opener.open(req, timeout=15) as r:

@@ -25,7 +25,7 @@
 | A-001 | Application source exists | Source tree present | Only 2 image files; no `src/`, `app/`, `lib/` | **FAIL** | Recursive listing, `docs/SOFTWARE_AUDIT.md` §2.2 |
 | A-002 | Dependency manifest exists | `package.json` / `requirements.txt` / `pyproject.toml` | None found | **FAIL** | File scan of workspace |
 | A-003 | Test suite exists | `tests/` with runnable tests | None found | **FAIL** | File scan |
-| A-004 | Git repository present in workspace | `.git` exists, `git status` runs | `.git` absent. Portable git 2.56.0 **is** available at `C:\Users\vicky\git-portable` and runs when called by path | **FAIL** | `Test-Path .git` → False; `git --version` → 2.56.0.windows.2 |
+| A-004 | Git repository present in workspace | `.git` exists, `git status` runs | `.git` absent. Portable git 2.56.0 **is** available at `$env:USERPROFILE\git-portable` and runs when called by path | **FAIL** | `Test-Path .git` → False; `git --version` → 2.56.0.windows.2 |
 | A-005 | Node toolchain available | `node -v` succeeds | `node -v` → v20.20.2, `npm -v` → 10.8.2 (portable, off-`PATH`) | **PASS** | Session `PATH` prefix + literal output |
 | A-006 | PostgreSQL available | `psql --version` succeeds | Command not found; no server installed | **BLOCKED** | `Get-Command psql/postgres` → nothing |
 | A-007 | Secrets committed | None | None found | **PASS** | No `.env`/key files in workspace |
@@ -127,11 +127,11 @@ Get-PSDrive D
 Get-FileHash "…WITH_RULES.md","…WITH_RULES (1).md" -Algorithm SHA256
 python <PNG IHDR / JPEG SOF dimension parse>
 # --- second pass, after deeper inspection ---
-$env:PATH="C:\Users\vicky\git-portable\cmd;C:\Users\vicky\git-portable\usr\bin;C:\Users\vicky\node-portable\node-v20.20.2-win-x64;$env:PATH"
+$env:PATH="$env:USERPROFILE\git-portable\cmd;$env:USERPROFILE\git-portable\usr\bin;$env:USERPROFILE\node-portable\node-v20.20.2-win-x64;$env:PATH"
 git --version; node -v; npm -v
-Get-ChildItem C:\Users\vicky,D:\ -Recurse -File -Include *.html,*.css  # (timed out at depth; re-run depth-limited)
-Get-ChildItem C:\Users\vicky\Desktop,"C:\Users\vicky\Documents" -Recurse -Depth 3 -Include *.html,*.css
-Get-Content "C:\Users\vicky\Documents\Default Project\.git\config"
+Get-ChildItem $env:USERPROFILE,D:\ -Recurse -File -Include *.html,*.css  # (timed out at depth; re-run depth-limited)
+Get-ChildItem $env:USERPROFILE\Desktop,"$env:USERPROFILE\Documents" -Recurse -Depth 3 -Include *.html,*.css
+Get-Content "$env:USERPROFILE\Documents\Default Project\.git\config"
 curl https://api.github.com/users/ganeshanumerologist-ai/repos
 curl https://api.github.com/repos/ganeshanumerologist-ai/financial-business-account-analysis/contents/
 curl https://api.github.com/repos/ganeshanumerologist-ai/financial-business-account-analysis/commits
@@ -982,7 +982,7 @@ response in an existing share-link test; all 207 tests passed.
 | Live server restart on `127.0.0.1:8000` | Serving the white-topbar/four-palette build; startup applied the additive `user.theme` column (both existing users default `ocean`); no ledger/account/journal writes and no theme-save audit |
 | Browser check: Ocean | `/login`, dashboard, Settings → Appearance and invoice print rendered with a white topbar, light blue page and no navy app chrome |
 | Browser check: Violet, Emerald, Sunset | Settings → Appearance saved each palette and the dashboard adopted the chosen tokens; Settings showed “Theme saved” and the selected card. Invoice print was additionally checked in Violet and resolved the theme variables. |
-| Temporary theme-check server | Used a seeded copy in `C:\Users\vicky\AppData\Local\Temp\opencode`; temp server and database were removed after the check |
+| Temporary theme-check server | Used a seeded copy in `$env:USERPROFILE\AppData\Local\Temp\opencode`; temp server and database were removed after the check |
 
 The full suite emitted the same standard-library `ResourceWarning` for an unclosed `HTTPError`
 response in an existing share-link test; all 208 tests passed.
@@ -1394,8 +1394,9 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
 | `tests.test_accounting.TestSecurity.test_create_business_is_empty_and_makes_creator_owner` | OK: separate tenant, standard chart, zero journals, creator becomes owner, audit row |
 | `tests.test_web.WebTest.test_48_create_fresh_business_and_edit_cash_entry` | OK: `/businesses` form, fresh tenant, first manual entry, pre-filled edit form, correction, audit, cash book/day book actions |
 | Local trial server on `127.0.0.1:8010` | `/health` returned `ok`; demo login and `/businesses`, `/entries/cash`, `/daybook`, `/reports/cash-book` rendered |
-| Public quick tunnel | `https://soccer-execute-warriors-advertising.trycloudflare.com/health` returned `ok`; `/login` returned 200 |
+| Public quick tunnel | `https://arrived-slides-keep-travels.trycloudflare.com/health` returned `ok`; `/login` returned 200 |
 | Browser/HTTP read-only check | `/businesses` shows **Start fresh books**; `/entries/cash` shows **Recent cash entries** with Edit/Reverse; cash book and day book show the Action column |
+| Owner rename check | Source/docs have no old owner-name occurrence; trial and local users are `ganesha4558@gmail.com` / `Ganesha`; login with `Ganesha4558!2026` renders the dashboard and `/businesses` with **Ganesha**; 268 tests, OK, 24.718 s |
 
 ### 30.2 What changed
 
