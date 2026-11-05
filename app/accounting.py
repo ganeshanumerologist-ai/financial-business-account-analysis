@@ -1132,7 +1132,11 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
                  "credit": l["debit_paise"], "party_id": l["party_id"],
                  "memo": f"Reversal: {reason}"} for l in lines]
 
-    conn.execute("BEGIN IMMEDIATE")
+    own_tx = not conn.in_transaction
+    if own_tx:
+        conn.execute("BEGIN IMMEDIATE")
+    else:
+        conn.execute("SAVEPOINT sp_reverse_entry")
     try:
         new_id = post_journal(conn, tenant_id, entry["entry_date"],
                               f"Reversal of {entry['entry_no']}: {reason}",
@@ -1140,11 +1144,83 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
                               created_by=created_by)
         conn.execute("UPDATE journal_entry SET status='reversed' WHERE id=?", (entry_id,))
         conn.execute("UPDATE journal_entry SET reversal_of=? WHERE id=?", (entry_id, new_id))
-        conn.execute("COMMIT")
+        if own_tx:
+            conn.execute("COMMIT")
+        else:
+            conn.execute("RELEASE sp_reverse_entry")
     except Exception:
-        conn.execute("ROLLBACK")
+        if own_tx:
+            conn.execute("ROLLBACK")
+        else:
+            conn.execute("ROLLBACK TO sp_reverse_entry")
+            conn.execute("RELEASE sp_reverse_entry")
         raise
     return new_id
+
+
+def replace_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str,
+                  entry_date: str, narration: str, lines: list[dict], reason: str,
+                  created_by: str | None = None) -> dict:
+    """Correct a posted manual entry by reversing it and posting a replacement.
+
+    Posted journal rows are never mutated. The original entry stays in the books
+    marked ``reversed``, a mirrored reversal is posted, and the corrected entry is
+    posted as a new manual journal linked back to the original through ``source_id``.
+    The whole correction is one transaction: if the replacement is unbalanced or
+    otherwise invalid, the reversal is rolled back too.
+    """
+    if not reason or not reason.strip():
+        raise AccountingError("REASON_REQUIRED", "An edit reason is required")
+    entry = conn.execute(
+        "SELECT * FROM journal_entry WHERE id=? AND tenant_id=?", (entry_id, tenant_id)
+    ).fetchone()
+    if not entry:
+        raise AccountingError("ENTRY_NOT_FOUND", "Journal entry not found")
+    if entry["source_type"] != "manual":
+        raise AccountingError(
+            "NOT_EDITABLE",
+            "Only manual cash, bank and journal entries can be edited here. "
+            "Use the source document, a credit/debit note or a reversal for this entry.",
+        )
+    if entry["status"] == "reversed":
+        raise AccountingError("ALREADY_REVERSED", "Entry is already reversed")
+    try:
+        entry_date = date.fromisoformat((entry_date or "").strip()).isoformat()
+    except ValueError as exc:
+        raise AccountingError("BAD_DATE", "Choose a valid entry date.") from exc
+    narration = (narration or "").strip()
+    if len(narration) < 3:
+        raise AccountingError("NARRATION_REQUIRED", "Enter a narration for the corrected entry.")
+    if len(lines) < 2:
+        raise AccountingError("TOO_FEW_LINES", "A journal entry needs at least two lines")
+
+    own_tx = not conn.in_transaction
+    if own_tx:
+        conn.execute("BEGIN IMMEDIATE")
+    else:
+        conn.execute("SAVEPOINT sp_replace_entry")
+    try:
+        reversal_id = reverse_entry(conn, tenant_id, entry_id, reason, created_by=created_by)
+        new_id = post_journal(
+            conn, tenant_id, entry_date, narration, lines, source_type="manual",
+            source_id=entry_id, created_by=created_by,
+        )
+        audit(conn, tenant_id, created_by, "journal.edit", "journal_entry", entry_id,
+              meta={"original_entry": entry_id, "original_entry_no": entry["entry_no"],
+                    "reversal_entry": reversal_id, "corrected_entry": new_id,
+                    "reason": reason.strip()[:200], "lines": len(lines)})
+        if own_tx:
+            conn.execute("COMMIT")
+        else:
+            conn.execute("RELEASE sp_replace_entry")
+    except Exception:
+        if own_tx:
+            conn.execute("ROLLBACK")
+        else:
+            conn.execute("ROLLBACK TO sp_replace_entry")
+            conn.execute("RELEASE sp_replace_entry")
+        raise
+    return {"original_id": entry_id, "reversal_id": reversal_id, "entry_id": new_id}
 
 # --------------------------------------------------------------------------
 # invoicing

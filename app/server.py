@@ -30,7 +30,7 @@ from . import reports as reports_mod
 from . import sharing
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.13"
+APP_VERSION = "0.15"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -709,8 +709,82 @@ def login_page(error: str = "", theme: str = DEFAULT_THEME) -> str:
 <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required autocomplete="current-password"></div>
 <button class="btn" type="submit" style="width:100%;justify-content:center">Sign in</button>
 </form></div>
-<p class="footer-note">Demo accounts are seeded by <code>scripts/seed_demo.py</code>. No real customer data.</p>
+<p class="footer-note">Private workspace. Demo data, when present, is synthetic and never real customer data.</p>
 </div></div></body></html>"""
+
+
+def setup_page(csrf_token: str, error: str = "", values: dict | None = None,
+               theme: str = DEFAULT_THEME) -> str:
+    """First-run owner setup. Shown only while the database has no users."""
+    theme = theme if theme in THEMES else DEFAULT_THEME
+    values = values or {}
+    err = f'<div class="err">{esc(error)}</div>' if error else ""
+    state = values.get("state_code") or "27"
+    return f"""<!doctype html><html lang="en" data-theme="{theme}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="Create the first ARTHIVIO owner account for this installation.">
+<title>Create your business &middot; {APP_NAME}</title>
+<style>{CSS}</style></head><body><div class="login-wrap"><div class="login" style="max-width:640px">
+<div class="brandline">{LOGO}<div><div style="font-weight:700;letter-spacing:.06em">ARTHIVIO</div>
+<div class="small muted">Smarter Finance. Stronger Business.</div></div></div>
+<div class="card pad">
+<div class="badge ok" style="margin-bottom:10px">First run</div>
+<h2 style="margin-bottom:6px">Create your business</h2>
+<p class="small muted" style="margin:0 0 16px">This installation has no users yet. The first account
+becomes the owner of this business and its books. Setup closes after this step.</p>
+{err}
+<form method="post" action="/setup">
+<input type="hidden" name="_setup_csrf" value="{esc(csrf_token)}">
+<div class="row c2">
+  <div class="field"><label for="full_name">Your name</label>
+    <input id="full_name" name="full_name" maxlength="120" required autocomplete="name"
+           value="{esc(values.get('full_name', ''))}"></div>
+  <div class="field"><label for="business_name">Business name</label>
+    <input id="business_name" name="business_name" maxlength="120" required autocomplete="organization"
+           value="{esc(values.get('business_name', ''))}"></div>
+</div>
+<div class="row c2">
+  <div class="field"><label for="email">Email (your login)</label>
+    <input id="email" name="email" type="email" maxlength="120" required autocomplete="username"
+           value="{esc(values.get('email', ''))}"></div>
+  <div class="field"><label for="state_code">GST state</label>
+    <select id="state_code" name="state_code">{state_options(state)}</select></div>
+</div>
+<div class="field"><label for="gstin">GSTIN (optional)</label>
+  <input id="gstin" name="gstin" maxlength="15" placeholder="27ABCDE1234F1Z5"
+         value="{esc(values.get('gstin', ''))}"></div>
+<div class="row c2">
+  <div class="field"><label for="password">Password (12+ characters)</label>
+    <input id="password" name="password" type="password" minlength="12" required
+           autocomplete="new-password"></div>
+  <div class="field"><label for="confirm_password">Confirm password</label>
+    <input id="confirm_password" name="confirm_password" type="password" minlength="12" required
+           autocomplete="new-password"></div>
+</div>
+<button class="btn" type="submit" style="width:100%;justify-content:center">Create owner account</button>
+</form>
+<p class="small muted" style="margin:14px 0 0">Already set up? <a href="/login">Sign in</a>.</p>
+</div>
+<p class="footer-note">Use a password you do not reuse anywhere else. ARTHIVIO stores only a
+scrypt hash. Nothing is sent to a third party during setup.</p>
+</div></div></body></html>"""
+
+
+def setup_blocked_page() -> str:
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>Setup unavailable &middot; {APP_NAME}</title>
+<style>{CSS}</style></head><body><div class="login-wrap"><div class="login">
+<div class="brandline">{LOGO}<div><div style="font-weight:700;letter-spacing:.06em">ARTHIVIO</div>
+<div class="small muted">Smarter Finance. Stronger Business.</div></div></div>
+<div class="card pad"><div class="err">First-run setup is disabled for remote connections.</div>
+<p class="small muted">Open ARTHIVIO on the computer that is running the server (for example
+<code>http://127.0.0.1:8000/setup</code>) and create the owner there. This prevents an exposed
+server from being claimed by an unknown visitor before you finish setup.</p>
+<p class="small muted" style="margin-bottom:0">For a managed deployment, the operator can set
+<code>ARTHIVIO_ALLOW_REMOTE_SETUP=1</code> for the first run, then remove it.</p>
+</div></div></div></body></html>"""
 
 
 def error_page(error_id: str) -> str:
@@ -1360,6 +1434,92 @@ class Handler(BaseHTTPRequestHandler):
             "Cache-Control": "no-store",
         })
 
+    def _is_loopback(self) -> bool:
+        host = (self.client_address[0] or "").lower()
+        return host in ("127.0.0.1", "::1") or host.startswith("127.")
+
+    def _setup_allowed(self) -> bool:
+        """First-run setup is local-only unless the operator explicitly opts in."""
+        return self._is_loopback() or os.environ.get("ARTHIVIO_ALLOW_REMOTE_SETUP") == "1"
+
+    def _setup_cookie(self, token: str) -> str:
+        return (f"setup_csrf={token}; HttpOnly; SameSite=Lax; Path=/; "
+                "Max-Age=3600")
+
+    def _setup_get(self, conn):
+        if not security.first_run(conn):
+            return self._redirect("/login")
+        if not self._setup_allowed():
+            return self._send(setup_blocked_page(), 403)
+        token = self._cookies().get("setup_csrf") or secrets.token_urlsafe(24)
+        theme = self._cookies().get("ui_theme", DEFAULT_THEME)
+        return self._send(setup_page(token, theme=theme),
+                          headers={"Set-Cookie": self._setup_cookie(token),
+                                   "Cache-Control": "no-store",
+                                   "X-Robots-Tag": "noindex, nofollow"})
+
+    def _setup_post(self, conn, form):
+        if not security.first_run(conn):
+            return self._redirect("/login")
+        if not self._setup_allowed():
+            return self._send(setup_blocked_page(), 403)
+
+        cookie_token = self._cookies().get("setup_csrf", "")
+        form_token = first(form, "_setup_csrf")
+        if (not cookie_token or not form_token
+                or not secrets.compare_digest(cookie_token, form_token)):
+            token = secrets.token_urlsafe(24)
+            return self._send(
+                setup_page(token, "The setup form expired or was not sent by this browser. "
+                                  "Reload the page and try again."),
+                403, headers={"Set-Cookie": self._setup_cookie(token),
+                              "Cache-Control": "no-store"})
+
+        values = {
+            "full_name": first(form, "full_name").strip(),
+            "business_name": first(form, "business_name").strip(),
+            "email": first(form, "email").strip().lower(),
+            "state_code": first(form, "state_code").strip() or "27",
+            "gstin": first(form, "gstin").strip().upper(),
+        }
+        password = first(form, "password")
+        confirm = first(form, "confirm_password")
+
+        def fail(message: str, status: int = 400):
+            return self._send(setup_page(cookie_token, message, values),
+                              status, headers={"Cache-Control": "no-store"})
+
+        if not values["full_name"]:
+            return fail("Enter your name.")
+        if len(values["business_name"]) < 2:
+            return fail("Enter your business name.")
+        if values["state_code"] not in STATES:
+            return fail("Choose a valid GST state.")
+        if values["gstin"] and not re.fullmatch(
+                r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]", values["gstin"]):
+            return fail("GSTIN must be 15 characters, e.g. 27ABCDE1234F1Z5.")
+        if len(password) < 12:
+            return fail("Password must be at least 12 characters.")
+        if password != confirm:
+            return fail("The two passwords do not match.")
+
+        try:
+            result = security.create_owner(
+                conn, values["email"], password, values["full_name"],
+                values["business_name"], values["state_code"], values["gstin"])
+        except security.AuthError as exc:
+            return fail(exc.message)
+
+        session_token, _csrf = security.create_session(
+            conn, result["user_id"], result["tenant_id"], self.client_address[0])
+        acct.audit(conn, result["tenant_id"], result["user_id"],
+                   "auth.session_created", "session",
+                   meta={"mode": "first_run_setup"})
+        return self._redirect("/", {
+            "Set-Cookie": f"sid={session_token}; HttpOnly; SameSite=Lax; Path=/",
+            "Cache-Control": "no-store",
+        })
+
     def _send(self, body: str, status: int = 200, headers: dict | None = None):
         data = body.encode("utf-8")
         self.send_response(status)
@@ -1486,7 +1646,11 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(parsed.query)
 
             if path == "/login":
+                if security.first_run(conn):
+                    return self._redirect("/setup")
                 return self._send(login_page(theme=self._cookies().get("ui_theme", DEFAULT_THEME)))
+            if path == "/setup":
+                return self._setup_get(conn)
             if path == "/health":
                 return self._send("ok")
             if path.startswith("/static/"):
@@ -1665,7 +1829,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/users":
                 return self._send(self.page_users(conn, user, tenant, sess, q))
             if path == "/businesses":
-                return self._send(self.page_businesses(conn, user, tenant, sess))
+                return self._send(self.page_businesses(conn, user, tenant, sess, q))
             if path == "/settings":
                 return self._send(self.page_settings(conn, user, tenant, sess, q))
             if path == "/backup":
@@ -1699,7 +1863,12 @@ class Handler(BaseHTTPRequestHandler):
                     413)
             form = self._form()
 
+            if path == "/setup":
+                return self._setup_post(conn, form)
+
             if path == "/login":
+                if security.first_run(conn):
+                    return self._redirect("/setup")
                 try:
                     user = security.authenticate(conn, first(form, "email"), first(form, "password"),
                                                  self.client_address[0])
@@ -1744,6 +1913,8 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/switch":
                 return self._switch_business(conn, user, sess, form)
+            if path == "/businesses/create":
+                return self._create_business(conn, user, tenant, sess, form)
             if path == "/users/invite":
                 return self._invite_member(conn, user, tenant, form)
             if path == "/users/role":
@@ -1798,6 +1969,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._create_vendor(conn, user, tenant, sess, form)
             if path == "/journal":
                 return self._create_journal(conn, user, tenant, sess, form)
+            if path == "/journal/edit":
+                return self._edit_journal(conn, user, tenant, sess, form)
             if path == "/journal/reverse":
                 return self._reverse_journal(conn, user, tenant, form)
             if path == "/accounts":
@@ -2539,6 +2712,11 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
         entries = acct.day_book(conn, tenant["id"], dfrom, dto)
+        try:
+            security.require(conn, user["id"], tenant["id"], "ledger.reverse")
+            can_reverse = True
+        except security.AuthError:
+            can_reverse = False
         links = {"invoice": "/invoices/", "bill": "/bills/", "credit_note": "/credit-notes",
                  "debit_note": "/debit-notes", "receipt": "/receipts", "payment": "/receipts"}
         trs = ""
@@ -2547,11 +2725,24 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             base = links.get(e["source_type"])
             if base and e["source_id"] and base.endswith("/"):
                 ref = f'<a href="{base}{esc(e["source_id"])}">{esc(e["entry_no"])}</a>'
+            action = ""
+            if can_reverse and e["source_type"] == "manual" and e["status"] != "reversed":
+                action = (f'<a class="small" href="/journal?edit={esc(e["id"])}">Edit</a>'
+                          f' <span class="muted">/</span> '
+                          f'<a class="small" href="/journal?reverse={esc(e["id"])}">Reverse</a>')
+            elif can_reverse and e["source_type"] == "opening" and e["status"] != "reversed":
+                action = f'<a class="small" href="/journal?reverse={esc(e["id"])}">Reverse</a>'
+            elif base and e["source_id"]:
+                href = (f'{base}{esc(e["source_id"])}' if base.endswith("/") else base)
+                action = f'<a class="small" href="{href}">Open source</a>'
+            elif e["source_type"] not in ("manual", "reversal", "opening"):
+                action = f'<span class="small muted">{esc(e["source_type"].replace("_", " "))}</span>'
             trs += (f'<tr><td>{esc(e["entry_date"])}</td><td>{ref}</td>'
                     f'<td>{esc(e["source_type"])}</td><td>{esc(e["narration"])}</td>'
                     f'<td class="num">{money.fmt(e["amount"])}</td>'
-                    f'<td><span class="badge {"ok" if e["status"] == "posted" else "neutral"}">{esc(e["status"])}</span></td></tr>')
-        trs = trs or '<tr><td colspan="6" class="empty">No vouchers in this period</td></tr>'
+                    f'<td><span class="badge {"ok" if e["status"] == "posted" else "neutral"}">{esc(e["status"])}</span></td>'
+                    f'<td>{action}</td></tr>')
+        trs = trs or '<tr><td colspan="7" class="empty">No vouchers in this period</td></tr>'
         body = f"""
 <form method="get" class="card pad sect">
 <div class="row c4">
@@ -2560,9 +2751,9 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
 <div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/export/daybook.csv">Export CSV</a></div>
 </div></form>
-<div class="card"><table><thead><tr><th>Date</th><th>Voucher</th><th>Type</th><th>Narration</th><th class="num">Amount</th><th>Status</th></tr></thead>
+<div class="card"><table><thead><tr><th>Date</th><th>Voucher</th><th>Type</th><th>Narration</th><th class="num">Amount</th><th>Status</th><th>Action</th></tr></thead>
 <tbody>{trs}</tbody></table></div>
-<p class="small muted" style="margin-top:12px">Every voucher is one balanced journal entry. {len(entries)} entries in this period.</p>"""
+<p class="small muted" style="margin-top:12px">Every voucher is one balanced journal entry. {len(entries)} entries in this period. Manual cash, bank and journal entries can be corrected with Edit; source documents open their own page.</p>"""
         return layout("Day book", body, "daybook", user, tenant)
 
     def page_journal(self, conn, user, tenant, sess, q=None, mode: str = "journal") -> str:
@@ -2592,6 +2783,11 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
                 f'{label}</a>' for value, label in
                 [("cash", "Cash entry"), ("bank", "Bank entry"), ("journal", "Journal entry")])
                 + '</div>')
+
+        def account_options(chosen: str) -> str:
+            return ('<option value="">- choose account -</option>' + "".join(
+                f'<option value="{a["id"]}"{" selected" if a["id"] == chosen else ""}>'
+                f'{esc(a["code"])} - {esc(a["name"])}</option>' for a in accounts))
 
         reverse_id = (q.get("reverse") or [""])[0]
         if reverse_id:
@@ -2631,7 +2827,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 {tabs_html()}
 <div class="card pad" style="max-width:900px">
 <h2>Reverse {esc(entry["entry_no"])}</h2>
-<p class="muted">Original date {esc(entry["entry_date"])} · {esc(entry["narration"])}</p>
+<p class="muted">Original date {esc(entry["entry_date"])} - {esc(entry["narration"])}</p>
 <div class="table-wrap"><table>
 <thead><tr><th>Code</th><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
 <tbody>{line_rows}</tbody></table></div>
@@ -2647,6 +2843,97 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <p class="small muted">The original entry stays in the books and is marked reversed. A new mirrored entry is posted with its own audit trail.</p>
 </div>"""
             return layout("Reverse journal entry", body, "entries/journal", user, tenant)
+
+        edit_id = (q.get("edit") or [""])[0]
+        if edit_id:
+            entry = conn.execute(
+                "SELECT * FROM journal_entry WHERE id=? AND tenant_id=?",
+                (edit_id, tenant["id"])).fetchone()
+            if not entry:
+                body = ('<div class="card pad"><div class="err">Journal entry not found in this business.</div>'
+                        '<a class="btn ghost" href="/ledger">Back to ledger</a></div>')
+                return layout("Edit journal entry", body, "entries/journal", user, tenant)
+            lines = conn.execute(
+                "SELECT l.*, a.code, a.name FROM journal_line l"
+                " JOIN account a ON a.id=l.account_id"
+                " WHERE l.entry_id=? ORDER BY l.line_no", (entry["id"],)).fetchall()
+            first_account = lines[0]["account_id"] if lines else ""
+            back = f'/ledger?account={first_account}' if first_account else "/ledger"
+            if not can_post or not can_reverse:
+                body = ('<div class="card pad"><div class="err">Your role cannot edit entries. '
+                        'Editing needs both journal posting and reversal permission.</div>'
+                        f'<a class="btn ghost" href="{back}">Back to ledger</a></div>')
+                return layout("Edit journal entry", body, "entries/journal", user, tenant)
+            if entry["source_type"] != "manual":
+                extra = ""
+                if entry["source_type"] == "opening":
+                    extra = (f'<a class="btn ghost" href="/journal?reverse={esc(entry["id"])}">'
+                             f'Reverse opening entry</a>')
+                body = (f'<div class="card pad"><div class="err">Only manual cash, bank and journal entries '
+                        f'can be edited here. This entry came from <b>{esc(entry["source_type"])}</b>.</div>'
+                        f'<p class="small muted">Use the source document, a credit note, a debit note or a '
+                        f'reversal for this entry.</p>{extra}'
+                        f'<a class="btn ghost" href="{back}">Back to ledger</a></div>')
+                return layout("Edit journal entry", body, "entries/journal", user, tenant)
+            if entry["status"] == "reversed":
+                body = (f'<div class="card pad"><div class="err">Entry {esc(entry["entry_no"])} is already reversed.</div>'
+                        f'<a class="btn ghost" href="{back}">Back to ledger</a></div>')
+                return layout("Edit journal entry", body, "entries/journal", user, tenant)
+
+            archived = [l for l in lines if l["account_id"] not in account_by_id]
+            archived_note = ""
+            if archived:
+                names = ", ".join(f'{l["code"]} {l["name"]}' for l in archived)
+                archived_note = (f'<div class="err" style="margin-bottom:14px">This entry uses archived '
+                                 f'account(s): {esc(names)}. Choose an active account in the replacement '
+                                 f'lines, or restore the account first.</div>')
+            row_count = max(len(lines) + 2, 4)
+            row_html = ""
+            for i in range(row_count):
+                if i < len(lines):
+                    line = lines[i]
+                    chosen = line["account_id"] if line["account_id"] in account_by_id else ""
+                    debit = money.to_str(line["debit_paise"]) if line["debit_paise"] else ""
+                    credit = money.to_str(line["credit_paise"]) if line["credit_paise"] else ""
+                else:
+                    chosen, debit, credit = "", "", ""
+                row_html += (
+                    f'<tr><td><select name="account_id">{account_options(chosen)}</select></td>'
+                    f'<td><input name="debit" value="{debit}" inputmode="decimal" placeholder="0.00"></td>'
+                    f'<td><input name="credit" value="{credit}" inputmode="decimal" placeholder="0.00"></td></tr>')
+
+            body = f"""
+{tabs_html()}
+<div class="notice">Saving a correction reverses <b>{esc(entry["entry_no"])}</b> and posts a new
+corrected entry. Nothing is deleted, so both versions stay in the audit trail.</div>
+<form method="post" action="/journal/edit">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="entry_id" value="{esc(entry["id"])}">
+<input type="hidden" name="mode" value="{esc(mode)}">
+<div class="card pad sect">
+{archived_note}
+<div class="row c3">
+<div class="field"><label>Date</label>
+<input type="date" name="entry_date" value="{esc(entry["entry_date"])}" required></div>
+<div class="field" style="grid-column:span 2"><label>Narration</label>
+<input name="narration" value="{esc(entry["narration"])}" required maxlength="200"></div>
+</div></div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th style="width:58%">Account</th><th>Debit</th><th>Credit</th></tr></thead>
+<tbody>{row_html}</tbody></table></div>
+<div class="card pad sect">
+<div class="field"><label for="reason">Why are you correcting this entry?</label>
+<input id="reason" name="reason" maxlength="200" required
+placeholder="e.g. Wrong amount entered; correct amount is 1,250.00"></div>
+</div>
+<div class="entry-actions">
+<button class="btn" type="submit">Save correction</button>
+<a class="btn ghost" href="{back}">Cancel</a>
+</div>
+<p class="small muted" style="margin-top:12px">Debits must equal credits exactly. If the corrected
+entry is unbalanced, the whole correction is rejected and the original stays posted.</p>
+</form>"""
+            return layout("Edit journal entry", body, "entries/journal", user, tenant)
 
         if not can_post:
             body = (tabs_html() + '<div class="card pad"><div class="err">Your role cannot post journal entries. '
@@ -2671,11 +2958,6 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             first_account = selected if selected in account_by_id else ""
             hint = "Choose any two or more accounts. Debits must equal credits exactly."
 
-        def account_options(chosen: str) -> str:
-            return ('<option value="">— choose account —</option>' + "".join(
-                f'<option value="{a["id"]}"{" selected" if a["id"] == chosen else ""}>'
-                f'{esc(a["code"])} — {esc(a["name"])}</option>' for a in accounts))
-
         row_html = ""
         for i in range(4):
             chosen = first_account if i == 0 else ""
@@ -2683,6 +2965,52 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
                 f'<tr><td><select name="account_id">{account_options(chosen)}</select></td>'
                 f'<td><input name="debit" value="" inputmode="decimal" placeholder="0.00"></td>'
                 f'<td><input name="credit" value="" inputmode="decimal" placeholder="0.00"></td></tr>')
+
+        params = [tenant["id"]]
+        if mode == "cash":
+            recent_filter = (" AND EXISTS (SELECT 1 FROM journal_line l WHERE l.entry_id=e.id"
+                             " AND l.account_id=?)")
+            params.append(cash_id or "__no_cash_account__")
+        elif mode == "bank":
+            if bank_ids:
+                marks = ",".join("?" for _ in bank_ids)
+                recent_filter = (f" AND EXISTS (SELECT 1 FROM journal_line l WHERE l.entry_id=e.id"
+                                 f" AND l.account_id IN ({marks}))")
+                params.extend(sorted(bank_ids))
+            else:
+                recent_filter = " AND 1=0"
+        else:
+            recent_filter = ""
+        recent = conn.execute(
+            "SELECT e.id, e.entry_no, e.entry_date, e.narration, e.status,"
+            " (SELECT COALESCE(SUM(debit_paise),0) FROM journal_line WHERE entry_id=e.id) AS amount"
+            " FROM journal_entry e WHERE e.tenant_id=? AND e.source_type='manual'"
+            + recent_filter + " ORDER BY e.posted_at DESC, e.entry_no DESC LIMIT 12",
+            params).fetchall()
+        recent_rows = ""
+        for r in recent:
+            action = ""
+            if can_reverse and r["status"] != "reversed":
+                action = (f'<a class="small" href="/entries/{mode}?edit={esc(r["id"])}">Edit</a>'
+                          f' <span class="muted">/</span> '
+                          f'<a class="small" href="/journal?reverse={esc(r["id"])}">Reverse</a>')
+            elif r["status"] == "reversed":
+                action = '<span class="small muted">reversed</span>'
+            recent_rows += (f'<tr><td>{esc(r["entry_date"])}</td><td>{esc(r["entry_no"])}</td>'
+                            f'<td>{esc(r["narration"])}</td>'
+                            f'<td class="num">{money.fmt(r["amount"])}</td>'
+                            f'<td>{action}</td></tr>')
+        recent_rows = recent_rows or '<tr><td colspan="5" class="empty">No manual entries yet.</td></tr>'
+        recent_title = {"cash": "Recent cash entries", "bank": "Recent bank entries",
+                        "journal": "Recent journal entries"}.get(mode, "Recent entries")
+        recent_card = f"""
+<div class="card sect">
+<div class="sect-head"><div><h2>{esc(recent_title)}</h2>
+<div class="small muted">Use Edit to reverse and repost a manual entry; use Reverse to cancel it.</div></div></div>
+<div class="table-wrap"><table>
+<thead><tr><th>Date</th><th>Voucher</th><th>Narration</th><th class="num">Amount</th><th>Action</th></tr></thead>
+<tbody>{recent_rows}</tbody></table></div>
+</div>"""
 
         narration_hint = {"cash": "Cash receipt or payment", "bank": "Bank receipt or payment",
                           "journal": "Manual journal narration"}.get(mode, "Narration")
@@ -2706,7 +3034,8 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <a class="btn ghost" href="/ledger">Back to ledger</a>
 </div>
 <p class="small muted" style="margin-top:12px">Debits must equal credits exactly. Posting is atomic: an unbalanced entry is rejected and nothing is written.</p>
-</form>"""
+</form>
+{recent_card}"""
         return layout(title, body, active, user, tenant)
 
     def page_bank_accounts(self, conn, user, tenant, sess, q) -> str:
@@ -3426,15 +3755,31 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
         date_from = (q.get("from") or [fiscal_start(today, tenant["fiscal_year_start_month"])])[0]
         date_to = (q.get("to") or [today.isoformat()])[0]
         gl = acct.general_ledger(conn, tenant["id"], account_id, date_from, date_to)
+        try:
+            security.require(conn, user["id"], tenant["id"], "ledger.reverse")
+            can_reverse = True
+        except security.AuthError:
+            can_reverse = False
         opts = "".join(
             f'<option value="{a["id"]}" {"selected" if a["id"] == account_id else ""}>{a["code"]} — {esc(a["name"])}</option>'
             for a in accounts)
-        rows = "".join(
-            f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}</td><td>{esc(r["narration"])}</td>'
-            f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
-            f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
-            f'<td class="num">{money.fmt(r["balance"])}</td></tr>' for r in gl["rows"])
-        rows = rows or '<tr><td colspan="6" class="empty">No movement in this period</td></tr>'
+        entry_href = f'/entries/bank?account={account_id}' if bank else f'/entries/cash?account={account_id}'
+        rows = ""
+        for r in gl["rows"]:
+            action = ""
+            if can_reverse and r["source_type"] == "manual" and r["status"] != "reversed":
+                action = (f'<a class="small" href="{entry_href}?edit={esc(r["entry_id"])}">Edit</a>'
+                          f' <span class="muted">/</span> '
+                          f'<a class="small" href="/journal?reverse={esc(r["entry_id"])}">Reverse</a>')
+            elif can_reverse and r["source_type"] == "opening" and r["status"] != "reversed":
+                action = f'<a class="small" href="/journal?reverse={esc(r["entry_id"])}">Reverse</a>'
+            elif r["source_type"] not in ("manual", "reversal", "opening"):
+                action = f'<span class="small muted">{esc(r["source_type"].replace("_", " "))}</span>'
+            rows += (f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}</td><td>{esc(r["narration"])}</td>'
+                     f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
+                     f'<td class="num">{money.fmt(r["balance"])}</td><td>{action}</td></tr>')
+        rows = rows or '<tr><td colspan="7" class="empty">No movement in this period</td></tr>'
         bank_meta = ""
         if bank:
             bank_name = selected.get("bank_name") or tenant["bank_name"] or ""
@@ -3451,7 +3796,6 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
             ] if x)
             if details:
                 bank_meta = f'<div class="card pad small muted" style="margin-bottom:14px">{details}</div>'
-        entry_href = f'/entries/bank?account={account_id}' if bank else f'/entries/cash?account={account_id}'
         entry_label = "Bank entry" if bank else "Cash entry"
         body = f"""
 <div class="sect-head"><div></div><div class="entry-actions">
@@ -3468,11 +3812,11 @@ document.getElementById('gstr2b_file').addEventListener('change', function (e) {
 <div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
 </div></form>
 <div class="card"><table>
-<thead><tr><th>Date</th><th>Ref</th><th>Particulars</th><th class="num">Receipts</th><th class="num">Payments</th><th class="num">Balance</th></tr></thead>
-<tbody><tr><td colspan="5" class="muted">Opening balance</td><td class="num"><b>{money.fmt(gl["opening"])}</b></td></tr>
+<thead><tr><th>Date</th><th>Ref</th><th>Particulars</th><th class="num">Receipts</th><th class="num">Payments</th><th class="num">Balance</th><th>Action</th></tr></thead>
+<tbody><tr><td colspan="5" class="muted">Opening balance</td><td class="num"><b>{money.fmt(gl["opening"])}</b></td><td></td></tr>
 {rows}</tbody>
-<tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(gl["closing"])}</td></tr></tfoot></table></div>
-<p class="small muted" style="margin-top:12px">This book is computed from posted journal lines. Nothing is cached or entered directly here.</p>"""
+<tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(gl["closing"])}</td><td></td></tr></tfoot></table></div>
+<p class="small muted" style="margin-top:12px">This book is computed from posted journal lines. Manual cash and bank entries can be corrected with Edit; the original is reversed and a corrected voucher is posted. Nothing is overwritten.</p>"""
         return layout(f'{title} — {gl["account"]["name"]}', body, active, user, tenant)
 
     def _account_form(self, action: str, sess, tenant, account=None, profile=None,
@@ -4193,7 +4537,7 @@ the posted journals and audit log are the record.</p>
             merge_note = "Restore / view archive" if is_archived else "Archive or merge"
             profile_actions = (
                 f'<a class="btn ghost small" style="margin-left:auto" '
-                f'href="/ledger/account/{account_id}/edit">Edit account details</a>'
+                f'href="/ledger/account/{account_id}/edit">Edit ledger details</a>'
                 f'<a class="btn ghost small" href="/ledger/account/{account_id}/archive">'
                 f'{merge_note}</a>')
         detail_rows = "".join(
@@ -4227,7 +4571,7 @@ the posted journals and audit log are the record.</p>
 <summary style="cursor:pointer;font-weight:650">Opening balance entry · {money.fmt(opening_amount)} {opening_side}</summary>
 <p class="small muted" style="margin:10px 0 0">Posted as <b>{esc(opening_entry["entry_no"])}</b> on
 {esc(opening_entry["entry_date"])} against Opening Balance Equity. To replace it, reverse that entry first;
-posted entries are never edited.</p>
+manual entries can be corrected with Edit; opening balances can be reversed.</p>
 {reverse_opening}
 </details>"""
         elif is_opening_equity:
@@ -4336,7 +4680,12 @@ to migrate many ledgers from a CSV.</p>
                 badges = ' <span class="pill">reversal</span>'
             action = ""
             if (can_reverse and not is_archived
-                    and r["source_type"] in ("manual", "opening") and r["status"] != "reversed"):
+                    and r["source_type"] == "manual" and r["status"] != "reversed"):
+                action = (f'<a class="small" href="/journal?edit={esc(r["entry_id"])}">Edit</a>'
+                          f' <span class="muted">/</span> '
+                          f'<a class="small" href="/journal?reverse={esc(r["entry_id"])}">Reverse</a>')
+            elif (can_reverse and not is_archived
+                    and r["source_type"] == "opening" and r["status"] != "reversed"):
                 action = (f'<a class="small" href="/journal?reverse={esc(r["entry_id"])}">Reverse</a>')
             elif r["source_type"] not in ("manual", "reversal", "opening"):
                 action = f'<span class="small muted">{esc(r["source_type"].replace("_", " "))}</span>'
@@ -4350,6 +4699,13 @@ to migrate many ledgers from a CSV.</p>
         notice = ""
         if q.get("posted"):
             notice += '<div class="notice">Entry posted. The ledger below includes it.</div>'
+        if q.get("new_business"):
+            notice += ('<div class="notice">Fresh business created. Its books are empty. '
+                       'Add your own ledger account or use the ready-made Cash, Bank, Sales and '
+                       'Expense accounts, then post your first entry.</div>')
+        if q.get("edited"):
+            notice += ('<div class="notice">Correction posted. The original entry is marked reversed '
+                       'and the corrected entry is shown as a new voucher. Both remain in the audit trail.</div>')
         if q.get("created"):
             notice += ('<div class="notice">Ledger account created with its profile. Review the details '
                        'below; posted amounts were not changed.</div>')
@@ -4402,7 +4758,10 @@ to migrate many ledgers from a CSV.</p>
 <tbody><tr><td colspan="5" class="muted">Opening balance (before period)</td><td class="num"><b>{money.fmt(gl["opening"])}</b></td><td></td></tr>
 {rows}</tbody>
 <tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(gl["closing"])}</td><td></td></tr></tfoot></table></div>
-<p class="small muted" style="margin-top:12px">Posted entries are never edited. Manual journals and opening balances can be reversed with a reason; reversals create a mirrored entry and keep both sides in the audit trail.</p>
+<p class="small muted" style="margin-top:12px">Posted entries are never deleted or overwritten. Manual cash, bank and journal entries can be
+corrected with <b>Edit</b>: the original is reversed and a corrected voucher is posted in one step.
+Opening balances can be reversed with a reason. Invoices, bills, receipts and notes use their own
+correction path. Every correction stays in the audit trail.</p>
 </section></div>"""
         return layout(f'Ledger — {gl["account"]["name"]}', body, "ledger", user, tenant)
 
@@ -5636,7 +5995,8 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
 """
         return layout("Team", body, "users", user, tenant)
 
-    def page_businesses(self, conn, user, tenant, sess) -> str:
+    def page_businesses(self, conn, user, tenant, sess, q=None) -> str:
+        q = q or {}
         rows = security.tenants_for(conn, user["id"])
         trs = ""
         for r in rows:
@@ -5648,11 +6008,44 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
                       f'<button class="btn small ghost" type="submit">Switch</button></form>')
             trs += (f'<tr><td><b>{esc(r["name"])}</b><div class="small muted">{esc(r["slug"])}</div></td>'
                     f'<td>{esc(role_name(r["role"]))}</td>'
-                    f'<td>{esc(r["gstin"] or "—")}</td><td>{action}</td></tr>')
+                    f'<td>{esc(r["gstin"] or "-")}</td><td>{action}</td></tr>')
+        try:
+            security.require(conn, user["id"], tenant["id"], "tenant.manage")
+            can_create = True
+        except security.AuthError:
+            can_create = False
+        create_card = ""
+        if can_create:
+            create_card = f"""
+<div class="card pad sect">
+<h2 style="margin-bottom:4px">Start fresh books</h2>
+<p class="small muted" style="margin:0 0 14px">Create a separate business with the standard chart of
+accounts and <b>no entries</b>. You become its owner. Use it to test new ledgers and entries without
+touching the demo data. You can switch back at any time.</p>
+<form method="post" action="/businesses/create">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="row c3">
+<div class="field"><label>Business name</label>
+<input name="business_name" required maxlength="120" placeholder="e.g. Entry Test Co"></div>
+<div class="field"><label>GST state</label><select name="state_code">{state_options(tenant['state_code'])}</select></div>
+<div class="field"><label>GSTIN (optional)</label><input name="gstin" maxlength="15" placeholder="27ABCDE1234F1Z5"></div>
+</div>
+<button class="btn" type="submit">Create fresh business</button>
+</form>
+<p class="small muted" style="margin:12px 0 0">After creating it, open <b>Ledger</b> to add your own
+khata/ledger, or use the ready-made Cash, Bank, Sales and Expense accounts. Then post a cash, bank or
+journal entry and use <b>Edit</b> on the entry to correct it.</p>
+</div>"""
+        notice = ""
+        if q.get("created"):
+            notice = ('<div class="notice">Fresh business created. Its books are empty and ready for '
+                      'your own ledger and entries.</div>')
         body = f"""
+{notice}
 <div class="card sect"><table>
 <thead><tr><th>Business</th><th>Your role</th><th>GSTIN</th><th></th></tr></thead>
 <tbody>{trs or '<tr><td colspan="4" class="empty">No active businesses</td></tr>'}</tbody></table></div>
+{create_card}
 <div class="card pad small muted">A switch changes the business for this session only. Your access is checked again against your active membership.</div>
 """
         return layout("Businesses", body, "businesses", user, tenant)
@@ -6263,6 +6656,30 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         acct.audit(conn, tenant_id, user["id"], "auth.tenant_switched", "tenant", tenant_id)
         return self._redirect("/")
 
+    def _create_business(self, conn, user, tenant, sess, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], "tenant.manage")
+        except security.AuthError as e:
+            return self._error_page(user, tenant, e.message, "/businesses")
+        name = first(form, "business_name").strip()
+        state_code = (first(form, "state_code") or "27").strip()
+        gstin = first(form, "gstin").strip().upper()
+        if state_code not in STATES:
+            return self._error_page(user, tenant, "Choose a valid GST state.", "/businesses")
+        if gstin and not re.fullmatch(
+                r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]", gstin):
+            return self._error_page(
+                user, tenant, "GSTIN must be 15 characters, e.g. 27ABCDE1234F1Z5.", "/businesses")
+        try:
+            created = security.create_business(conn, user["id"], name, state_code, gstin)
+        except security.AuthError as e:
+            return self._error_page(user, tenant, e.message, "/businesses")
+        conn.execute("UPDATE session SET tenant_id=? WHERE id=? AND user_id=?",
+                     (created["tenant_id"], sess["id"], user["id"]))
+        acct.audit(conn, created["tenant_id"], user["id"], "auth.tenant_switched",
+                   "tenant", created["tenant_id"])
+        return self._redirect("/ledger?new_business=1")
+
     def _invite_member(self, conn, user, tenant, form):
         try:
             security.require(conn, user["id"], tenant["id"], "user.invite")
@@ -6585,8 +7002,7 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
         acct.audit(conn, tenant["id"], user["id"], "vendor.create", "vendor", vid)
         return self._redirect("/vendors")
 
-    def _create_journal(self, conn, user, tenant, sess, form):
-        security.require(conn, user["id"], tenant["id"], "journal.post")
+    def _journal_lines_from_form(self, form) -> list[dict]:
         accounts = form.get("account_id") or []
         debits = form.get("debit") or []
         credits = form.get("credit") or []
@@ -6595,13 +7011,21 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
             return seq[i] if i < len(seq) else ""
 
         lines = []
+        for i, aid in enumerate(accounts):
+            d = money.parse_amount(pick(debits, i) or "0")
+            c = money.parse_amount(pick(credits, i) or "0")
+            if d == 0 and c == 0:
+                continue
+            if not aid:
+                raise acct.AccountingError("ACCOUNT_REQUIRED",
+                                           "Choose an account for every line that has an amount.")
+            lines.append({"account_id": aid, "debit": d, "credit": c})
+        return lines
+
+    def _create_journal(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "journal.post")
         try:
-            for i, aid in enumerate(accounts):
-                d = money.parse_amount(pick(debits, i) or "0")
-                c = money.parse_amount(pick(credits, i) or "0")
-                if d == 0 and c == 0:
-                    continue
-                lines.append({"account_id": aid, "debit": d, "credit": c})
+            lines = self._journal_lines_from_form(form)
             entry_id = acct.post_journal(
                 conn, tenant["id"], first(form, "entry_date") or date.today().isoformat(),
                 first(form, "narration") or "Manual journal", lines, source_type="manual",
@@ -6612,6 +7036,32 @@ python scripts/restore_verify.py --backup backups/&lt;file&gt;.db</pre>
             return self._redirect("/daybook")
         except (acct.AccountingError, money.MoneyError) as e:
             return self._error_page(user, tenant, getattr(e, "message", str(e)), "/journal")
+
+    def _edit_journal(self, conn, user, tenant, sess, form):
+        entry_id = first(form, "entry_id")
+        back = "/daybook"
+        try:
+            security.require(conn, user["id"], tenant["id"], "journal.post")
+            security.require(conn, user["id"], tenant["id"], "ledger.reverse")
+            entry = conn.execute(
+                "SELECT * FROM journal_entry WHERE id=? AND tenant_id=?",
+                (entry_id, tenant["id"])).fetchone()
+            if not entry:
+                raise acct.AccountingError("ENTRY_NOT_FOUND", "Journal entry not found.")
+            first_line = conn.execute(
+                "SELECT account_id FROM journal_line WHERE entry_id=? ORDER BY line_no LIMIT 1",
+                (entry_id,)).fetchone()
+            if first_line:
+                back = f'/ledger?account={first_line["account_id"]}'
+            lines = self._journal_lines_from_form(form)
+            result = acct.replace_entry(
+                conn, tenant["id"], entry_id,
+                first(form, "entry_date") or entry["entry_date"],
+                first(form, "narration") or entry["narration"],
+                lines, first(form, "reason"), created_by=user["id"])
+            return self._redirect(f"{back}{'&' if '?' in back else '?'}edited=1")
+        except (security.AuthError, acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)), back)
 
     # ---------------- exports ----------------
     def _send_bytes(self, data: bytes, content_type: str, filename: str):

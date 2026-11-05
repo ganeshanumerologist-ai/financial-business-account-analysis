@@ -3,14 +3,14 @@
 | Field | Value |
 |---|---|
 | Version | 1.2 |
-| Date | 2026-11-04 |
+| Date | 2026-11-05 |
 | Purpose | Prove every requirement has a planned module, a test, and a documented status |
 | Source | `docs/PROJECT_SPEC.md` → `docs/REQUIREMENTS.md` → modules → tests |
 
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 21 (Build 0.13); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 23 (Build 0.15); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -253,6 +253,7 @@ accounting data.
 | Owner protection and self-change guards | **Verified** | owner role locked, self role/status changes rejected, admin cannot promote to owner |
 | Suspend/remove revokes access | **Verified** | session revoked immediately; `test_admin_can_change_role_and_suspend_revokes_sessions` |
 | Business switcher | **Verified** | active membership checked on switch; `test_25_business_switcher_checks_membership` |
+| Fresh test business | **Verified** | owner-only `/businesses/create` creates a separate tenant with standard chart and zero entries, makes creator owner, audits `business.created` and switches session; `test_create_business_is_empty_and_makes_creator_owner`, `test_web.test_48` |
 | Share link scope/expiry/revocation | **Verified** | tenant/party/date scope, 7/30/90 days, revoke and expired states; 4 sharing tests |
 | Public statement privacy | **Verified** | no login, no internal IDs, `noindex/nofollow`, `Cache-Control: no-store`, view count |
 | GSTR-2B CSV parse/import | **Verified** | preamble, aliases, GSTIN/date validation, SHA-256 dedup, supersede, history; 17 GSTR-2B tests |
@@ -309,6 +310,7 @@ accounting data.
 | Bulk import atomicity and audit | **Verified** | one outer transaction; simulated second-row failure rolled back the first row, the equity account and the bulk audit; one `opening_balance.set` per account plus `opening_balance.bulk_import`; `test_07_failure_after_first_entry_rolls_back_the_whole_import`, `test_05_post_is_balanced_audited_and_keeps_notes` |
 | Entry creation separate from viewing | **Verified** | `/entries/cash`, `/entries/bank`, `/entries/journal`; Cash/Bank preselect the control account; `test_30` |
 | Corrections with permission | **Verified** | manual journal reversal requires `ledger.reverse` and a reason; mirrored entry + original marked reversed + audit; `test_30` |
+| Edit manual entries | **Verified** | `/journal?edit=<id>` pre-fills the original; `POST /journal/edit` requires both `journal.post` and `ledger.reverse`, a reason, and a balanced replacement; original is reversed and corrected entry posted in one transaction; failure rolls back the reversal; `journal.edit` audit; Edit/Reverse actions on ledger, day book, cash book, bank book and entry pages; `TestEntryCorrection`, `test_web.test_48` |
 | New bank account with full details | **Verified** | `/bank-accounts` creates a linked asset ledger plus bank name, account number, IFSC, branch and holder; `TestBankAccounts`, `test_29` |
 | Multiple bank accounts in books | **Verified** | Bank Book and Reconciliation select among 1010 and every linked bank account; browser check and `test_29` |
 | Reports in one dropdown | **Verified** | Reports holds Trial Balance, P&L, Balance Sheet, AR/AP Ageing, GST Summary & GSTR-1, GSTR-3B Working and GSTR-2B; no Tax Returns heading |
@@ -386,3 +388,31 @@ accounting data.
 | Remaining report/chart library | **Not implemented** | 38 catalogued report screens, saved dashboards, full drill-down, EN/HI labels and the ~150-template target remain Phase B |
 | Mobile / screen-reader / contrast / cross-browser / 4K | **Not verified** | no real viewport or accessibility matrix was run for the new report pages |
 
+## 22. Status after first-run setup and offline package (Build 0.14, 2026-11-04)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| First-run owner setup | **Verified** | `/setup` appears only while the user table is empty; local-only guard; setup CSRF cookie; one atomic tenant/chart/user/owner transaction; permanent closure after first owner; `tests/test_first_run.py` (6) |
+| Empty-install login flow | **Verified** | `/login` redirects to `/setup` before the first user and returns to sign-in afterwards |
+| Offline Windows package | **Verified on this machine** | embedded Python 3.14.6, `openpyxl` 3.1.5, local SQLite; `dist/ARTHIVIO-Offline` and ZIP; embedded import, `/health`, setup and dashboard smoke-tested |
+| External-drive backup | **Verified on this machine** | verified local backup, SHA-256-matched copy, read-only re-verification, optional pruning |
+| Offline launcher and autostart | **Implemented** | free-port choice, duplicate-instance detection, package-local data/backup/log paths, desktop and Windows Startup shortcuts |
+| Windows installer / service / signing | **Not implemented** | no MSI, Windows service, code signing, clean-machine test or antivirus reputation check |
+| Offline-to-online sync | **Not implemented** | no outage queue, device IDs, idempotency, conflict rules or tests |
+| Permanent hosting / updates / UPS | **Not implemented** | no permanent URL, automatic update delivery, cloud backup or UPS integration |
+| Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.14 |
+
+
+
+## 23. Status after editable manual entries and fresh test books (Build 0.15, 2026-11-05)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Edit manual cash/bank/journal entry | **Verified** | pre-filled `/journal?edit=<id>`; `POST /journal/edit` requires a reason; original reversed and corrected replacement posted in one transaction; `journal.edit` audit; `TestEntryCorrection`, `test_web.test_48` |
+| Correction atomicity and guards | **Verified** | invalid/unbalanced replacement rolls back the reversal; reason required; non-manual and cross-tenant entries rejected; original remains posted |
+| Edit/Reverse visibility | **Verified** | ledger, day book, cash book, bank book and entry pages show actions for manual rows under `journal.post` + `ledger.reverse`; source documents open their own page |
+| Fresh business / test books | **Verified** | owner-only `/businesses/create` creates a separate tenant with standard chart and zero entries, creator becomes owner, `business.created` audit, session switches to empty ledger |
+| Offline package 0.15 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.15.zip`; embedded runtime import, `/health` and setup page smoke-tested |
+| Source-document in-place editing | **Not implemented** | invoices, bills, receipts and credit/debit notes keep their existing correction paths; no overwrite |
+| Approval workflow / bulk correction | **Not implemented** | no correction approval step, edit-history UI beyond audit log, or bulk correction |
+| Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.15 |

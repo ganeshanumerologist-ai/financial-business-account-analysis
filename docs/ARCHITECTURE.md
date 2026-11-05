@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.13)
+## 11. Implementation status (current Build 0.15)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -605,3 +605,60 @@ Amounts are exported as exact decimal strings from integer paise.
 - The remaining 38 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
   ~150-template library are not delivered.
 - No mobile viewport, screen-reader, contrast, cross-browser or 4K matrix was run for the new pages.
+
+## 19. Build 0.14: first-run setup and offline Windows package (2026-11-04)
+
+### 19.1 First-run setup
+
+`/setup` exists only while the `user` table is empty. `security.create_owner()` creates the tenant,
+default chart of accounts, user and owner membership inside one `BEGIN IMMEDIATE` transaction, and
+re-checks the empty condition inside the transaction. The route is local-only unless
+`ARTHIVIO_ALLOW_REMOTE_SETUP=1` is set, and the POST requires a setup CSRF cookie plus hidden token.
+Once one user exists, `/setup` redirects to `/login`; it cannot create a second owner.
+
+### 19.2 Offline package
+
+`scripts/build_windows_portable.py` assembles `dist/ARTHIVIO-Offline` from:
+
+- the official Python 3.14.6 embeddable runtime,
+- `app/`, `docs/`, `scripts/`, `README.md` and `requirements.txt`,
+- `openpyxl` 3.1.5 and `et_xmlfile` from the local virtual environment,
+- Windows Start/Backup/autostart batch files.
+
+The embeddable runtime gets a `python314._pth` listing the stdlib ZIP, `Lib\site-packages` and the
+package root. The build runs an embedded import test before reporting success. The launcher sets
+`ARTHIVIO_DB`, `ARTHIVIO_BACKUP_DIR` and `ARTHIVIO_LOG_DIR` inside the package, detects an existing
+ARTHIVIO instance on the chosen port, and opens the browser.
+
+### 19.3 Backup boundary
+
+`scripts/backup_to_drive.py` uses the existing SQLite online backup API. It verifies the local
+backup (integrity, foreign keys, balanced journals, row counts), copies it to the external-drive
+folder, compares SHA-256, and opens the copy read-only for a second verification. There is no
+one-click destructive restore; `scripts/restore_verify.py` is the supported restore drill.
+
+### 19.4 Deliberate limits
+
+- Single user, local Windows machine. Not a Windows service, MSI, signed binary, cloud sync or
+  multi-user LAN hardening.
+- No offline-to-online sync; the online version still has no outage entry queue or conflict rules.
+- No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
+  accounting review for this build.
+- Permanent hosting, automatic updates, UPS integration and real customer data remain outside this
+  build.
+
+
+## 20. Build 0.15: editable manual entries and fresh test books (2026-11-05)
+
+`acct.replace_entry()` corrects a posted manual journal without mutating it. It reverses the
+original and posts a replacement inside one transaction. `reverse_entry()` composes inside that
+transaction through a savepoint, so a bad replacement rolls the reversal back too. The replacement
+is a new `source_type='manual'` journal with `source_id` pointing at the original, and a
+`journal.edit` audit row records the original, reversal, replacement, reason and line count.
+
+The ledger, day book, cash book, bank book and entry pages expose Edit/Reverse actions for manual
+rows under `journal.post` + `ledger.reverse`. Source documents keep their own correction path and
+are not overwritten. `/businesses` adds an owner-only **Start fresh books** flow:
+`security.create_business()` creates a separate tenant, standard chart, owner membership and
+`business.created` audit, then the session switches to the empty ledger. This is a convenience for
+testing fresh entries, not a multi-company consolidation feature.

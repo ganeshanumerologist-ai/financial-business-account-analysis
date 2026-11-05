@@ -454,3 +454,34 @@ invoice, bill and account rows:
   paise. No export writes a journal or changes a posted row.
 - The `period_lock` table remains the posting guard; reports may read a locked period but cannot
   post into it.
+
+
+## 20. Build 0.14 first-run setup and offline package: no schema change (2026-11-04)
+
+Build 0.14 adds **no table, no column and no index**. First-run setup uses the existing `tenant`,
+`user`, `membership`, `account` and `audit_log` tables:
+
+- `security.create_owner()` creates the tenant, the default chart of accounts, the user and the
+  owner membership inside one `BEGIN IMMEDIATE` transaction. The empty-user check is repeated
+  inside the transaction, so concurrent first-run requests cannot create two owners.
+- The setup audit event is `setup.owner_created`; the normal session audit event follows after the
+  session is created.
+- The offline package is a packaging and runtime change only. It uses the same SQLite schema and
+  the same database file inside the package's `data` folder.
+- The external-drive backup is a byte-for-byte copy of a verified SQLite backup; it does not write
+  to the source database except for the existing `backup_run` record.
+
+
+## 21. Build 0.15 editable manual entries: no schema change (2026-11-05)
+
+Build 0.15 adds **no table, no column and no index**. It uses the existing journal and audit
+structures:
+
+- The original journal keeps `status='reversed'`; the mirrored reversal is a normal journal row
+  with `source_type='reversal'` and `reversal_of` set to the original.
+- The corrected replacement is a normal posted journal with `source_type='manual'` and
+  `source_id` set to the original entry id. This is provenance, not a foreign-key relation.
+- `audit_log.action='journal.edit'` stores the original, reversal and corrected entry ids, the
+  reason and the line count in its JSON metadata.
+- `security.create_business()` reuses `tenant`, `account`, `membership` and `audit_log`; it creates
+  a new tenant with the standard chart and no journal rows.

@@ -1809,5 +1809,109 @@ class WebTest(unittest.TestCase):
         self.assertIn("Dashboard", page)
 
 
+    def test_48_create_fresh_business_and_edit_cash_entry(self):
+        self.login()
+        status, page = self.get("/businesses")
+        self.assertEqual(status, 200)
+        self.assertIn("Start fresh books", page)
+        self.assertIn('action="/businesses/create"', page)
+        token = self.csrf(page)
+
+        status, page, final = self.post("/businesses/create", {
+            "_csrf": token, "business_name": "Fresh Entry Test Co",
+            "state_code": "27", "gstin": ""})
+        self.assertEqual(status, 200)
+        self.assertIn("Fresh business created", page)
+        self.assertIn("No movement in this period", page)
+
+        conn = db.connect(self.db_path)
+        tenant = conn.execute(
+            "SELECT * FROM tenant WHERE name='Fresh Entry Test Co'").fetchone()
+        self.assertIsNotNone(tenant)
+        new_tenant = tenant["id"]
+        membership = conn.execute(
+            "SELECT role FROM membership m JOIN user u ON u.id=m.user_id"
+            " WHERE m.tenant_id=? AND u.email='owner@arthivio.test'",
+            (new_tenant,)).fetchone()
+        self.assertEqual(membership["role"], "owner")
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) c FROM journal_entry WHERE tenant_id=?",
+            (new_tenant,)).fetchone()["c"], 0)
+        cash = db.account_id(conn, new_tenant, "1000")
+        rent = db.account_id(conn, new_tenant, "6000")
+        conn.close()
+
+        status, page = self.get("/entries/journal")
+        self.assertEqual(status, 200)
+        self.assertIn("Recent journal entries", page)
+        token = self.csrf(page)
+        status, page, final = self.post("/journal", {
+            "_csrf": token, "mode": "journal", "entry_date": "2026-11-05",
+            "narration": "Fresh test entry", "account_id": [rent, cash],
+            "debit": ["1000.00", ""], "credit": ["", "1000.00"]})
+        self.assertEqual(status, 200)
+        self.assertIn("Entry posted", page)
+
+        conn = db.connect(self.db_path)
+        original = conn.execute(
+            "SELECT * FROM journal_entry WHERE tenant_id=? AND narration='Fresh test entry'",
+            (new_tenant,)).fetchone()
+        self.assertIsNotNone(original)
+        entry_id = original["id"]
+        conn.close()
+
+        status, edit_page = self.get(f"/journal?edit={entry_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("Save correction", edit_page)
+        self.assertIn("Fresh test entry", edit_page)
+        self.assertIn('value="1000.00"', edit_page)
+        token = self.csrf(edit_page)
+
+        status, page, final = self.post("/journal/edit", {
+            "_csrf": token, "entry_id": entry_id, "mode": "journal",
+            "entry_date": "2026-11-05", "narration": "Fresh test entry corrected",
+            "account_id": [rent, cash], "debit": ["1250.00", ""],
+            "credit": ["", "1250.00"], "reason": "Wrong amount entered"})
+        self.assertEqual(status, 200)
+        self.assertIn("Correction posted", page)
+        self.assertIn("Fresh test entry corrected", page)
+
+        conn = db.connect(self.db_path)
+        original = conn.execute(
+            "SELECT * FROM journal_entry WHERE id=?", (entry_id,)).fetchone()
+        self.assertEqual(original["status"], "reversed")
+        reversal = conn.execute(
+            "SELECT * FROM journal_entry WHERE tenant_id=? AND source_type='reversal'"
+            " AND reversal_of=?", (new_tenant, entry_id)).fetchone()
+        self.assertIsNotNone(reversal)
+        corrected = conn.execute(
+            "SELECT * FROM journal_entry WHERE tenant_id=? AND narration='Fresh test entry corrected'",
+            (new_tenant,)).fetchone()
+        self.assertIsNotNone(corrected)
+        self.assertEqual(corrected["source_type"], "manual")
+        self.assertEqual(corrected["source_id"], entry_id)
+        audit = conn.execute(
+            "SELECT * FROM audit_log WHERE tenant_id=? AND action='journal.edit'",
+            (new_tenant,)).fetchone()
+        self.assertIsNotNone(audit)
+        balances = {a["code"]: a for a in acct.account_balances(conn, new_tenant, "2026-11-06")}
+        self.assertEqual(balances["1000"]["balance"], -125000)
+        self.assertEqual(balances["6000"]["balance"], 125000)
+        conn.close()
+
+        status, cash_page = self.get("/entries/cash")
+        self.assertEqual(status, 200)
+        self.assertIn("Recent cash entries", cash_page)
+        self.assertIn("Edit", cash_page)
+        status, book = self.get(f"/reports/cash-book?account={cash}")
+        self.assertEqual(status, 200)
+        self.assertIn("Action", book)
+        self.assertIn("Edit", book)
+        status, daybook = self.get("/daybook")
+        self.assertEqual(status, 200)
+        self.assertIn("Fresh test entry corrected", daybook)
+        self.assertIn("Edit", daybook)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.13.** The latest application run is `RUN-2026-11-04-02` with
-> **257 tests, OK**, Python 3.14.6, Windows - see section 28. The table immediately below is the original
+> **Current status: Build 0.15.** The latest application run is `RUN-2026-11-05-01` with
+> **268 tests, OK**, Python 3.14.6, Windows - see section 30. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1333,3 +1333,94 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
 - No real financial data was entered. The trial is synthetic and must not be used for statutory books.
 - No offline-to-online sync, standalone mobile app, generative AI provider or Power BI Service model
   is delivered.
+
+## 29. Application run `RUN-2026-11-04-03` - first-run setup and Windows offline package
+
+### 29.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests -q` | **263 tests, OK**, 26.469 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_first_run -v` | 6 tests, OK: setup page, login redirect, token required, validation, owner creation, permanent closure |
+| `python scripts/backup_to_drive.py --db <temp> --out <temp> --dest <temp>` | Local backup verified, copy hash matched, copy re-verified read-only |
+| `python scripts/build_windows_portable.py --zip` | Built `dist/ARTHIVIO-Offline` and `dist/ARTHIVIO-Offline-0.14.zip`; embedded runtime import test passed |
+| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.14` |
+| Package health | `GET /health` on a local test port returned `ok`, `Server: ARTHIVIO/0.14 Python/3.14.6` |
+| Package first run | `/setup` rendered; owner created; dashboard rendered with revenue KPI |
+| Package cleanup | Test database, WAL/SHM and logs removed from the built folder after the smoke test |
+
+### 29.2 What changed
+
+- `app/security.py`: `first_run()` and atomic `create_owner()`; the empty-installation check is
+  repeated inside `BEGIN IMMEDIATE`, so two simultaneous setup requests cannot both create an owner.
+- `app/server.py`: `/setup` GET/POST, local-only first-run guard, setup CSRF cookie, validation for
+  name, business, email, state, GSTIN and password, owner session creation, and permanent closure
+  after the first user. `APP_VERSION` is now `0.14`.
+- `app/server.py`: `/login` redirects to `/setup` while the database has no users.
+- `tests/test_first_run.py`: six end-to-end tests against a separate empty database.
+- `scripts/run_offline.py`: local launcher that chooses a free port, detects an existing ARTHIVIO
+  instance, sets data/backup/log paths and opens the browser.
+- `scripts/backup_to_drive.py`: verified local backup, external-drive copy, SHA-256 comparison,
+  read-only verification and optional pruning.
+- `scripts/build_windows_portable.py`: downloads the official Python 3.14.6 embeddable runtime,
+  copies the app and approved Excel dependency, writes the launcher files and tests the embedded
+  import.
+- `packaging/windows/`: Start, Backup, Install autostart and Remove autostart batch files.
+- `scripts/install_startup_shortcut.ps1` and `scripts/remove_startup_shortcut.ps1`: desktop and
+  login-startup shortcuts.
+- `docs/OFFLINE_EDITION.md`: operating, backup, restore and limitation guide.
+
+### 29.3 Explicitly NOT verified / not delivered
+
+- No MSI installer, Windows service, code signing, clean-machine test on a second PC or antivirus
+  reputation check.
+- No real phone viewport, screen-reader, contrast, cross-browser, 4K, load, penetration or
+  independent accounting review for the new setup/offline paths.
+- No offline-to-online sync. The online version still has no offline entry queue or conflict rules.
+- No permanent hosting, automatic update delivery, cloud backup, UPS integration or multi-user LAN
+  hardening.
+- The package is single-user local software. It is not a substitute for a verified backup routine
+  and does not make the overall product production-ready.
+
+
+## 30. Application run `RUN-2026-11-05-01` - editable manual entries and fresh test books
+
+### 30.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m unittest discover -s tests -v` | **268 tests, OK**, 25.778 s, Python 3.14.6, Windows |
+| `tests.test_accounting.TestEntryCorrection` | 3 tests, OK: reverse + corrected repost, unbalanced rollback, reason/cross-tenant/non-manual guards |
+| `tests.test_accounting.TestSecurity.test_create_business_is_empty_and_makes_creator_owner` | OK: separate tenant, standard chart, zero journals, creator becomes owner, audit row |
+| `tests.test_web.WebTest.test_48_create_fresh_business_and_edit_cash_entry` | OK: `/businesses` form, fresh tenant, first manual entry, pre-filled edit form, correction, audit, cash book/day book actions |
+| Local trial server on `127.0.0.1:8010` | `/health` returned `ok`; demo login and `/businesses`, `/entries/cash`, `/daybook`, `/reports/cash-book` rendered |
+| Public quick tunnel | `https://soccer-execute-warriors-advertising.trycloudflare.com/health` returned `ok`; `/login` returned 200 |
+| Browser/HTTP read-only check | `/businesses` shows **Start fresh books**; `/entries/cash` shows **Recent cash entries** with Edit/Reverse; cash book and day book show the Action column |
+
+### 30.2 What changed
+
+- `app/accounting.py`: `replace_entry()` corrects a posted manual entry by reversing it and posting a
+  replacement in one transaction. `reverse_entry()` now composes inside an outer transaction with a
+  savepoint, so a failed replacement rolls back the reversal too. The corrected entry is a new
+  `source_type='manual'` journal linked to the original through `source_id`, and a `journal.edit`
+  audit row records the original, reversal, corrected entry, reason and line count.
+- `app/security.py`: `create_business()` creates a separate tenant with the standard chart of
+  accounts and zero journal entries, makes the creator its owner and writes `business.created`.
+- `app/server.py`: `/businesses/create` and the **Start fresh books** form; `/journal/edit` and the
+  pre-filled edit page; recent-entry tables on Cash/Bank/Journal entry pages; Edit/Reverse actions in
+  the ledger, day book, cash book and bank book; `APP_VERSION` is now `0.15`.
+- `tests/test_accounting.py` and `tests/test_web.py`: new coverage for correction atomicity, audit,
+  permissions, tenant isolation, new-business creation and the full HTTP edit path.
+- `README.md`, `docs/TEST_RESULTS.md`, `docs/DECISION_LOG.md`, `docs/FEATURE_INVENTORY.md`,
+  `docs/REQUIREMENTS_TRACEABILITY.md`, `docs/TESTING_GUIDE.md`: Build 0.15 notes.
+
+### 30.3 Explicitly NOT verified / not delivered
+
+- Source documents (invoices, bills, receipts, credit/debit notes) still use their own correction
+  path (credit note, debit note or reversal guidance); this build does not overwrite them in place.
+- No independent accounting review, penetration test, load test, real phone viewport, screen-reader
+  matrix or cross-browser matrix was run for the new edit path.
+- The public trial URL remains a temporary Cloudflare quick tunnel with no uptime guarantee.
+- The offline package was rebuilt as `dist\ARTHIVIO-Offline` and
+  `dist\ARTHIVIO-Offline-0.15.zip`; the embedded runtime returned `Server: ARTHIVIO/0.15`
+  from `/health` and rendered `/setup`.

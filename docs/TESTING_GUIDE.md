@@ -14,6 +14,10 @@ in the public trial URL.
 The public trial runs against a separate database:
 `data/arthivio-trial.db`. It is not the main local database.
 
+On a clean offline install, `/login` opens `/setup` instead. Create the owner there; the setup page
+closes permanently after the first account. The Windows offline package and its backup/restore
+steps are in `docs/OFFLINE_EDITION.md`.
+
 ## 2. How to know if something stopped or failed
 
 ### Page does not open
@@ -61,6 +65,15 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 - [ ] Invalid GSTIN is rejected with a clear message
 - [ ] Theme switch works (Ocean Blue, Emerald Green, Royal Violet, Warm Sunset)
 
+### B2. Fresh test books (recommended before entering entries)
+
+- [ ] Open **Businesses**
+- [ ] Under **Start fresh books**, enter a new business name and GST state
+- [ ] Create it; the page must switch to an empty ledger with a notice
+- [ ] Confirm the new business has no journal entries
+- [ ] Add your own ledger account, or use the ready-made Cash/Bank/Sales/Expense accounts
+- [ ] Switch back to the demo business at any time from **Businesses**
+
 ### C. Masters
 
 - [ ] Create a customer
@@ -107,14 +120,20 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 - [ ] Post a bank entry
 - [ ] Post a journal entry with equal debit and credit
 - [ ] Try an unbalanced journal; it must be rejected
+- [ ] Open **Edit** on a cash, bank or journal entry
+- [ ] Change the amount or narration, give a reason and save
+- [ ] Confirm the original is marked **reversed** and a corrected voucher is posted
+- [ ] Confirm the ledger, cash book, bank book and day book show Edit/Reverse actions
+- [ ] Try an unbalanced correction; the original must stay posted
 - [ ] Reverse a journal with a reason
 
 ### H. Books
 
 - [ ] Ledger shows opening, movement and closing
-- [ ] Cash Book is read-only
-- [ ] Bank Book is read-only
-- [ ] Day Book lists the new entries
+- [ ] Cash Book shows Edit/Reverse on manual entries
+- [ ] Bank Book shows Edit/Reverse on manual entries
+- [ ] Day Book lists the new entries and gives Edit/Reverse on manual entries
+- [ ] Source documents show **Open source**, not a direct overwrite
 
 ### I. Financial statements
 

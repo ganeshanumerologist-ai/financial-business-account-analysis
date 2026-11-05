@@ -325,3 +325,48 @@ The frontend receives **no** secrets — only a public API base URL.
 - **Residual risk:** the CSV exports are not signed or encrypted in transit beyond the deployment's
   TLS. On the free public demo, anyone with the demo owner login can export the synthetic data; do
   not enter real financial data.
+
+
+## 17. Build 0.14 addendum - first-run setup and offline package
+
+- **First-run takeover guard:** `/setup` exists only while the `user` table is empty. The route is
+  local-only by default; a remote request gets a 403 unless the operator sets
+  `ARTHIVIO_ALLOW_REMOTE_SETUP=1` for the first run and removes it immediately afterwards.
+- **CSRF:** the setup GET issues an HttpOnly `setup_csrf` cookie and a matching hidden form token.
+  The POST compares both with `secrets.compare_digest`; a missing or mismatched token returns 403.
+- **Atomicity:** owner creation runs inside `BEGIN IMMEDIATE` and re-checks the empty-user condition
+  inside the transaction. A failure rolls back the tenant, chart, user and membership together.
+- **Closure:** after the first user exists, `/setup` redirects to `/login` and cannot create another
+  owner or tenant. There is no self-service registration endpoint.
+- **Offline package:** the embedded Python runtime runs the same application code and the same
+  local-only binding (`127.0.0.1`) by default. It is not a Windows service and does not open a
+  firewall port.
+- **Backup:** the external-drive script copies a verified SQLite backup and compares SHA-256. The
+  destination is user-supplied and is not authenticated; use a drive you control. Backups contain
+  the full books and password hashes, so treat them as sensitive.
+- **Residual risk:** the offline package is not code-signed, has no MSI/uninstaller, and has not had
+  a clean-machine, antivirus, penetration or independent accounting review. A local attacker with
+  access to the Windows account can read the SQLite file and backups.
+
+
+## 18. Build 0.15 addendum - manual-entry correction and fresh test books
+
+- **Two permissions:** editing a manual entry requires both `journal.post` and `ledger.reverse`.
+  The GET edit page checks both; the POST re-checks both and repeats tenant ownership on the
+  entry lookup.
+- **Atomic correction:** `replace_entry()` runs inside `BEGIN IMMEDIATE`; the reversal is a
+  savepoint and the replacement posting is another savepoint. Any validation failure rolls back
+  the whole correction, so the books cannot be left with a reversal but no replacement.
+- **Reason required:** the correction form rejects an empty reason. `journal.edit` audit metadata
+  records the reason, original, reversal, replacement and line count.
+- **No overwrite:** the original journal is not updated except for its `status` transition to
+  `reversed` by the existing reversal service. Lines, amounts and narration stay unchanged.
+- **Tenant isolation:** the entry is looked up by `(tenant_id, entry_id)`; a cross-tenant id returns
+  `ENTRY_NOT_FOUND`. The replacement lines are validated against the same tenant, active accounts
+  and the period lock.
+- **Fresh business:** `/businesses/create` requires `tenant.manage` in the current business. The
+  new tenant is separate, the creator becomes its owner, and `business.created` is audited. This is
+  not a privilege-escalation path: the caller must already be an owner of the current business.
+- **Residual risk:** there is no correction approval workflow, no four-eyes review and no separate
+  edit-history screen beyond `audit_log`. A compromised owner session can still correct entries;
+  use strong passwords, backups and access control on the Windows account.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -100,6 +101,112 @@ def add_membership(conn: sqlite3.Connection, tenant_id: str, user_id: str, role:
         "INSERT INTO membership (tenant_id, user_id, role) VALUES (?,?,?)",
         (tenant_id, user_id, role),
     )
+
+
+# --------------------------------------------------------------------------
+# first-run owner setup
+# --------------------------------------------------------------------------
+
+def first_run(conn: sqlite3.Connection) -> bool:
+    """True only while the installation has no login at all.
+
+    Setup closes permanently after the first owner is created, so the page
+    cannot be used later to create a second tenant or take over an existing
+    installation.
+    """
+    return conn.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
+
+
+def _slug_base(name: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return (value or "business")[:60]
+
+
+def _unique_slug(conn: sqlite3.Connection, name: str) -> str:
+    base = _slug_base(name)
+    slug = base
+    n = 2
+    while conn.execute("SELECT 1 FROM tenant WHERE slug=?", (slug,)).fetchone():
+        suffix = f"-{n}"
+        slug = base[:80 - len(suffix)] + suffix
+        n += 1
+    return slug
+
+
+def create_owner(conn: sqlite3.Connection, email: str, password: str, full_name: str,
+                 business_name: str, state_code: str = "27", gstin: str = "") -> dict:
+    """Create the first business and its owner login atomically.
+
+    The caller is responsible for validating the GST state and GSTIN format.
+    This function re-checks that the installation is still empty *inside* the
+    write transaction so two simultaneous first-run requests cannot both win.
+    """
+    business_name = (business_name or "").strip()
+    full_name = (full_name or "").strip()
+    gstin = (gstin or "").strip().upper()
+    if not first_run(conn):
+        raise AuthError("SETUP_DONE", "Setup is already complete. Sign in instead.")
+    if len(business_name) < 2:
+        raise AuthError("BAD_BUSINESS", "Enter your business name.")
+    if len(password) < 12:
+        raise AuthError("WEAK_PASSWORD", "Password must be at least 12 characters.")
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if not first_run(conn):
+            raise AuthError("SETUP_DONE", "Setup is already complete. Sign in instead.")
+        tenant_id = db.create_tenant(conn, business_name[:120],
+                                     _unique_slug(conn, business_name),
+                                     state_code=state_code or "27")
+        if gstin:
+            conn.execute("UPDATE tenant SET gstin=? WHERE id=?", (gstin[:15], tenant_id))
+        user_id = create_user(conn, email, password, full_name or email)
+        add_membership(conn, tenant_id, user_id, "owner")
+        _audit(conn, tenant_id, user_id, "setup.owner_created", "tenant", tenant_id,
+               meta={"business": business_name[:120], "email": email.strip().lower()})
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return {"tenant_id": tenant_id, "user_id": user_id, "email": email.strip().lower()}
+
+
+def create_business(conn: sqlite3.Connection, user_id: str, business_name: str,
+                    state_code: str = "27", gstin: str = "") -> dict:
+    """Create a separate, empty set of books and make an existing user its owner.
+
+    The caller must already have tenant-management rights in the current business.
+    A new business gets the standard chart of accounts and no journal entries, so
+    it is suitable for testing fresh books without touching the demo data.
+    """
+    business_name = (business_name or "").strip()
+    gstin = (gstin or "").strip().upper()
+    if len(business_name) < 2:
+        raise AuthError("BAD_BUSINESS", "Enter a business name of at least 2 characters.")
+    if not re.fullmatch(r"[0-9]{2}", state_code or ""):
+        raise AuthError("BAD_STATE", "Choose a valid two-digit GST state code.")
+    if gstin and not re.fullmatch(r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]", gstin):
+        raise AuthError("BAD_GSTIN", "GSTIN must be 15 characters, e.g. 27ABCDE1234F1Z5.")
+    if not conn.execute("SELECT 1 FROM user WHERE id=?", (user_id,)).fetchone():
+        raise AuthError("USER_NOT_FOUND", "User not found.")
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        tenant_id = db.create_tenant(conn, business_name[:120],
+                                     _unique_slug(conn, business_name),
+                                     state_code=state_code)
+        if gstin:
+            conn.execute("UPDATE tenant SET gstin=? WHERE id=?", (gstin[:15], tenant_id))
+        add_membership(conn, tenant_id, user_id, "owner")
+        _audit(conn, tenant_id, user_id, "business.created", "tenant", tenant_id,
+               meta={"business": business_name[:120], "state_code": state_code,
+                     "gstin": gstin})
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    row = conn.execute("SELECT id, name, slug FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    return {"tenant_id": tenant_id, "name": row["name"], "slug": row["slug"]}
 
 
 def _failed_recently(conn: sqlite3.Connection, email: str) -> int:

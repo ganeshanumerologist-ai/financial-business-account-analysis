@@ -49,3 +49,8 @@ desktop.ini
 # ---- Local scratch ----
 tmp/
 *.tmp
+build-cache/
+
+# ---- Local logs ----
+logs/
+logs-trial/

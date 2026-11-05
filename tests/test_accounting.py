@@ -1,6 +1,7 @@
 """Deterministic tests for the accounting core. stdlib unittest, no network."""
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -141,6 +142,93 @@ class TestPosting(Base):
                              [{"account_id": foreign, "debit": 100, "credit": 0},
                               {"account_id": mine, "debit": 0, "credit": 100}], "manual")
         self.assertEqual(ctx.exception.code, "ACCOUNT_NOT_FOUND")
+
+
+class TestEntryCorrection(Base):
+    def _entry(self, amount=1000):
+        cash = db.account_id(self.conn, self.t, "1000")
+        rent = db.account_id(self.conn, self.t, "6000")
+        entry_id = acc.post_journal(
+            self.conn, self.t, "2026-10-24", "Original rent entry",
+            [{"account_id": rent, "debit": amount, "credit": 0},
+             {"account_id": cash, "debit": 0, "credit": amount}],
+            "manual")
+        return entry_id, cash, rent
+
+    def test_replace_reverses_and_reposts_with_audit(self):
+        entry_id, cash, rent = self._entry(1000)
+        result = acc.replace_entry(
+            self.conn, self.t, entry_id, "2026-10-25", "Corrected rent entry",
+            [{"account_id": rent, "debit": 1250, "credit": 0},
+             {"account_id": cash, "debit": 0, "credit": 1250}],
+            "Wrong amount entered")
+        self.assertEqual(result["original_id"], entry_id)
+        original = self.conn.execute(
+            "SELECT * FROM journal_entry WHERE id=?", (entry_id,)).fetchone()
+        self.assertEqual(original["status"], "reversed")
+        reversal = self.conn.execute(
+            "SELECT * FROM journal_entry WHERE id=?", (result["reversal_id"],)).fetchone()
+        self.assertEqual(reversal["source_type"], "reversal")
+        self.assertEqual(reversal["reversal_of"], entry_id)
+        corrected = self.conn.execute(
+            "SELECT * FROM journal_entry WHERE id=?", (result["entry_id"],)).fetchone()
+        self.assertEqual(corrected["status"], "posted")
+        self.assertEqual(corrected["source_type"], "manual")
+        self.assertEqual(corrected["source_id"], entry_id)
+        self.assertEqual(corrected["narration"], "Corrected rent entry")
+        audit = self.conn.execute(
+            "SELECT * FROM audit_log WHERE action='journal.edit'").fetchone()
+        self.assertIsNotNone(audit)
+        meta = json.loads(audit["meta"])
+        self.assertEqual(meta["original_entry"], entry_id)
+        self.assertEqual(meta["corrected_entry"], result["entry_id"])
+        balances = {a["code"]: a for a in acc.account_balances(self.conn, self.t, "2026-10-26")}
+        self.assertEqual(balances["1000"]["balance"], -1250)
+        self.assertEqual(balances["6000"]["balance"], 1250)
+
+    def test_bad_replacement_rolls_back_the_reversal(self):
+        entry_id, cash, rent = self._entry(1000)
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_entry(
+                self.conn, self.t, entry_id, "2026-10-25", "Broken correction",
+                [{"account_id": rent, "debit": 900, "credit": 0},
+                 {"account_id": cash, "debit": 0, "credit": 1000}],
+                "Try an unbalanced correction")
+        self.assertEqual(ctx.exception.code, "UNBALANCED")
+        original = self.conn.execute(
+            "SELECT * FROM journal_entry WHERE id=?", (entry_id,)).fetchone()
+        self.assertEqual(original["status"], "posted")
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) c FROM journal_entry WHERE source_type='reversal'").fetchone()["c"], 0)
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE action='journal.edit'").fetchone()["c"], 0)
+
+    def test_non_manual_reason_and_cross_tenant_are_rejected(self):
+        entry_id, cash, rent = self._entry(1000)
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_entry(
+                self.conn, self.t, entry_id, "2026-10-25", "No reason",
+                [{"account_id": rent, "debit": 1000, "credit": 0},
+                 {"account_id": cash, "debit": 0, "credit": 1000}], "")
+        self.assertEqual(ctx.exception.code, "REASON_REQUIRED")
+
+        other = db.create_tenant(self.conn, "Other Co", "other", state_code="29")
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_entry(
+                self.conn, other, entry_id, "2026-10-25", "Leak",
+                [{"account_id": rent, "debit": 1000, "credit": 0},
+                 {"account_id": cash, "debit": 0, "credit": 1000}], "cross tenant")
+        self.assertEqual(ctx.exception.code, "ENTRY_NOT_FOUND")
+
+        opening = acc.set_opening_balance(
+            self.conn, self.t, db.account_id(self.conn, self.t, "1010"),
+            "2026-04-01", 5000, "debit")
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_entry(
+                self.conn, self.t, opening, "2026-04-01", "Opening edit",
+                [{"account_id": rent, "debit": 5000, "credit": 0},
+                 {"account_id": cash, "debit": 0, "credit": 5000}], "not manual")
+        self.assertEqual(ctx.exception.code, "NOT_EDITABLE")
 
 
 class TestInvoice(Base):
@@ -344,6 +432,28 @@ class TestSecurity(Base):
         with self.assertRaises(security.AuthError) as ctx:
             security.require(self.conn, uid, self.t, "account.manage")
         self.assertEqual(ctx.exception.code, "FORBIDDEN")
+
+    def test_create_business_is_empty_and_makes_creator_owner(self):
+        uid = security.create_user(self.conn, "fresh@b.com", "averylongpassword", "Fresh")
+        result = security.create_business(self.conn, uid, "Fresh Test Co", "27", "")
+        tenant = self.conn.execute(
+            "SELECT * FROM tenant WHERE id=?", (result["tenant_id"],)).fetchone()
+        self.assertEqual(tenant["name"], "Fresh Test Co")
+        self.assertEqual(tenant["slug"], "fresh-test-co")
+        membership = self.conn.execute(
+            "SELECT role FROM membership WHERE tenant_id=? AND user_id=?",
+            (result["tenant_id"], uid)).fetchone()
+        self.assertEqual(membership["role"], "owner")
+        self.assertGreater(self.conn.execute(
+            "SELECT COUNT(*) c FROM account WHERE tenant_id=?",
+            (result["tenant_id"],)).fetchone()["c"], 0)
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) c FROM journal_entry WHERE tenant_id=?",
+            (result["tenant_id"],)).fetchone()["c"], 0)
+        audit = self.conn.execute(
+            "SELECT * FROM audit_log WHERE tenant_id=? AND action='business.created'",
+            (result["tenant_id"],)).fetchone()
+        self.assertIsNotNone(audit)
 
 
 class TestAccountManagement(Base):

@@ -759,3 +759,68 @@ check. A silent browser reset is not acceptable for an accounting trial.
 - Verified by **257 tests, OK**, 27.099 s, Python 3.14.6, Windows, recorded in
   `docs/TEST_RESULTS.md` `RUN-2026-11-04-02`.
 
+
+## D-038 - First-run owner setup and a self-contained Windows offline package
+
+**Date:** 2026-11-04. **Status:** accepted for Build 0.14.
+
+The owner asked to continue the next build for a single-user trial and an offline version that
+needs no internet. An empty database previously had no way to create a real owner without the demo
+seeder, so the offline package would have been unusable.
+
+- `/setup` is available only while `SELECT COUNT(*) FROM user` is zero. It creates one business,
+  its default chart of accounts and the first owner membership in one `BEGIN IMMEDIATE`
+  transaction. The empty check is repeated inside the transaction.
+- Setup is local-only by default. A remote first-run request receives a 403 unless the operator
+  explicitly sets `ARTHIVIO_ALLOW_REMOTE_SETUP=1`; that flag is intended to be removed immediately
+  after owner creation. A setup CSRF cookie and hidden token protect the POST.
+- The setup page closes permanently after the first owner. It cannot be used to create a second
+  tenant or take over an existing installation.
+- The offline package uses the official Python 3.14.6 embeddable runtime, `openpyxl` 3.1.5 and
+  local SQLite. It does not need Python, Node, Docker, a database server or internet on the target
+  machine. The build script verifies the embedded import before reporting success.
+- Data, backups and logs stay inside the package folder. `Backup ARTHIVIO.bat` creates a verified
+  backup and copies it to an external drive, compares SHA-256, and re-verifies the copy read-only.
+  There is no one-click destructive restore.
+- Autostart is opt-in through desktop and Windows Startup shortcuts; it is not a Windows service
+  and needs no administrator rights.
+- This decision does not add cloud sync, permanent hosting, a Windows installer/MSI, code signing,
+  UPS integration, a mobile app, generative AI or Power BI Service. The online-offline sync problem
+  remains separate and unbuilt.
+- Build 0.14 is verified by **263 tests, OK**, 26.469 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-04-03`. The package smoke test created an owner, loaded the
+  dashboard, and the test database was removed from the built folder afterwards.
+
+
+
+## D-039 - Edit manual entries by reversal + corrected repost, and add fresh test books
+
+**Date:** 2026-11-05. **Status:** accepted for Build 0.15.
+
+The owner asked for every cash entry, bank entry, journal entry and ledger correction to be
+editable in the trial, and for a way to create a new business/ledger and test fresh entries instead
+of relying on the pre-seeded demo.
+
+- Posted journal rows are never mutated or deleted. `acct.replace_entry()` reverses the original
+  and posts a corrected replacement in one transaction. The original stays marked `reversed`, the
+  mirrored reversal has `source_type='reversal'`, and the corrected manual entry links back through
+  `source_id`.
+- A non-empty reason is required. The reversal and replacement are atomic: if the replacement is
+  unbalanced, uses an archived/cross-tenant account or fails any posting guard, the reversal is
+  rolled back and the original remains posted.
+- `journal.edit` audit metadata records the original entry, reversal entry, corrected entry, reason
+  and line count. The correction is available only when the role has both `journal.post` and
+  `ledger.reverse`.
+- Edit/Reverse actions are shown in the ledger, day book, cash book and bank book. The entry pages
+  also show recent manual entries, so the user does not need to hunt through the ledger.
+- Opening balances and source documents keep their own correction paths. Opening balances are
+  reversed before replacement. Invoices/bills use credit/debit notes; receipts and other source
+  documents are not overwritten in place.
+- `/businesses` now has **Start fresh books** for owners (`tenant.manage`). It creates a separate
+  tenant with the standard chart of accounts and zero journal entries, makes the creator its owner,
+  writes `business.created`, switches the session and opens the empty ledger. This is the supported
+  way to test fresh entries without touching the demo data.
+- Build 0.15 is verified by **268 tests, OK**, 25.778 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-05-01`.
+- This decision does not add direct in-place editing of source documents, an approval workflow for
+  corrections, offline-to-online sync or permanent hosting.

@@ -2,7 +2,7 @@
 
 Baseline inventory built from the governing specification, verified against the actual workspace.
 
-> **Current status is Build 0.13, not the empty baseline below.** Sections 1–13 preserve the
+> **Current status is Build 0.14, not the empty baseline below.** Sections 1-13 preserve the
 > original 2026-10-24 audit of an empty workspace so the starting point stays honest. The
 > implemented and verified features are recorded in the later build sections, most recently
 > **§21 (Build 0.13 Report Library plus nine management reports)**. Use §21
@@ -401,6 +401,7 @@ and documentation agree.
 | One-time invites | `/users/invite` → `/invite/<token>` | SHA-256 token hash only, 7-day expiry, new-user password or existing-user current password, auto-login after acceptance |
 | Protected authority | `/users` and `security.py` | owner role cannot be assigned/changed, self role/status changes rejected, suspended/removed sessions revoked |
 | Business switcher | `/businesses`, `POST /switch` | lists active memberships, checks membership on every switch, audits the switch |
+| Fresh test books | `/businesses`, `POST /businesses/create` | owner-only **Start fresh books** form creates a separate tenant with the standard chart of accounts and zero journal entries, makes the creator its owner, audits `business.created` and switches the session to the empty ledger; `test_create_business_is_empty_and_makes_creator_owner`, `test_web.test_48` |
 | Shareable statements | customer/vendor page → `/share/statement/<token>` | 7/30/90-day read-only bearer link, no-login A4 print view, revoke, expiry, view count, noindex/no-store |
 | GSTR-2B import | `/gstr2b` | working CSV, SHA-256 dedup, latest active import supersedes prior, import history, per-month view |
 | GSTR-2B matching | `/gstr2b?month=YYYY-MM` | supplier GSTIN + normalised invoice, matched/mismatch/missing-in-books/missing-in-2B, warnings, no auto-posting or bill edits |
@@ -427,8 +428,8 @@ and documentation agree.
 | Grouped transaction links | Transactions menu | Sales: Invoices, Receipts, Credit Notes; Purchases: Bills, Debit Notes, Vendors |
 | Grouped books links | Books menu | Day Book, Journal, Ledger, Cash Book, Bank Book, Bank Reconciliation |
 | Grouped reports and tax links | Reports / Tax Returns menus | Trial Balance, P&L, Balance Sheet, AR/AP Ageing; GST Summary & GSTR-1, GSTR-3B Working, GSTR-2B Reconciliation |
-| Cash Book | `/reports/cash-book` | posted-ledger view for account 1000: opening, receipts, payments, closing; date filter |
-| Bank Book | `/reports/bank-book` | posted-ledger view for account 1010: opening, receipts, payments, closing; date filter |
+| Cash Book | `/reports/cash-book` | posted-ledger view for account 1000: opening, receipts, payments, closing; date filter; Action column gives manual entries Edit/Reverse |
+| Bank Book | `/reports/bank-book` | posted-ledger view for account 1010: opening, receipts, payments, closing; date filter; Action column gives manual entries Edit/Reverse |
 
 ### Still not implemented
 
@@ -447,6 +448,7 @@ and documentation agree.
 | Opening balance | `/ledger?account=<id>` | optional Dr/Cr amount and date set at account creation or later; posts a balanced journal against the automatically created `3200 Opening Balance Equity`; date must be on or before first activity; one posted opening per account; replacement requires reversal; `opening_balance.set` audited |
 | Separate entry pages | `/entries/cash`, `/entries/bank`, `/entries/journal` | Cash Entry and Bank Entry preselect the control account; Journal Entry accepts any balanced multi-line entry; posting redirects to the affected ledger |
 | Journal correction | `/journal?reverse=<id>` | manual journals can be reversed only with permission and a required reason; the original is marked reversed, a mirrored entry is posted, and both stay in the ledger and audit trail |
+| Edit manual entry | `/journal?edit=<id>`, `POST /journal/edit` | pre-fills the original date, narration and lines; requires a reason; reverses the original and posts a corrected replacement in one transaction; unbalanced or invalid replacements roll back the reversal; `journal.edit` audit; available from entry pages, ledger, day book, cash book and bank book; `TestEntryCorrection`, `test_web.test_48` |
 | Multiple bank accounts | `/bank-accounts` | bank name, account number, IFSC, branch and holder create a new asset ledger plus linked bank book, reconciliation and audit event |
 | Multi-bank books | `/reports/bank-book`, `/bank-recon` | account selector lists the legacy 1010 account and every new bank account; each has its own opening, movement, closing and reconciliation |
 | Reports in one menu | Reports dropdown | Trial Balance, P&L, Balance Sheet, Receivables/Payables Ageing, GST Summary & GSTR-1, GSTR-3B Working and GSTR-2B Reconciliation |
@@ -611,3 +613,44 @@ and documentation agree.
 - ~150-template report/chart library
 - Generative AI, Power BI Service and AI-authored workbook formulas
 - Mobile/screen-reader/contrast/cross-browser/4K and load testing
+
+## 22. Status after first-run setup and offline package (Build 0.14, 2026-11-04)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| First-run owner setup | `/setup`, `security.create_owner` | local-only, setup CSRF cookie, validation, one atomic tenant/chart/user/owner transaction, permanently closed after first user; `tests/test_first_run.py` (6) |
+| Empty-install login redirect | `/login` | redirects to `/setup` while no users exist; redirects back to sign-in after setup |
+| Windows offline package | `scripts/build_windows_portable.py` | `dist/ARTHIVIO-Offline` and ZIP; official Python 3.14.6 embeddable runtime, `openpyxl` 3.1.5, local SQLite, no internet needed |
+| Offline launcher | `scripts/run_offline.py` | free-port selection, existing-instance detection, browser open, package-local data/backup/log paths |
+| External-drive backup | `scripts/backup_to_drive.py`, `Backup ARTHIVIO.bat` | local backup verified, copy SHA-256 matched, copy re-verified read-only, optional pruning |
+| Optional autostart | `Install autostart.bat` | desktop shortcut plus minimized Windows Startup shortcut; no admin or service install |
+| Offline operations guide | `docs/OFFLINE_EDITION.md` | first run, daily use, backup, restore, power cut, update and limits |
+
+### Still not implemented
+
+- MSI installer, Windows service, code signing, clean-machine test on a second PC and antivirus reputation
+- Offline-to-online sync, outage entry queue, device IDs, idempotency and conflict rules
+- Permanent hosting, automatic updates, cloud backup and UPS integration
+- Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.14
+
+
+## 23. Status after editable manual entries and fresh test books (Build 0.15, 2026-11-05)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Edit manual entry | `/journal?edit=<id>`, `POST /journal/edit` | pre-filled date, narration and lines; required reason; reverses original and posts corrected replacement in one transaction; `journal.edit` audit; `TestEntryCorrection`, `test_web.test_48` |
+| Correction safety | `acct.replace_entry`, `acct.reverse_entry` | nested savepoint, unbalanced/invalid replacement rolls back the reversal, original stays posted; reason/cross-tenant/non-manual guards |
+| Edit/Reverse actions | ledger, day book, cash book, bank book, cash/bank/journal entry pages | permission-gated by `journal.post` + `ledger.reverse`; manual rows show Edit/Reverse, source documents show their own page |
+| Fresh test books | `/businesses`, `POST /businesses/create` | owner-only separate tenant with standard chart and zero entries, creator becomes owner, `business.created` audit, session switches to empty ledger; `test_create_business_is_empty_and_makes_creator_owner`, `test_web.test_48` |
+| Offline package 0.15 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.15.zip` | embedded Python 3.14.6, `openpyxl` 3.1.5, health smoke test passed |
+
+### Still not implemented
+
+- Direct in-place editing of invoices, bills, receipts or credit/debit notes; they keep their own correction path.
+- Correction approval workflow, edit history UI beyond the audit log, and bulk corrections.
+- Offline-to-online sync, permanent hosting and automatic updates.
+- Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.15.
