@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.3 |
-| Date | 2026-11-04 |
-| Status | **28 of 66 catalogued reports have a working screen or export** (Build 0.13 adds the Report Library and nine management-report screens) |
+| Version | 1.4 |
+| Date | 2026-11-05 |
+| Status | **38 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 adds ten more) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -13,13 +13,18 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > **Build 0.11/0.12 pilot:** `/reports/analytics` is a cross-cutting **Analytics Overview** (actual
 > monthly revenue/expense, expense composition, top customers/vendors, balance checks, freshness,
 > locally vendored ECharts monthly and expense-composition views and deterministic grounded insights). It is **not
-> counted** in the 28/66 figure until it gets a catalogue ID and the full per-report metadata,
+> counted** in the 38/66 figure until it gets a catalogue ID and the full per-report metadata,
 > export and drill-down set above. It is not a substitute for the missing reports.
 >
 > **Build 0.13 Report Library:** `/reports/library` shows all 66 catalogued reports, their group,
-> formula/source and honest delivery state. It marks **28 working, 1 partial and 37 planned**; planned
-> rows have no route and are never filled with sample data. The nine new working reports are R-104,
-> R-108, R-109, R-202, R-203, R-301, R-401, R-903 and R-905.
+> formula/source and honest delivery state. Build 0.13 added nine working reports: R-104, R-108,
+> R-109, R-202, R-203, R-301, R-401, R-903 and R-905.
+>
+> **Build 0.16 report batch:** ten more working reports were added with CSV exports: R-110 trial
+> balance exceptions, R-302 sales summary, R-303 top customers, R-306 sales returns, R-307
+> product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501
+> stock summary and R-706 credit-limit utilisation. The library now marks **38 working, 1 partial and
+> 27 planned**; planned rows still have no route and are never filled with sample data.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
 > trial balance, P&L, balance sheet, ageing, cash/bank, inventory and GST working sheets, and the
@@ -59,7 +64,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-107 | Opening vs Closing Balances | account_balance | Opening + movements = closing | To ledger | 2 | Partial (statement opening/closing) |
 | R-108 | Financial Ratios | P&L + BS | Current/quick ratio, gross/net margin, ROE, ROCE, debt-equity, asset turnover, working capital | To inputs table | 6 | Working (Build 0.13) |
 | R-109 | Period-over-Period Comparison | account_balance | Δ amount and Δ % between two equal-length periods | To both periods | 6 | Working (Build 0.13) |
-| R-110 | Trial Balance Exception Report | journal_entry | Entries failing balance/precision checks | To entry | 2 | Not implemented |
+| R-110 | Trial Balance Exception Report | journal_entry + journal_line | Entries failing balance/line-structure checks | To entry | 2 | Working (Build 0.16) |
 
 ---
 
@@ -81,14 +86,14 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
 | R-301 | Sales Register | invoice + lines | Σ taxable, tax, round-off, gross per posted invoice | 3 | Working (Build 0.13) |
-| R-302 | Sales Summary by Period | invoice | Grouped totals + growth % | 3 | Not implemented |
-| R-303 | Top Customers | invoice | Rank by revenue, share % | 3 | Not implemented |
+| R-302 | Sales Summary by Period | invoice | Grouped totals + month growth % | 3 | Working (Build 0.16) |
+| R-303 | Top Customers | invoice + customer | Rank by revenue, share % | 3 | Working (Build 0.16) |
 | R-304 | Customer Ageing | open AR items | Buckets 0-30/31-60/61-90/90+ | 3 | Working (Build 0.2) |
 | R-305 | Customer Statement | invoice + receipt | Opening + invoices − receipts = closing | 3 | Working + share link (Build 0.6) |
-| R-306 | Sales Returns | credit notes | Σ returns, return rate % | 3 | Not implemented |
-| R-307 | Product-wise Sales | invoice lines + product | Qty, revenue, margin | 3 | Not implemented |
+| R-306 | Sales Returns | credit notes | Returns and return rate % | 3 | Working (Build 0.16) |
+| R-307 | Product-wise Sales | invoice lines + product | Qty, revenue, margin at current cost | 3 | Working (Build 0.16) |
 | R-308 | Salesperson Performance | invoice + user | Revenue and collection per user | 6 | Not implemented |
-| R-309 | Discount Analysis | invoice lines | Discount value and % of gross | 6 | Not implemented |
+| R-309 | Discount Analysis | invoice lines | Discount value and % of gross | 6 | Working (Build 0.16) |
 
 ---
 
@@ -99,9 +104,9 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-401 | Purchase Register | bill + lines | Σ taxable, tax, round-off, gross per posted bill | 3 | Working (Build 0.13) |
 | R-402 | Supplier Ageing | open AP items | Buckets 0-30/31-60/61-90/90+ | 3 | Working (Build 0.2) |
 | R-403 | Supplier Statement | purchase + payment | Opening + purchases − payments | 3 | Working + share link (Build 0.6) |
-| R-404 | Top Suppliers / Concentration | purchase | Rank + share % | 6 | Not implemented |
+| R-404 | Top Suppliers / Concentration | purchase + vendor | Rank + share % | 6 | Working (Build 0.16) |
 | R-405 | Price Variance | purchase lines | Actual vs last/standard price | 6 | Not implemented |
-| R-406 | Purchase Return Analysis | debit notes | Σ returns + rate | 3 | Not implemented |
+| R-406 | Purchase Return Analysis | debit notes | Returns + rate | 3 | Working (Build 0.16) |
 
 ---
 
@@ -109,7 +114,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-501 | Stock Summary | stock_movement | Per item: in − out per the §11 formula | 4 | Not implemented |
+| R-501 | Stock Summary | posted invoice/bill/credit/debit lines + item | Opening + in - out = closing per item | 4 | Working (Build 0.16) |
 | R-502 | Stock Movement History | stock_movement | Chronological with source doc | 4 | Not implemented |
 | R-503 | Inventory Valuation | stock + cost layer | FIFO / weighted average | 4 | Not implemented |
 | R-504 | Reorder / Shortage | stock + reorder level | Items below threshold | 4 | Not implemented |
@@ -141,7 +146,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-703 | Bank Reconciliation Statement | statement + ledger | Difference = timing + errors (explained) | 3 | Working (Build 0.4) |
 | R-704 | Receivables Risk | AR + ageing + history | Overdue value, exposure, trend | 6 | Not implemented |
 | R-705 | Cash Flow Forecast | AR/AP due dates + history | Projected inflows/outflows (**labelled forecast**) | 6 | Not implemented |
-| R-706 | Credit Limit Utilisation | customer + AR | Outstanding ÷ limit | 6 | Not implemented |
+| R-706 | Credit Limit Utilisation | customer + open AR | Outstanding vs limit | 6 | Working (Build 0.16) |
 
 ---
 

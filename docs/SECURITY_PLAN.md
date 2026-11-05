@@ -370,3 +370,22 @@ The frontend receives **no** secrets — only a public API base URL.
 - **Residual risk:** there is no correction approval workflow, no four-eyes review and no separate
   edit-history screen beyond `audit_log`. A compromised owner session can still correct entries;
   use strong passwords, backups and access control on the Windows account.
+
+
+## 19. Build 0.16 addendum - report screens and CSV exports
+
+- **No new permission:** the ten new report pages are available to signed-in members, matching the
+  existing report pages; the standard role set gives every role `report.view`. All ten CSV exports
+  require the existing `report.export`. No role or permission was added.
+- **Tenant scope:** every query filters by the session tenant id. Report functions do not accept a
+  caller-supplied tenant id; the route passes the session tenant row.
+- **Read-only:** the reports do not post, reverse, edit or cache. Trial balance exceptions reports
+  malformed journal rows but never repairs them. Stock summary derives quantities but never adjusts
+  `item.stock_milli`.
+- **CSV boundary:** exports are generated in memory, sent with `no-store`, and use exact decimal
+  strings from integer paise. Stock quantities use three-decimal strings.
+- **No new sensitive data:** customer names, supplier names and document numbers already appear in
+  the existing registers and statements. The new reports do not expose passwords, sessions, hashes,
+  audit metadata or cross-tenant rows.
+- **Residual risk:** the new pages have not had a penetration test or independent accounting review.
+  Credit-limit utilisation is advisory and does not enforce a credit hold.

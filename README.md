@@ -2,7 +2,7 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.15).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.16).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
 (purchase returns), day book, manual journals, bank reconciliation, cash book, bank book, GST
 summary, GSTR-1 working export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation
@@ -40,8 +40,8 @@ rule-based and cites every metric; no forecast is mixed into actuals. Build 0.13
 Library** and nine management reports: **R-104 Cash Flow** (direct movement plus indirect
 reconciliation), **R-108 Financial Ratios**, **R-109 Period-over-Period Comparison**, **R-202
 Reversal Register**, **R-203 Account Activity**, **R-301 Sales Register**, **R-401 Purchase
-Register**, **R-903 Expense Breakdown** and **R-905 Working Capital Cycle**. **28 of 66 catalogued
-reports now have a working screen or export.** Build 0.14 adds **first-run owner setup** for a clean
+Register**, **R-903 Expense Breakdown** and **R-905 Working Capital Cycle**. Build 0.13 took
+coverage to **28 of 66**. Build 0.14 adds **first-run owner setup** for a clean
 installation (the setup page closes permanently after the first owner is created) and a
 **self-contained Windows offline package** with an embedded Python runtime, local SQLite, verified
 external-drive backup and optional login autostart. Build 0.15 adds **editable manual entries**:
@@ -49,9 +49,13 @@ cash, bank and journal vouchers can be corrected from the entry page, ledger, da
 bank book. Saving an edit posts a reversal plus a corrected replacement in one transaction, requires
 a reason and keeps both versions in the audit trail. It also adds **Start fresh books** under
 Businesses, so an owner can create a new business with the standard chart of accounts and zero
-entries and test new ledgers without touching the demo. Saved dashboards, EN/HI labels, Power BI
-Service refresh/RLS and a generative AI provider remain planned. Covered by **268 automated tests
-that pass on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-11-05-01`).
+entries and test new ledgers without touching the demo. Build 0.16 adds ten more working reports:
+**R-110 Trial Balance Exceptions**, **R-302 Sales Summary**, **R-303 Top Customers**, **R-306 Sales
+Returns**, **R-307 Product-wise Sales**, **R-309 Discount Analysis**, **R-404 Top Suppliers**,
+**R-406 Purchase Returns**, **R-501 Stock Summary** and **R-706 Credit Limit Utilisation**, with
+CSV exports. Coverage is now **38 of 66** working reports. Saved dashboards, EN/HI labels, Power BI
+Service refresh/RLS and a generative AI provider remain planned. Covered by **274 automated tests
+that pass on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-11-05-02`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
 email delivery, ownership transfer, PostgreSQL and the Next.js front end are not built. GSTR-1,
@@ -75,7 +79,7 @@ Or step by step:
 
 ```powershell
 python -m pip install -r requirements.txt  # approved openpyxl dependency
-python -m unittest discover -s tests       # 268 tests
+python -m unittest discover -s tests       # 274 tests
 python -m app.server                       # http://127.0.0.1:8000
 ```
 
@@ -128,7 +132,7 @@ Build a self-contained folder that needs no Python installation and no internet:
 .\.venv\Scripts\python.exe scripts\build_windows_portable.py --zip
 ```
 
-The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.15.zip`. It contains the
+The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.16.zip`. It contains the
 official Python 3.14.6 embeddable runtime, `openpyxl`, the app, and Windows launchers:
 
 - `Start ARTHIVIO.bat` starts the local server and opens the browser.
@@ -176,13 +180,13 @@ paid disk or a VPS; see `docs/DEPLOYMENT.md`.
 | Inventory | Perpetual stock, weighted-average cost, COGS at cost, negative-stock block, service items never touch stock | `test_cogs_and_stock`, `test_purchase_at_current_cost_keeps_average`, `test_service_invoice_does_not_touch_stock` |
 | Receivables / payables | Customer and vendor balances + statements, open-invoice and open-bill ageing (current / 31-60 / 61-90 / 90+), reconciled to control accounts | `TestReceipts`, `TestAgeingAndGST`, `test_customer_statement_matches_receivable_control` |
 | Reports | One Reports menu with trial balance, P&L, balance sheet (A = L + E), receivable/payable ageing and GST working papers; general ledger with running balance, cash book, bank book and day book are derived views with **Edit/Reverse** actions for manual entries; nothing is overwritten | `test_04`, `test_balance_sheet_equation`, `TestAgeingAndGST`, `test_14_new_pages_render`, `test_27_grouped_dropdown_navigation`, `test_web.test_48` |
-| Report Library and management reports | `/reports/library` lists all 66 catalogued reports with source/formula and honest working/partial/planned state; nine new deterministic reports: cash flow with indirect bridge, financial ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown and working-capital cycle; 28 of 66 working; CSV exports for cash flow, sales, purchases and expenses | `tests/test_reports.py` (10), `test_web.test_46`, `RUN-2026-11-04-01` |
+| Report Library and management reports | `/reports/library` lists all 66 catalogued reports with source/formula and honest working/partial/planned state; nineteen deterministic management reports: cash flow with indirect bridge, financial ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle, trial balance exceptions, sales summary, top customers, product-wise sales, discount analysis, sales returns, top suppliers, purchase returns, stock summary and credit-limit utilisation; 38 of 66 working; CSV exports for every new report | `tests/test_reports.py` (16), `test_web.test_46`, `RUN-2026-11-04-01`, `RUN-2026-11-05-02` |
 | Analytics foundation | Read-only `v_analytics_journal` / `v_analytics_monthly` views; 19-metric actual-only registry; `/api/v1/analytics/catalog`, `/api/v1/analytics/overview` and `/api/v1/analytics/insights` (session + `report.view`, tenant-scoped, `no-store`); `/reports/analytics` shows KPI cards, monthly bars, expense composition, top customers/vendors, checks/freshness and a locally vendored ECharts interactive view; no forecast or authoritative total is invented | `tests/test_analytics.py` (6), `tests/test_insights.py` (3), `test_web.test_40`, `test_web.test_43`, `test_web.test_44`, `RUN-2026-10-28-01` |
 | Excel workbook export | Real `.xlsx` via approved `openpyxl`: `/export/workbook.xlsx` builds 20 sheets (cover, read-me, data dictionary, KPIs, monthly, P&L, balance sheet, trial balance, expense, top parties, AR/AP ageing, cash/bank, inventory, GST working/sales/purchases, journal, AI Insights) with native Excel charts; amounts show INR while the exact integer-paise source stays beside each KPI; permission `report.export`, `no-store` | `tests/test_excel.py` (6), `test_web.test_41`, `RUN-2026-10-28-01` |
 | Excel import | Real `.xlsx` upload for bulk opening balances, bank statements and GSTR-2B; server-side `openpyxl` reads the first worksheet (or named sheet), converts dates/numbers to neutral CSV, then the existing validators still preview and post atomically; 8 MB/50,000-row guard, formula cells use cached values only, malformed files fail visibly | `tests/test_xlsx_import.py` (5), `test_web.test_45`, `RUN-2026-10-28-01` |
 | Power BI import pack | `/export/powerbi.zip` packages the analytics snapshot, metric catalog, journal/monthly facts, account/party dimensions, a Power Query starter and a manifest with SHA-256 hashes; money stays integer paise; explicitly a static import pack, not a `.pbix`, Service dataset, RLS model or scheduled refresh | `tests/test_bi.py` (4), `test_web.test_42`, `RUN-2026-10-28-01` |
 | Grounded insights | Deterministic rules over the actuals contract: margin, largest expense, overdue share, GST working amount, ledger checks, open documents and freshness; every observation has a written basis, metric keys, drill-down and source; `/reports/analytics` AI Insights card and `/api/v1/analytics/insights`; no external model, no forecast, empty periods say "not generated" | `tests/test_insights.py` (3), `test_web.test_44`, `RUN-2026-10-28-01` |
-| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, debit notes, bank statement, ageing and GST registers (UTF-8 with BOM); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections; GSTR-3B working CSV; GSTR-2B reconciliation and ITC review CSV; Build 0.13 cash-flow, sales-register, purchase-register and expense-breakdown CSV; real `.xlsx` actuals workbook and static Power BI ZIP | `test_13_csv_exports`, `test_17`, `test_18`, `test_19`, `test_20`, `test_21`, `test_24`, `tests/test_excel.py`, `tests/test_bi.py`, `test_web.test_41`, `test_web.test_42`, `test_web.test_46` |
+| Exports | CSV for trial balance, P&L, balance sheet, ledger, day book, invoices, receipts, bills, credit notes, debit notes, bank statement, ageing and GST registers (UTF-8 with BOM); GSTR-1 style CSV/JSON with B2B, B2C small, HSN and credit-note sections; GSTR-3B working CSV; GSTR-2B reconciliation and ITC review CSV; Build 0.13 cash-flow, sales-register, purchase-register and expense-breakdown CSV; Build 0.16 sales-summary, top-customers, product-sales, discounts, sales-returns, top-suppliers, purchase-returns, stock-summary, credit-limits and trial-balance-exceptions CSV; real `.xlsx` actuals workbook and static Power BI ZIP | `test_13_csv_exports`, `test_17`, `test_18`, `test_19`, `test_20`, `test_21`, `test_24`, `tests/test_excel.py`, `tests/test_bi.py`, `test_web.test_41`, `test_web.test_42`, `test_web.test_46` |
 | GSTR-3B working | Month-wise 3.1 outward supplies, 4 eligible ITC and head-wise payment view; output net of credit notes, ITC net of debit notes; six reconciliation checks against GSTR-1 and the tax ledger; negative-head carry-forward shown explicitly | `tests/test_gstr3b.py` (8), `test_21_gstr3b_page_and_csv`, browser check `RUN-2026-10-24-06` |
 | GSTR-2B working | Month-scoped CSV or server-side `.xlsx` import, SHA-256 duplicate detection, latest active import supersedes the prior one, supplier GSTIN + normalised invoice matching, amount differences reported but never corrected, missing-in-books and missing-in-2B lists, per-line ITC review (open / supplier follow-up / ITC hold / accepted) with notes and audit trail, **GSTR-3B eligible-ITC vs GSTR-2B comparison**, import history and CSV export; nothing is auto-posted and review states never change the books | `tests/test_gstr2b.py` (17), `test_24_gstr2b_import_and_export`, browser check `RUN-2026-10-25-02` |
 | Fresh business / test books | `/businesses` now has a **Start fresh books** form for owners: creates a separate tenant with the standard chart of accounts and zero entries, makes the creator its owner, switches the session to it, and lands on an empty ledger with a notice; use it to test new ledgers and entries without touching demo data | `TestSecurity.test_create_business_is_empty_and_makes_creator_owner`, `test_web.test_48` |
@@ -253,7 +257,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **268 tests, OK, 25.778 s**, Python 3.14.6, Windows.
+Last verified: **274 tests, OK, 24.077 s**, Python 3.14.6, Windows.
 
 Backup drill:
 

@@ -117,7 +117,11 @@
 | `/reports/reversals`, `/reports/account-activity` | R-202 and R-203 audit/activity views |
 | `/reports/sales-register`, `/reports/purchase-register` | R-301 and R-401 posted-document registers |
 | `/reports/expense-breakdown`, `/reports/working-capital` | R-903 and R-905 management views |
+| `/reports/tb-exceptions`, `/reports/sales-summary`, `/reports/top-customers`, `/reports/product-sales` | Build 0.16 journal-exception, sales-summary, customer-ranking and product reports |
+| `/reports/discounts`, `/reports/sales-returns`, `/reports/top-suppliers`, `/reports/purchase-returns` | Build 0.16 discount, return and supplier-concentration reports |
+| `/reports/stock-summary`, `/reports/credit-limits` | Build 0.16 document-derived stock and open-receivable credit-limit reports |
 | `/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`, `/export/expense-breakdown.csv` | Session + `report.export`; exact decimal strings; no external service |
+| `/export/sales-summary.csv`, `/export/top-customers.csv`, `/export/product-sales.csv`, `/export/discounts.csv`, `/export/sales-returns.csv`, `/export/top-suppliers.csv`, `/export/purchase-returns.csv`, `/export/stock-summary.csv`, `/export/credit-limits.csv`, `/export/tb-exceptions.csv` | Build 0.16 CSV exports; session + `report.export`; exact decimal strings and three-decimal quantities; no external service |
 
 There is still no external BI token API. The session-authenticated JSON analytics API remains the
 only machine-readable external surface, and it exposes actuals only.

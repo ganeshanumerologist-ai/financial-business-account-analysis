@@ -18,11 +18,16 @@
 > Insights layer that is explicitly rule-based. It does **not** add a generative model or a
 > Power BI Service dataset.
 >
-> **Update 2026-11-04:** Build 0.13 adds a Report Library for all 66 catalogued reports and nine
+> **Update 2026-11-04:** Build 0.13 added a Report Library for all 66 catalogued reports and nine
 > deterministic management reports (cash flow, ratios, period comparison, reversal register,
 > account activity, sales register, purchase register, expense breakdown and working-capital
-> cycle). Coverage is now **28 of 66**. The remaining 38 reports, saved dashboards, EN/HI and the
-> ~150-template library are still Phase B.
+> cycle), taking coverage to 28 of 66.
+>
+> **Update 2026-11-05:** Build 0.16 adds ten more working reports (trial balance exceptions, sales
+> summary, top customers, product-wise sales, discount analysis, sales returns, top suppliers,
+> purchase returns, stock summary and credit-limit utilisation) with CSV exports. Coverage is now
+> **38 of 66**. The remaining 28 reports, saved dashboards, EN/HI and the ~150-template library are
+> still Phase B.
 
 ---
 
@@ -32,7 +37,7 @@
 |---|---|---|
 | Double-entry accounting core | Working: invoices, bills, receipts, payments, journals, GST working papers, bank reconciliation, opening balances, audit | **Yes, foundation** |
 | Financial statements | Trial balance, P&L, balance sheet, ledger, day book, cash book, bank book, ageing, GST summaries | **Partial** |
-| Report library | 28 of 66 catalogued reports have a working screen or export, plus a Report Library page and an uncounted Analytics Overview pilot; target is ~150 templates | **Partial** |
+| Report library | 38 of 66 catalogued reports have a working screen or export, plus a Report Library page and an uncounted Analytics Overview pilot; target is ~150 templates | **Partial** |
 | Charts and visual analytics | Analytics Overview pilot: actual monthly revenue/expense bars, expense composition, top-party tables and checks; dashboard bars and landing SVG remain; no full chart engine or custom dashboards | **Partial / early** |
 | Excel import | Real `.xlsx` upload for opening balances, bank statements and GSTR-2B; not a general workbook importer | **Partial / real slice** |
 | Excel export | Real 20-sheet `.xlsx` actuals workbook with native charts and exact paise source; no formula-driven AI workbook or pivot model | **Partial / real slice** |

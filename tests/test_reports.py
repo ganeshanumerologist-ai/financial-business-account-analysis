@@ -23,16 +23,17 @@ class ReportsTest(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_catalog_has_66_rows_and_28_working(self):
+    def test_catalog_has_66_rows_and_38_working(self):
         cat = reports.catalog()
         self.assertEqual(cat["total"], 66)
-        self.assertEqual(cat["working"], 28)
+        self.assertEqual(cat["working"], 38)
         self.assertEqual(cat["partial"], 1)
-        self.assertEqual(cat["planned"], 37)
+        self.assertEqual(cat["planned"], 27)
         working = [r for g in cat["groups"] for r in g["reports"] if r["status"] == "working"]
         self.assertTrue(all(r["route"] for r in working))
-        for rid in ("R-104", "R-108", "R-109", "R-202", "R-203",
-                    "R-301", "R-401", "R-903", "R-905"):
+        for rid in ("R-104", "R-108", "R-109", "R-110", "R-202", "R-203",
+                    "R-301", "R-302", "R-303", "R-306", "R-307", "R-309",
+                    "R-401", "R-404", "R-406", "R-501", "R-706", "R-903", "R-905"):
             row = next(r for r in reports.REPORT_CATALOG if r["id"] == rid)
             self.assertEqual(row["status"], "working", rid)
             self.assertTrue(row["route"], rid)
@@ -130,6 +131,123 @@ class ReportsTest(unittest.TestCase):
         self.assertIsNotNone(data["dio"])
         self.assertIsNotNone(data["dpo"])
         self.assertAlmostEqual(data["ccc"], data["dso"] + data["dio"] - data["dpo"], places=6)
+
+    def test_sales_summary_and_top_customers_reconcile(self):
+        summary = reports.sales_summary_by_period(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        register = reports.sales_register(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(summary["totals"]["invoices"], register["totals"]["count"])
+        self.assertEqual(summary["totals"]["total"], register["totals"]["total"])
+        self.assertEqual(summary["totals"]["taxable"], register["totals"]["taxable"])
+        self.assertTrue(summary["rows"])
+        self.assertEqual(summary["rows"][0]["growth"], None)
+        for row in summary["rows"][1:]:
+            self.assertIsNotNone(row["growth"])
+
+        top = reports.top_customers(self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(top["totals"]["total"], register["totals"]["total"])
+        self.assertEqual(top["rows"][0]["rank"], 1)
+        self.assertAlmostEqual(sum(r["share"] for r in top["rows"]), 1.0, places=6)
+        self.assertAlmostEqual(top["rows"][-1]["cumulative_share"], 1.0, places=6)
+
+    def test_product_sales_and_discounts_reconcile_to_invoice_lines(self):
+        sales = reports.sales_register(self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        products = reports.product_sales(self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(products["totals"]["revenue"], sales["totals"]["taxable"])
+        self.assertTrue(products["rows"])
+        for row in products["rows"]:
+            self.assertEqual(row["margin"], row["revenue"] - row["cost"])
+            self.assertGreaterEqual(row["revenue"], 0)
+        self.assertAlmostEqual(sum(r["share"] for r in products["rows"]), 1.0, places=6)
+
+        discounts = reports.discount_analysis(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(discounts["totals"]["taxable"], sales["totals"]["taxable"])
+        self.assertGreater(discounts["totals"]["discount"], 0)
+        self.assertGreater(discounts["totals"]["invoices_with_discount"], 0)
+        self.assertLessEqual(discounts["totals"]["discount"], discounts["totals"]["gross"])
+
+    def test_returns_and_supplier_concentration(self):
+        returns = reports.sales_returns(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(returns["totals"]["notes"], 1)
+        self.assertEqual(returns["totals"]["total"],
+                         returns["totals"]["taxable"] + returns["totals"]["tax"])
+        self.assertGreater(returns["totals"]["return_rate"], 0)
+
+        purchases = reports.purchase_register(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        suppliers = reports.top_suppliers(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(suppliers["totals"]["total"], purchases["totals"]["total"])
+        self.assertAlmostEqual(sum(r["share"] for r in suppliers["rows"]), 1.0, places=6)
+        purchase_returns = reports.purchase_returns(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(purchase_returns["totals"]["notes"], 0)
+        self.assertEqual(purchase_returns["totals"]["return_rate"], 0)
+
+    def test_stock_summary_reconstructs_period_quantities(self):
+        data = reports.stock_summary(
+            self.conn, self.tenant, "2026-04-01", "2026-12-31")
+        self.assertTrue(data["rows"])
+        self.assertGreater(data["totals"]["closing_value"], 0)
+        current = {r["id"]: r["stock_milli"] for r in self.conn.execute(
+            "SELECT id, stock_milli FROM item WHERE tenant_id=?", (self.tenant["id"],))}
+        for row in data["rows"]:
+            self.assertEqual(row["opening"] + row["in_period"] - row["out_period"],
+                             row["closing"])
+            self.assertEqual(row["closing"], current[row["id"]])
+
+    def test_credit_limit_utilisation_and_over_limit(self):
+        data = reports.credit_limit_utilisation(
+            self.conn, self.tenant, "2026-10-31")
+        ageing = acct.receivable_ageing(self.conn, self.tenant["id"], "2026-10-31")
+        self.assertEqual(data["totals"]["outstanding"], ageing["grand_total"])
+        self.assertTrue(data["rows"])
+        self.assertTrue(all(r["no_limit"] for r in data["rows"]))
+
+        customer_id = next(r["customer_id"] for r in ageing["rows"]
+                           if r.get("customer_id"))
+        due = next(r["outstanding"] for r in ageing["rows"]
+                   if r.get("customer_id") == customer_id)
+        self.conn.execute(
+            "UPDATE customer SET credit_limit_paise=? WHERE id=?",
+            (max(1, due - 1), customer_id))
+        data = reports.credit_limit_utilisation(self.conn, self.tenant, "2026-10-31")
+        row = next(r for r in data["rows"] if r["id"] == customer_id)
+        self.assertTrue(row["over_limit"])
+        self.assertEqual(data["totals"]["over_limit"], 1)
+
+    def test_trial_balance_exceptions_find_malformed_entry(self):
+        clean = reports.trial_balance_exceptions(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(clean["exceptions"], 0)
+        self.assertGreater(clean["checked"], 0)
+
+        tenant_id = self.tenant["id"]
+        entry_id = db.new_id()
+        self.conn.execute(
+            "INSERT INTO journal_entry (id, tenant_id, entry_no, entry_date, narration,"
+            " source_type, status, posted_at) VALUES (?,?,?,?,?,?,?,?)",
+            (entry_id, tenant_id, "BAD-1", "2026-10-31", "Malformed test entry",
+             "manual", "posted", db.now()))
+        self.conn.execute(
+            "INSERT INTO journal_line (id, tenant_id, entry_id, line_no, account_id,"
+            " debit_paise, credit_paise) VALUES (?,?,?,?,?,?,?)",
+            (db.new_id(), tenant_id, entry_id, 1,
+             db.account_id(self.conn, tenant_id, "1000"), 1000, 0))
+        self.conn.execute(
+            "INSERT INTO journal_line (id, tenant_id, entry_id, line_no, account_id,"
+            " debit_paise, credit_paise) VALUES (?,?,?,?,?,?,?)",
+            (db.new_id(), tenant_id, entry_id, 2,
+             db.account_id(self.conn, tenant_id, "4000"), 0, 900))
+        data = reports.trial_balance_exceptions(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(data["exceptions"], 1)
+        self.assertEqual(data["rows"][0]["entry_no"], "BAD-1")
+        self.assertEqual(data["rows"][0]["difference"], 100)
+        self.assertIn("Debit and credit differ", data["rows"][0]["issues"])
 
     def test_other_tenant_is_isolated(self):
         other = db.create_tenant(self.conn, "Other Reports Co", "other-reports", state_code="27")

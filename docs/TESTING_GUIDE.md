@@ -174,9 +174,15 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 ### M. Report Library
 
 - [ ] Report Library opens
-- [ ] It shows 28 of 66 working
+- [ ] It shows 38 of 66 working
 - [ ] Planned reports are clearly marked and do not show fake data
 - [ ] Every working report opens without a 500 error
+- [ ] Sales summary, top customers, product sales, discounts and sales returns open
+- [ ] Top suppliers and purchase returns open
+- [ ] Stock summary shows opening + in - out = closing for each item
+- [ ] Credit-limit utilisation flags over-limit or no-limit customers
+- [ ] Trial balance exceptions shows a clean result on the demo and a review badge when a bad entry exists
+- [ ] Each new report's CSV downloads and opens
 
 ### N. Backup and restore
 
@@ -245,7 +251,7 @@ Screenshot:
 
 ## 5. Known limits in this trial
 
-- 28 of 66 catalogued reports are working; 37 are planned.
+- 38 of 66 catalogued reports are working; 1 is partial and 27 are planned.
 - No generative AI provider is connected.
 - Power BI is an external reporting layer, not an embedded live model.
 - The public trial URL is temporary and has no uptime guarantee.

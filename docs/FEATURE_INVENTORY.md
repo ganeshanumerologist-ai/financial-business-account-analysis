@@ -654,3 +654,30 @@ and documentation agree.
 - Correction approval workflow, edit history UI beyond the audit log, and bulk corrections.
 - Offline-to-online sync, permanent hosting and automatic updates.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.15.
+
+
+## 24. Status after ten report screens (Build 0.16, 2026-11-05)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Trial Balance Exceptions | `/reports/tb-exceptions` | journal entries with debit/credit difference, fewer than two lines, zero value or duplicate line number; never repairs; `test_trial_balance_exceptions_find_malformed_entry` |
+| Sales Summary | `/reports/sales-summary` | posted invoices by month with taxable, GST, total and month growth; `test_sales_summary_and_top_customers_reconcile` |
+| Top Customers | `/reports/top-customers` | rank, invoices, taxable, total, share and cumulative share; `test_sales_summary_and_top_customers_reconcile` |
+| Product-wise Sales | `/reports/product-sales` | quantity, taxable revenue, estimated margin at current item cost and share; `test_product_sales_and_discounts_reconcile_to_invoice_lines` |
+| Discount Analysis | `/reports/discounts` | line-level gross, discount, discount % and taxable value by invoice; `test_product_sales_and_discounts_reconcile_to_invoice_lines` |
+| Sales Returns | `/reports/sales-returns` | posted credit notes and return rate against posted invoice taxable; `test_returns_and_supplier_concentration` |
+| Top Suppliers | `/reports/top-suppliers` | rank, bills, taxable, total, share and cumulative share; `test_returns_and_supplier_concentration` |
+| Purchase Returns | `/reports/purchase-returns` | posted debit notes and return rate against posted bill taxable; `test_returns_and_supplier_concentration` |
+| Stock Summary | `/reports/stock-summary` | period opening/in/out/closing reconstructed from posted documents, current-cost value and negative-stock count; `test_stock_summary_reconstructs_period_quantities` |
+| Credit Limit Utilisation | `/reports/credit-limits` | open receivable against customer limit, available headroom, over-limit and no-limit warnings; `test_credit_limit_utilisation_and_over_limit` |
+| Report coverage | Reports menu | 38 of 66 working; 1 partial; 27 planned |
+| Offline package 0.16 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.16.zip` | embedded Python 3.14.6, `openpyxl` 3.1.5, health smoke test passed |
+
+### Still not implemented
+
+- 28 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
+- Manual stock-adjustment table; stock summary currently reconstructs from documents and current item master stock.
+- Historical cost layers; product margin uses the current item cost and is labelled as an estimate.
+- Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.16.

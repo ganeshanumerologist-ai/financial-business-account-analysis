@@ -485,3 +485,18 @@ structures:
   reason and the line count in its JSON metadata.
 - `security.create_business()` reuses `tenant`, `account`, `membership` and `audit_log`; it creates
   a new tenant with the standard chart and no journal rows.
+
+
+## 22. Build 0.16 report screens: no schema change (2026-11-05)
+
+Build 0.16 adds **no table, no column, no index and no cached total**. The ten new reports read the
+existing posted invoice, invoice_line, bill, bill_line, credit_note, credit_note_line, debit_note,
+debit_note_line, item, customer, journal_entry and journal_line rows.
+
+- `receivable_ageing()` now selects `invoice.customer_id` and includes it in each result row. This is
+  a read-only query change, not a schema change. Credit-limit utilisation uses it to aggregate open
+  invoices by customer id instead of matching customer names.
+- Stock summary derives period movements from the document-line tables and uses `item.stock_milli`
+  as the current anchor. It does not write or adjust stock.
+- Report CSV exports are generated from the same functions and are not stored.
+- No report caches a total. Every screen recalculates from posted rows on each request.

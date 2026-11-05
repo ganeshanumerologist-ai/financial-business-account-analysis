@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.15.** The latest application run is `RUN-2026-11-05-01` with
-> **268 tests, OK**, Python 3.14.6, Windows - see section 30. The table immediately below is the original
+> **Current status: Build 0.16.** The latest application run is `RUN-2026-11-05-02` with
+> **274 tests, OK**, Python 3.14.6, Windows - see section 31. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1425,3 +1425,54 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
 - The offline package was rebuilt as `dist\ARTHIVIO-Offline` and
   `dist\ARTHIVIO-Offline-0.15.zip`; the embedded runtime returned `Server: ARTHIVIO/0.15`
   from `/health` and rendered `/setup`.
+
+## 31. Application run `RUN-2026-11-05-02` - ten report screens
+
+### 31.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **274 tests, OK**, 24.077 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_reports -v` | 16 report tests, OK |
+| `python -m unittest tests.test_web.WebTest.test_46_report_library_and_management_reports -v` | HTTP report library, nineteen report pages and fourteen CSV exports, OK |
+| Live report library | `/reports/library` shows 38 working, 1 partial and 27 planned of 66 |
+| New sales reports | Sales summary, top customers, product-wise sales, discounts and sales returns render from posted invoices/lines/credit notes |
+| New purchase reports | Top suppliers and purchase returns render from posted bills/debit notes |
+| Stock summary | Opening + in - out = closing for every stock-tracked item; closing value uses current item cost |
+| Credit limits | Open receivable reconciles to receivable ageing; over-limit and no-limit states are shown |
+| Trial balance exceptions | Clean on the demo; a deliberately malformed test entry is detected with the expected difference |
+| Live trial restart | `127.0.0.1:8010` returned `ARTHIVIO/0.16 Python/3.14.6`; login rendered the dashboard with **Ganesha** and `/reports/library` showed 38 of 66 working |
+| Public quick tunnel | `/health` returned 200 through `https://arrived-slides-keep-travels.trycloudflare.com` after the restart |
+
+### 31.2 What changed
+
+- `app/reports.py`: ten deterministic report functions and updated catalogue status/routes.
+- `app/server.py`: ten report routes, ten page renderers, grouped Reports menu entries, ten CSV
+  branches and `APP_VERSION` is now `0.16`.
+- `app/accounting.py`: receivable-ageing rows now include `customer_id` so credit-limit utilisation
+  can aggregate open invoices by customer without name matching.
+- `tests/test_reports.py`: six new formula, reconciliation, stock, credit-limit and exception tests;
+  catalogue expectation updated to 38 working, 1 partial and 27 planned.
+- `tests/test_web.py`: test 46 now covers nineteen report pages and fourteen CSV endpoints.
+- `README.md`, `docs/ARCHITECTURE.md`, `docs/API_INTEGRATIONS.md`, `docs/DECISION_LOG.md`,
+  `docs/DEVELOPMENT_ROADMAP.md`, `docs/FEATURE_INVENTORY.md`, `docs/REPORT_CATALOG.md`,
+  `docs/REQUIREMENTS_TRACEABILITY.md`, `docs/SECURITY_PLAN.md`, `docs/TESTING_GUIDE.md`:
+  Build 0.16 notes and coverage counts.
+
+### 31.3 Explicitly NOT verified / not delivered
+
+- The remaining 28 catalogued report screens, saved dashboards, full drill-down, filters, EN/HI
+  labels and the ~150-template library are still not delivered.
+- Stock summary has no manual stock-adjustment table; it reconstructs from posted documents and the
+  current item master stock. An external adjustment would show as a difference.
+- Product-wise margin uses the current item cost, not a historical cost layer; it is labelled as an
+  estimate and is not a statutory valuation.
+- Credit-limit utilisation reports exposure but does not block a sale or enforce a hold.
+- Return rates compare credit/debit notes and invoices/bills dated in the same selected period. A
+  note against an older document can make the rate exceed 100%; the page states this limit.
+- No independent accounting review, penetration test, load test, real phone viewport, screen-reader
+  matrix or cross-browser matrix was run for the new report pages.
+- The public trial URL remains a temporary Cloudflare quick tunnel with no uptime guarantee.
+- The offline package was rebuilt as `dist\ARTHIVIO-Offline` and
+  `dist\ARTHIVIO-Offline-0.16.zip`; the embedded runtime returned `Server: ARTHIVIO/0.16`
+  from `/health`.

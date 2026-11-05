@@ -2000,7 +2000,8 @@ def receivable_ageing(conn: sqlite3.Connection, tenant_id: str, as_of: str | Non
     as_of = as_of or _today_iso()
     as_of_d = date.fromisoformat(as_of)
     rows = conn.execute(
-        """SELECT i.id, i.invoice_no, i.invoice_date, i.total_paise, c.name AS customer
+        """SELECT i.id, i.invoice_no, i.invoice_date, i.total_paise,
+                  i.customer_id, c.name AS customer
            FROM invoice i JOIN customer c ON c.id=i.customer_id
            WHERE i.tenant_id=? AND i.status='posted' AND i.invoice_date <= ?
            ORDER BY i.invoice_date""",
@@ -2016,8 +2017,9 @@ def receivable_ageing(conn: sqlite3.Connection, tenant_id: str, as_of: str | Non
         bucket = "current" if days <= 30 else "31-60" if days <= 60 else "61-90" if days <= 90 else "90+"
         totals[bucket] += outstanding
         out.append({"invoice_id": r["id"], "invoice_no": r["invoice_no"], "date": r["invoice_date"],
-                    "customer": r["customer"], "total": r["total_paise"],
-                    "outstanding": outstanding, "days": days, "bucket": bucket})
+                    "customer_id": r["customer_id"], "customer": r["customer"],
+                    "total": r["total_paise"], "outstanding": outstanding,
+                    "days": days, "bucket": bucket})
     return {"as_of": as_of, "rows": out, "totals": totals, "grand_total": sum(totals.values())}
 
 

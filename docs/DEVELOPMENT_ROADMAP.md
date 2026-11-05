@@ -4,7 +4,7 @@
 |---|---|
 | Version | 1.1 |
 | Date | 2026-10-28 |
-| Status | In delivery; Build 0.15 verified, full Phase 6/8/10 gates remain |
+| Status | In delivery; Build 0.16 verified, full Phase 6/8/10 gates remain |
 | Rule | Each phase ends with a gate. No gate = no progression. |
 
 Effort bands are indicative for a single developer working part-time with AI assistance. They are **not commitments**.
@@ -93,7 +93,7 @@ Effort bands are indicative for a single developer working part-time with AI ass
 | | |
 |---|---|
 | Goal | Insight that equals the ledger |
-| Build | Report engine with defined source/formula, the 66 catalogued reports, dashboards, ECharts visualisations, drill-down, exports, freshness indicators, empty states, EN/HI, responsive 360-4K and WCAG AA. **Build 0.12 delivered:** analytics pilot, two ECharts actuals views (monthly and expense composition), 20-sheet `.xlsx` actuals workbook, static Power BI pack, freshness and empty states. **Build 0.13 delivered:** Report Library plus nine management reports (cash flow, ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle), taking coverage to 28 of 66. **Still missing:** 38 catalogued report screens, saved dashboards, full drill-down, EN/HI and the ~150-template library. |
+| Build | Report engine with defined source/formula, the 66 catalogued reports, dashboards, ECharts visualisations, drill-down, exports, freshness indicators, empty states, EN/HI, responsive 360-4K and WCAG AA. **Build 0.12 delivered:** analytics pilot, two ECharts actuals views (monthly and expense composition), 20-sheet `.xlsx` actuals workbook, static Power BI pack, freshness and empty states. **Build 0.13 delivered:** Report Library plus nine management reports (cash flow, ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle), taking coverage to 28 of 66. **Build 0.16 delivered:** ten more working reports (trial balance exceptions, sales summary, top customers, product-wise sales, discounts, sales returns, top suppliers, purchase returns, stock summary, credit-limit utilisation), taking coverage to 38 of 66. **Still missing:** 28 catalogued report screens, saved dashboards, full drill-down, EN/HI and the ~150-template library. |
 | Gate | REP-001…007 pass; every displayed total = independent recalculation; accessibility and responsive checks recorded |
 | Effort | 4–6 weeks |
 | Risks | Performance on large books · silent filter leakage · chart legibility at 4K |
@@ -171,7 +171,7 @@ A working, testable accounting core (Phases 1–3) is realistic in roughly **6�
 
 ---
 
-## Current status - Build 0.15 (2026-11-05)
+## Current status - Build 0.16 (2026-11-05)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -192,9 +192,10 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.13 | Report Library for all 66 catalogued reports with honest working/partial/planned state; nine new deterministic management reports (R-104 cash flow with indirect bridge, R-108 ratios, R-109 period comparison, R-202 reversal register, R-203 account activity, R-301 sales register, R-401 purchase register, R-903 expense breakdown, R-905 working-capital cycle); CSV exports for cash flow, sales, purchases and expenses; 28 of 66 working; 256 tests | `RUN-2026-11-04-01` |
 | 0.14 | First-run owner setup for an empty installation (local-only, CSRF-protected, permanently closed after the first owner); self-contained Windows offline package with official Python 3.14.6 embeddable runtime, `openpyxl`, local SQLite, verified external-drive backup, free-port launcher, duplicate-instance detection and optional desktop/login autostart; 263 tests | `RUN-2026-11-04-03` |
 | 0.15 | Editable manual cash, bank and journal entries: pre-filled edit form, required reason, atomic reverse + corrected repost, rollback on invalid replacement, `journal.edit` audit, Edit/Reverse actions in ledger, day book, cash book and bank book, recent-entry tables; owner-only **Start fresh books** creates a separate tenant with standard chart and zero entries; 268 tests; offline package rebuilt as 0.15 | `RUN-2026-11-05-01` |
+| 0.16 | Ten more working reports with CSV exports: R-110 trial balance exceptions, R-302 sales summary, R-303 top customers, R-306 sales returns, R-307 product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501 stock summary and R-706 credit-limit utilisation; 38 of 66 working; 274 tests; offline package rebuilt as 0.16 | `RUN-2026-11-05-02` |
 
 **Next:** run the single-user trial against the offline package, then finish analytics Phase B
-(remaining 38 catalogued report screens, saved dashboards, full drill-down, filters, EN/HI labels
+(remaining 28 catalogued report screens, saved dashboards, full drill-down, filters, EN/HI labels
 and the ~150-template library). Permanent online hosting and offline-to-online sync remain separate
 decisions. The static Power BI pack can become an optional
 Service model only after an explicit Desktop-vs-Service scope and licensing decision; a generative

@@ -824,3 +824,34 @@ of relying on the pre-seeded demo.
   `docs/TEST_RESULTS.md` `RUN-2026-11-05-01`.
 - This decision does not add direct in-place editing of source documents, an approval workflow for
   corrections, offline-to-online sync or permanent hosting.
+
+
+## D-040 - Build 0.16 adds ten report screens with explicit source limits
+
+**Date:** 2026-11-05. **Status:** accepted for Build 0.16.
+
+The next Phase B increment was the first batch of planned report screens, chosen where the existing
+posted documents already provide a deterministic source. No sample data or cached totals were added.
+
+- New working reports: R-110 trial balance exceptions, R-302 sales summary by period, R-303 top
+  customers, R-306 sales returns, R-307 product-wise sales, R-309 discount analysis, R-404 top
+  suppliers, R-406 purchase returns, R-501 stock summary and R-706 credit-limit utilisation.
+  Coverage is **38 of 66** working, with 1 partial and 27 planned.
+- Sales reports read posted invoices and invoice lines. Purchase reports read posted bills. Return
+  reports read posted credit/debit notes and show the return rate against the matching register.
+  The rate compares notes and invoices/bills dated in the same selected period, so a note against an
+  older document can make the rate exceed 100%. Discount analysis reads line-level gross and
+  discount values.
+- Stock summary reconstructs period opening/closing from posted invoice, bill, credit-note and
+  debit-note quantities, then removes movements after the selected end date from the item master's
+  current stock. This build has no manual stock-adjustment table, so an adjustment made outside
+  documents would show as a difference; the screen states that limit.
+- Product margin uses the item master's **current cost**, not a historical cost layer. The screen
+  and CSV label it as an estimate. It is not a statutory valuation.
+- Credit-limit utilisation uses open posted receivables and the customer master limit. Customers
+  with exposure but no limit are shown as a warning; the report never blocks a sale.
+- Trial balance exceptions read journal rows and report structural failures without repairing them.
+  The report is normally empty on clean books; a deliberately malformed test entry proves detection.
+- All ten reports have CSV exports and automated formula/reconciliation tests. Build 0.16 is
+  verified by **274 tests, OK**, 24.077 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-05-02`.

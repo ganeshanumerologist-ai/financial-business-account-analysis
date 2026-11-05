@@ -1740,7 +1740,7 @@ class WebTest(unittest.TestCase):
         status, page = self.get("/reports/library")
         self.assertEqual(status, 200)
         self.assertIn("Report library", page)
-        self.assertIn("28 of 66 working", page)
+        self.assertIn("38 of 66 working", page)
         self.assertIn("R-104", page)
         self.assertIn("R-905", page)
         self.assertIn("Planned reports are deliberately not filled with sample data", page)
@@ -1755,6 +1755,16 @@ class WebTest(unittest.TestCase):
             "/reports/purchase-register": "Purchase register",
             "/reports/expense-breakdown": "Expense breakdown",
             "/reports/working-capital": "Working capital cycle",
+            "/reports/tb-exceptions": "Trial balance exceptions",
+            "/reports/sales-summary": "Sales summary",
+            "/reports/top-customers": "Top customers",
+            "/reports/product-sales": "Product-wise sales",
+            "/reports/discounts": "Discount analysis",
+            "/reports/sales-returns": "Sales returns",
+            "/reports/top-suppliers": "Top suppliers",
+            "/reports/purchase-returns": "Purchase returns",
+            "/reports/stock-summary": "Stock summary",
+            "/reports/credit-limits": "Credit limit utilisation",
         }
         for path, title in routes.items():
             status, body = self.get(path)
@@ -1762,16 +1772,26 @@ class WebTest(unittest.TestCase):
             self.assertIn(title, body, path)
             self.assertIn("R-", body, path)
 
-        for path in (
-            "/export/cash-flow.csv?from=2026-04-01&to=2026-10-31",
-            "/export/sales-register.csv?from=2026-04-01&to=2026-10-31",
-            "/export/purchase-register.csv?from=2026-04-01&to=2026-10-31",
-            "/export/expense-breakdown.csv?from=2026-04-01&to=2026-10-31",
-        ):
+        csv_exports = {
+            "/export/cash-flow.csv?from=2026-04-01&to=2026-10-31": "Movement",
+            "/export/sales-register.csv?from=2026-04-01&to=2026-10-31": "TOTAL",
+            "/export/purchase-register.csv?from=2026-04-01&to=2026-10-31": "TOTAL",
+            "/export/expense-breakdown.csv?from=2026-04-01&to=2026-10-31": "TOTAL",
+            "/export/sales-summary.csv?from=2026-04-01&to=2026-10-31": "TOTAL",
+            "/export/top-customers.csv?from=2026-04-01&to=2026-10-31": "Customer",
+            "/export/product-sales.csv?from=2026-04-01&to=2026-10-31": "SKU",
+            "/export/discounts.csv?from=2026-04-01&to=2026-10-31": "Invoice",
+            "/export/sales-returns.csv?from=2026-04-01&to=2026-10-31": "Note",
+            "/export/top-suppliers.csv?from=2026-04-01&to=2026-10-31": "Rank",
+            "/export/purchase-returns.csv?from=2026-04-01&to=2026-10-31": "Note",
+            "/export/stock-summary.csv?from=2026-04-01&to=2026-10-31": "SKU",
+            "/export/credit-limits.csv?as_of=2026-10-31": "Customer",
+            "/export/tb-exceptions.csv?from=2026-04-01&to=2026-10-31": "Voucher",
+        }
+        for path, expected in csv_exports.items():
             status, body = self.get(path)
             self.assertEqual(status, 200, path)
-            self.assertIn("TOTAL" if "register" in path or "expense" in path else "Movement",
-                          body, path)
+            self.assertIn(expected, body, path)
 
     def test_47_system_check_and_traceable_error_page(self):
         self.login()

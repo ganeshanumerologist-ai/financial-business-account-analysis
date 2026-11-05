@@ -1,6 +1,6 @@
 # ARTHIVIO Offline Edition
 
-**Build 0.15. Single-user Windows package. No Python install, no internet, local SQLite.**
+**Build 0.16. Single-user Windows package. No Python install, no internet, local SQLite.**
 
 This document describes the offline package only. It is not permanent hosting, not a multi-user
 server, and not a substitute for an independent accounting or security review.
@@ -32,7 +32,7 @@ Build it from the repository with:
 Output:
 
 - `dist\ARTHIVIO-Offline\`
-- `dist\ARTHIVIO-Offline-0.15.zip`
+- `dist\ARTHIVIO-Offline-0.16.zip`
 
 The build downloads the Python embeddable ZIP once into `build-cache\`, copies `openpyxl` 3.1.5
 and `et_xmlfile`, and tests the embedded runtime before reporting success. The target machine does
@@ -165,15 +165,15 @@ deserves a verified backup and a restore drill.
 
 ---
 
-## 9. Verification performed for Build 0.15
+## 9. Verification performed for Build 0.16
 
 | Check | Result |
 |---|---|
-| Full test suite | **268 tests, OK**, 25.778 s, Python 3.14.6, Windows |
-| First-run tests | 6 tests: setup page, login redirect, token required, validation, owner creation, permanent closure |
-| Edit/new-business tests | 4 tests: correction atomicity, audit, rollback, reason/cross-tenant/non-manual guards, fresh tenant creation, full HTTP edit path |
-| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.15` |
-| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.15` |
+| Full test suite | **274 tests, OK**, 24.077 s, Python 3.14.6, Windows |
+| Report tests | 16 tests: report formulas, reconciliation, stock reconstruction, credit-limit over-limit detection, malformed journal detection and tenant isolation |
+| Report HTTP tests | 19 report pages and 14 CSV exports, OK |
+| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.16` |
+| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.16 Python/3.14.6` |
 | Package first run | Setup page rendered from the embedded runtime; owner creation covered by `test_first_run` |
 | External-drive backup | Local backup verified, copy hash matched, copy re-verified read-only (Build 0.14, unchanged code path) |
 | Package size | About 30 MB (ZIP) |

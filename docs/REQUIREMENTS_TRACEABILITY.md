@@ -10,7 +10,7 @@
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 23 (Build 0.15); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 24 (Build 0.16); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -416,3 +416,17 @@ accounting data.
 | Source-document in-place editing | **Not implemented** | invoices, bills, receipts and credit/debit notes keep their existing correction paths; no overwrite |
 | Approval workflow / bulk correction | **Not implemented** | no correction approval step, edit-history UI beyond audit log, or bulk correction |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.15 |
+
+## 24. Status after ten report screens (Build 0.16, 2026-11-05)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Sales and customer reports | **Verified** | R-302 sales summary, R-303 top customers, R-306 sales returns, R-307 product-wise sales and R-309 discount analysis; posted invoices/lines/credit notes only; CSV exports; `tests/test_reports.py` |
+| Supplier and purchase reports | **Verified** | R-404 top suppliers and R-406 purchase returns; posted bills/debit notes only; share and return-rate formulas; CSV exports |
+| Inventory report | **Verified as a document-derived working paper** | R-501 stock summary reconstructs opening/in/out/closing from posted invoice, bill, credit-note and debit-note lines; current item master stock is the anchor; no manual stock-adjustment table exists |
+| Credit-risk report | **Verified** | R-706 credit-limit utilisation combines open posted receivables with customer master limits and flags over-limit/no-limit customers; it never blocks a sale |
+| Journal exception report | **Verified** | R-110 detects debit/credit differences, fewer than two lines, zero-value entries and duplicate line numbers without repairing them; malformed-entry test proves detection |
+| Report coverage | **38 of 66** | 28 prior working reports plus ten Build 0.16 reports; 1 partial and 27 planned remain |
+| Offline package 0.16 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.16.zip`; embedded runtime import and `/health` smoke-tested |
+| Manual stock adjustment / historical cost | **Not implemented** | stock report uses document movements and current item cost; product margin is labelled as an estimate |
+| Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.16 |

@@ -30,7 +30,7 @@ from . import reports as reports_mod
 from . import sharing
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.15"
+APP_VERSION = "0.16"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -463,15 +463,27 @@ NAV = [
             ("Accounting &amp; audit", [
                 ("reports/reversals", "audit", "Reversal Register"),
                 ("reports/account-activity", "audit", "Account Activity"),
+                ("reports/tb-exceptions", "audit", "Trial Balance Exceptions"),
             ]),
             ("Sales &amp; purchases", [
                 ("reports/sales-register", "rep", "Sales Register"),
+                ("reports/sales-summary", "rep", "Sales Summary"),
+                ("reports/top-customers", "rep", "Top Customers"),
+                ("reports/product-sales", "rep", "Product-wise Sales"),
+                ("reports/discounts", "rep", "Discount Analysis"),
+                ("reports/sales-returns", "rep", "Sales Returns"),
                 ("reports/purchase-register", "rep", "Purchase Register"),
+                ("reports/top-suppliers", "rep", "Top Suppliers"),
+                ("reports/purchase-returns", "rep", "Purchase Returns"),
             ]),
             ("Receivables &amp; payables", [
                 ("reports/ar-ageing", "rep", "Receivables Ageing"),
                 ("reports/ap-ageing", "rep", "Payables Ageing"),
+                ("reports/credit-limits", "rep", "Credit Limit Utilisation"),
                 ("reports/working-capital", "rep", "Working Capital Cycle"),
+            ]),
+            ("Inventory", [
+                ("reports/stock-summary", "item", "Stock Summary"),
             ]),
             ("Expense analysis", [
                 ("reports/expense-breakdown", "rep", "Expense Breakdown"),
@@ -1772,6 +1784,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_expense_breakdown(conn, user, tenant, q))
             if path == "/reports/working-capital":
                 return self._send(self.page_working_capital(conn, user, tenant, q))
+            if path == "/reports/sales-summary":
+                return self._send(self.page_sales_summary(conn, user, tenant, q))
+            if path == "/reports/top-customers":
+                return self._send(self.page_top_customers(conn, user, tenant, q))
+            if path == "/reports/product-sales":
+                return self._send(self.page_product_sales(conn, user, tenant, q))
+            if path == "/reports/discounts":
+                return self._send(self.page_discounts(conn, user, tenant, q))
+            if path == "/reports/sales-returns":
+                return self._send(self.page_sales_returns(conn, user, tenant, q))
+            if path == "/reports/top-suppliers":
+                return self._send(self.page_top_suppliers(conn, user, tenant, q))
+            if path == "/reports/purchase-returns":
+                return self._send(self.page_purchase_returns(conn, user, tenant, q))
+            if path == "/reports/stock-summary":
+                return self._send(self.page_stock_summary(conn, user, tenant, q))
+            if path == "/reports/credit-limits":
+                return self._send(self.page_credit_limits(conn, user, tenant, q))
+            if path == "/reports/tb-exceptions":
+                return self._send(self.page_tb_exceptions(conn, user, tenant, q))
             if path == "/customers":
                 return self._send(self.page_customers(conn, user, tenant, sess))
             if re.fullmatch(r"/customers/[0-9a-f]{32}", path):
@@ -5201,6 +5233,7 @@ does not by itself establish ITC eligibility.</p>"""
             f'<td><div class="mini-bar"><i style="width:{int((r["share"] or 0) * 100)}%"></i></div></td>'
             f'<td class="num">{f"{r["share"] * 100:.1f}%" if r["share"] is not None else "n/a"}</td></tr>'
             for r in data["rows"]) or '<tr><td colspan="6" class="empty">No posted expenses in this period</td></tr>'
+        total_share = "100.0%" if data["rows"] and data["total"] else "n/a"
         body = f"""
 <form method="get" action="/reports/expense-breakdown" class="sect"
  style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
@@ -5218,7 +5251,7 @@ does not by itself establish ITC eligibility.</p>"""
 <div class="card"><div class="table-wrap"><table>
 <thead><tr><th>Code</th><th>Expense account</th><th>Group</th><th class="num">Amount</th><th>Share</th><th class="num">%</th></tr></thead>
 <tbody>{rows}</tbody>
-<tfoot><tr><td colspan="3">Total</td><td class="num">{money.fmt(data["total"])}</td><td></td><td class="num">100.0%</td></tr></tfoot>
+<tfoot><tr><td colspan="3">Total</td><td class="num">{money.fmt(data["total"])}</td><td></td><td class="num">{total_share}</td></tr></tfoot>
 </table></div></div>
 <p class="small muted" style="margin-top:10px">Expense amounts are debit minus credit on expense accounts.
 A credit balance is shown as a negative amount, not silently removed.</p>"""
@@ -5264,6 +5297,452 @@ A credit balance is shown as a negative amount, not silently removed.</p>"""
   The report is a management aid; it is not a forecast.</p></div>
 </div>"""
         return layout("Working capital cycle", body, "reports/working-capital", user, tenant)
+
+    def page_sales_summary(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.sales_summary_by_period(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:+.1f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["period"])}</td><td class="num">{r["invoices"]}</td>'
+            f'<td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num">{money.fmt(r["tax"])}</td>'
+            f'<td class="num"><b>{money.fmt(r["total"])}</b></td>'
+            f'<td class="num">{pct(r["growth"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="6" class="empty">No posted invoices in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/sales-summary" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-302 - posted invoices only</span>
+<a class="btn ghost small" href="/export/sales-summary.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Months", str(t["periods"]), "with posted invoices")}
+  {kpi("Invoices", str(t["invoices"]), "posted in period")}
+  {kpi("Invoice value", money.fmt(t["total"]), "taxable + GST + round-off")}
+  {kpi("Average invoice", money.fmt(t["average_invoice"] or 0), "period value / invoice count")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Month</th><th class="num">Invoices</th><th class="num">Taxable</th>
+<th class="num">GST</th><th class="num">Total</th><th class="num">Growth</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td>Totals</td><td class="num">{t["invoices"]}</td>
+<td class="num">{money.fmt(t["taxable"])}</td><td class="num">{money.fmt(t["tax"])}</td>
+<td class="num">{money.fmt(t["total"])}</td><td></td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Growth compares each month with the previous month
+in the selected range. This is gross posted invoice value, before credit notes. It is not a forecast.</p>"""
+        return layout("Sales summary", body, "reports/sales-summary", user, tenant)
+
+    def page_top_customers(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.top_customers(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.1f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td class="num">{r["rank"]}</td><td><a href="/customers/{esc(r["id"])}">'
+            f'{esc(r["name"])}</a></td><td class="num">{r["invoices"]}</td>'
+            f'<td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num"><b>{money.fmt(r["total"])}</b></td>'
+            f'<td class="num">{pct(r["share"])}</td>'
+            f'<td class="num">{pct(r["cumulative_share"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="7" class="empty">No posted invoices in this period</td></tr>'
+        t = data["totals"]
+        total_share = pct(1.0) if data["rows"] and t["total"] else "n/a"
+        body = f"""
+<form method="get" action="/reports/top-customers" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-303 - posted invoice revenue</span>
+<a class="btn ghost small" href="/export/top-customers.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Customers", str(t["customers"]), "with posted invoices")}
+  {kpi("Revenue", money.fmt(t["total"]), "invoice value in period")}
+  {kpi("Top 5 share", pct(t["top5_share"]), "concentration of revenue")}
+  {kpi("Top customer", pct(data["rows"][0]["share"]) if data["rows"] else "n/a",
+       data["rows"][0]["name"] if data["rows"] else "none")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th class="num">Rank</th><th>Customer</th><th class="num">Invoices</th>
+<th class="num">Taxable</th><th class="num">Total</th><th class="num">Share</th>
+<th class="num">Cumulative</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td></td><td>Total</td><td class="num">{t["invoices"]}</td>
+<td class="num">{money.fmt(t["taxable"])}</td><td class="num">{money.fmt(t["total"])}</td>
+<td class="num">{total_share}</td><td></td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Revenue is the posted invoice total, before credit notes.
+Share is calculated against all posted invoices in the period. Customer links open the statement.</p>"""
+        return layout("Top customers", body, "reports/top-customers", user, tenant)
+
+    def page_product_sales(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.product_sales(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.1f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"]) or "-"}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{r["qty_milli"] / 1000:.3f} {esc(r["unit"])}</td>'
+            f'<td class="num">{money.fmt(r["revenue"])}</td>'
+            f'<td class="num">{money.fmt(r["cost"])}</td>'
+            f'<td class="num">{money.fmt(r["margin"])}</td>'
+            f'<td class="num">{pct(r["margin_pct"])}</td>'
+            f'<td class="num">{pct(r["share"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No posted invoice lines in this period</td></tr>'
+        t = data["totals"]
+        total_share = pct(1.0) if data["rows"] and t["revenue"] else "n/a"
+        body = f"""
+<form method="get" action="/reports/product-sales" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-307 - posted invoice lines</span>
+<a class="btn ghost small" href="/export/product-sales.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Products", str(t["products"]), "with posted sales")}
+  {kpi("Taxable revenue", money.fmt(t["revenue"]), "before GST")}
+  {kpi("Estimated margin", money.fmt(t["margin"]), pct(t["margin_pct"]) + " of revenue")}
+  {kpi("Top product share", pct(t["top_share"]), "of taxable revenue")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>SKU</th><th>Product</th><th class="num">Quantity</th>
+<th class="num">Revenue</th><th class="num">Est. cost</th><th class="num">Est. margin</th>
+<th class="num">Margin %</th><th class="num">Share</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="3">Totals</td><td class="num">{money.fmt(t["revenue"])}</td>
+<td class="num">{money.fmt(t["cost"])}</td><td class="num">{money.fmt(t["margin"])}</td>
+<td class="num">{pct(t["margin_pct"])}</td><td class="num">{total_share}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Quantity is the invoiced quantity. Cost and margin use the
+item master's current cost, not a historical cost layer. The report is a management aid, not a valuation.</p>"""
+        return layout("Product-wise sales", body, "reports/product-sales", user, tenant)
+
+    def page_discounts(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.discount_analysis(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.1f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td><a href="/invoices/{esc(r["id"])}">{esc(r["invoice_no"])}</a></td>'
+            f'<td>{esc(r["date"])}</td><td>{esc(r["customer"])}</td>'
+            f'<td class="num">{money.fmt(r["gross"])}</td>'
+            f'<td class="num">{money.fmt(r["discount"])}</td>'
+            f'<td class="num">{pct(r["discount_pct"])}</td>'
+            f'<td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num">{money.fmt(r["total"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No posted invoice lines in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/discounts" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-309 - line-level discounts</span>
+<a class="btn ghost small" href="/export/discounts.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Invoices", str(t["invoices"]), "posted in period")}
+  {kpi("With discount", str(t["invoices_with_discount"]), "at least one discounted line")}
+  {kpi("Discount value", money.fmt(t["discount"]), "sum of line discounts")}
+  {kpi("Discount share", pct(t["discount_share"]), "of gross line value")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Gross</th>
+<th class="num">Discount</th><th class="num">Discount %</th><th class="num">Taxable</th>
+<th class="num">Total</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="3">Totals</td><td class="num">{money.fmt(t["gross"])}</td>
+<td class="num">{money.fmt(t["discount"])}</td><td class="num">{pct(t["discount_share"])}</td>
+<td class="num">{money.fmt(t["taxable"])}</td><td></td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Gross is the line value before discount. Taxable is after
+discount and before GST. Credit notes are not netted here; they have their own report.</p>"""
+        return layout("Discount analysis", body, "reports/discounts", user, tenant)
+
+    def page_sales_returns(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.sales_returns(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["note_no"])}</td><td>{esc(r["note_date"])}</td>'
+            f'<td>{esc(r["customer"])}</td><td>{esc(r["invoice_no"] or "-")}</td>'
+            f'<td>{esc(r["reason"])}</td><td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num">{money.fmt(r["tax"])}</td>'
+            f'<td class="num">{money.fmt(r["total"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No credit notes in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/sales-returns" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-306 - posted credit notes</span>
+<a class="btn ghost small" href="/export/sales-returns.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Credit notes", str(t["notes"]), "posted in period")}
+  {kpi("Return value", money.fmt(t["total"]), "taxable + GST")}
+  {kpi("Return rate", pct(t["return_rate"]), "return taxable / invoice taxable")}
+  {kpi("Invoice taxable", money.fmt(t["sales_taxable"]), "posted invoices in period")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Note</th><th>Date</th><th>Customer</th><th>Invoice</th><th>Reason</th>
+<th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="5">Totals</td><td class="num">{money.fmt(t["taxable"])}</td>
+<td class="num">{money.fmt(t["tax"])}</td><td class="num">{money.fmt(t["total"])}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">A credit note reverses revenue and GST and restores stock at cost.
+The original invoice is never edited. The return rate compares credit notes dated in the selected period
+with invoices dated in the same period; a credit note for an older invoice can make the rate exceed 100%.</p>"""
+        return layout("Sales returns", body, "reports/sales-returns", user, tenant)
+
+    def page_top_suppliers(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.top_suppliers(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.1f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td class="num">{r["rank"]}</td><td><a href="/vendors/{esc(r["id"])}">'
+            f'{esc(r["name"])}</a></td><td class="num">{r["bills"]}</td>'
+            f'<td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num"><b>{money.fmt(r["total"])}</b></td>'
+            f'<td class="num">{pct(r["share"])}</td>'
+            f'<td class="num">{pct(r["cumulative_share"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="7" class="empty">No posted bills in this period</td></tr>'
+        t = data["totals"]
+        total_share = pct(1.0) if data["rows"] and t["total"] else "n/a"
+        body = f"""
+<form method="get" action="/reports/top-suppliers" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-404 - posted bill value</span>
+<a class="btn ghost small" href="/export/top-suppliers.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Suppliers", str(t["suppliers"]), "with posted bills")}
+  {kpi("Purchases", money.fmt(t["total"]), "bill value in period")}
+  {kpi("Top 5 share", pct(t["top5_share"]), "supplier concentration")}
+  {kpi("Top supplier", pct(data["rows"][0]["share"]) if data["rows"] else "n/a",
+       data["rows"][0]["name"] if data["rows"] else "none")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th class="num">Rank</th><th>Supplier</th><th class="num">Bills</th>
+<th class="num">Taxable</th><th class="num">Total</th><th class="num">Share</th>
+<th class="num">Cumulative</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td></td><td>Total</td><td class="num">{t["bills"]}</td>
+<td class="num">{money.fmt(t["taxable"])}</td><td class="num">{money.fmt(t["total"])}</td>
+<td class="num">{total_share}</td><td></td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Purchases are posted bill totals, before debit notes.
+High top-five share means supplier concentration risk; it is not a credit rating.</p>"""
+        return layout("Top suppliers", body, "reports/top-suppliers", user, tenant)
+
+    def page_purchase_returns(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.purchase_returns(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["note_no"])}</td><td>{esc(r["note_date"])}</td>'
+            f'<td>{esc(r["vendor"])}</td><td>{esc(r["bill_no"] or "-")}</td>'
+            f'<td>{esc(r["reason"])}</td><td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num">{money.fmt(r["tax"])}</td>'
+            f'<td class="num">{money.fmt(r["total"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No debit notes in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/purchase-returns" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-406 - posted debit notes</span>
+<a class="btn ghost small" href="/export/purchase-returns.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Debit notes", str(t["notes"]), "posted in period")}
+  {kpi("Return value", money.fmt(t["total"]), "taxable + GST")}
+  {kpi("Return rate", pct(t["return_rate"]), "return taxable / bill taxable")}
+  {kpi("Bill taxable", money.fmt(t["purchase_taxable"]), "posted bills in period")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Note</th><th>Date</th><th>Supplier</th><th>Bill</th><th>Reason</th>
+<th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="5">Totals</td><td class="num">{money.fmt(t["taxable"])}</td>
+<td class="num">{money.fmt(t["tax"])}</td><td class="num">{money.fmt(t["total"])}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">A debit note reverses purchase value and input GST,
+takes stock out at the bill's purchase value, and reduces the supplier payable. The original bill is never
+edited. The return rate compares debit notes dated in the selected period with bills dated in the same period;
+a debit note for an older bill can make the rate exceed 100%.</p>"""
+        return layout("Purchase returns", body, "reports/purchase-returns", user, tenant)
+
+    def page_stock_summary(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.stock_summary(conn, tenant, dfrom, dto)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td><td>{esc(r["unit"])}</td>'
+            f'<td class="num">{qty(r["opening"])}</td><td class="num">{qty(r["in_period"])}</td>'
+            f'<td class="num">{qty(r["out_period"])}</td>'
+            f'<td class="num"><b>{qty(r["closing"])}</b></td>'
+            f'<td class="num">{money.fmt(r["value"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No stock-tracked items</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/stock-summary" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-501 - posted stock movements</span>
+<a class="btn ghost small" href="/export/stock-summary.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Stock items", str(t["items"]), "tracked in the item master")}
+  {kpi("Moved in period", str(t["moved"]), "at least one posted in/out")}
+  {kpi("Closing value", money.fmt(t["closing_value"]), "closing quantity x current cost")}
+  {kpi("Negative stock", str(t["negative"]), "closing quantity below zero")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>SKU</th><th>Item</th><th>Unit</th><th class="num">Opening</th>
+<th class="num">In</th><th class="num">Out</th><th class="num">Closing</th>
+<th class="num">Value</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="7">Closing value</td>
+<td class="num">{money.fmt(t["closing_value"])}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Opening + posted purchases and sales returns - posted sales
+and purchase returns = closing. Movements after the end date are removed from the current item stock to
+reconstruct the period-end quantity. This build has no manual stock-adjustment table, so an adjustment made
+outside documents would show as a difference.</p>"""
+        return layout("Stock summary", body, "reports/stock-summary", user, tenant)
+
+    def page_credit_limits(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        try:
+            data = reports_mod.credit_limit_utilisation(conn, tenant, as_of)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            data = reports_mod.credit_limit_utilisation(conn, tenant, as_of)
+
+        def pct(value):
+            return f"{value * 100:.1f}%" if value is not None else "n/a"
+
+        def status(r):
+            if r["no_limit"]:
+                return '<span class="badge warn">No limit</span>'
+            if r["over_limit"]:
+                return '<span class="badge bad">Over limit</span>'
+            return '<span class="badge ok">Within limit</span>'
+
+        rows = "".join(
+            f'<tr><td><a href="/customers/{esc(r["id"])}">{esc(r["name"])}</a></td>'
+            f'<td class="num">{r["credit_days"]}</td>'
+            f'<td class="num">{money.fmt(r["limit"]) if r["limit"] > 0 else "No limit"}</td>'
+            f'<td class="num"><b>{money.fmt(r["outstanding"])}</b></td>'
+            f'<td class="num">{money.fmt(r["available"]) if r["available"] is not None else "n/a"}</td>'
+            f'<td class="num">{pct(r["utilisation"])}</td><td>{status(r)}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="7" class="empty">No customer credit limits or open receivables</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/credit-limits" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-706 - open posted invoices</span>
+<a class="btn ghost small" href="/export/credit-limits.csv?as_of={esc(as_of)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Customers", str(t["customers"]), "with a limit or open balance")}
+  {kpi("Total limit", money.fmt(t["limit"]), "customers with a limit")}
+  {kpi("Outstanding", money.fmt(t["outstanding"]), "open posted invoices")}
+  {kpi("Over limit", str(t["over_limit"]), "needs collection follow-up")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Customer</th><th class="num">Credit days</th><th class="num">Limit</th>
+<th class="num">Outstanding</th><th class="num">Available</th><th class="num">Utilisation</th>
+<th>Status</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="2">Totals</td><td class="num">{money.fmt(t["limit"])}</td>
+<td class="num">{money.fmt(t["outstanding"])}</td><td class="num">{money.fmt(t["available"])}</td>
+<td class="num">{pct(t["utilisation"])}</td><td></td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Outstanding uses posted invoices and receipts as of the selected
+date. A customer with no limit is shown as a warning, not as unlimited credit. This report does not block sales.</p>"""
+        return layout("Credit limit utilisation", body, "reports/credit-limits", user, tenant)
+
+    def page_tb_exceptions(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.trial_balance_exceptions(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td><a href="/daybook?from={esc(r["date"])}&amp;to={esc(r["date"])}">'
+            f'{esc(r["entry_no"])}</a></td><td>{esc(r["date"])}</td>'
+            f'<td>{esc(r["source_type"])}</td><td>{esc(r["narration"])}</td>'
+            f'<td class="num">{r["lines"]}</td><td class="num">{money.fmt(r["debit"])}</td>'
+            f'<td class="num">{money.fmt(r["credit"])}</td>'
+            f'<td class="num">{money.fmt(r["difference"])}</td>'
+            f'<td>{esc("; ".join(r["issues"]))}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="9" class="empty">No structural exceptions in this period</td></tr>'
+        badge = ('<span class="badge ok">No exceptions</span>' if data["exceptions"] == 0
+                 else f'<span class="badge bad">{data["exceptions"]} exception(s)</span>')
+        body = f"""
+<form method="get" action="/reports/tb-exceptions" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-110 - structural checks</span>
+<a class="btn ghost small" href="/export/tb-exceptions.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Entries checked", str(data["checked"]), "posted and reversed entries")}
+  {kpi("Exceptions", str(data["exceptions"]), "debit/credit or line-structure failures")}
+  {kpi("Result", "Clean" if data["exceptions"] == 0 else "Review", "never silently corrected")}
+</div>
+<div class="card pad" style="margin-bottom:14px">{badge}</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Voucher</th><th>Date</th><th>Type</th><th>Narration</th>
+<th class="num">Lines</th><th class="num">Debit</th><th class="num">Credit</th>
+<th class="num">Difference</th><th>Issues</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">This report reads journal rows; it never repairs them.
+An exception means the entry needs investigation. Reversal and correction remain separate audited actions.</p>"""
+        return layout("Trial balance exceptions", body, "reports/tb-exceptions", user, tenant)
 
     def page_analytics(self, conn, user, tenant, q) -> str:
         default = analytics_mod.resolve_period(tenant)
@@ -7277,6 +7756,117 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                       f'{r["share"] * 100:.2f}' if r["share"] is not None else ""]
                      for r in data["rows"]]
             rows.append(["", "TOTAL", "", money.to_str(data["total"]), "100.00"])
+        elif key == "sales-summary":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.sales_summary_by_period(conn, tenant, dfrom, dto)
+            rows = [["Month", "Invoices", "Taxable", "GST", "Total", "Growth %"]]
+            rows += [[r["period"], r["invoices"], money.to_str(r["taxable"]),
+                      money.to_str(r["tax"]), money.to_str(r["total"]),
+                      f'{r["growth"] * 100:.2f}' if r["growth"] is not None else ""]
+                     for r in data["rows"]]
+            rows.append(["TOTAL", data["totals"]["invoices"],
+                         money.to_str(data["totals"]["taxable"]),
+                         money.to_str(data["totals"]["tax"]),
+                         money.to_str(data["totals"]["total"]), ""])
+        elif key == "top-customers":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.top_customers(conn, tenant, dfrom, dto)
+            rows = [["Rank", "Customer", "Invoices", "Taxable", "Total", "Share %",
+                     "Cumulative %"]]
+            rows += [[r["rank"], r["name"], r["invoices"], money.to_str(r["taxable"]),
+                      money.to_str(r["total"]),
+                      f'{r["share"] * 100:.2f}' if r["share"] is not None else "",
+                      f'{r["cumulative_share"] * 100:.2f}'
+                      if r["cumulative_share"] is not None else ""]
+                     for r in data["rows"]]
+        elif key == "product-sales":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.product_sales(conn, tenant, dfrom, dto)
+            rows = [["SKU", "Product", "Unit", "Quantity", "Revenue", "Gross", "Discount",
+                     "Est. cost", "Est. margin", "Margin %", "Share %"]]
+            rows += [[r["sku"], r["name"], r["unit"], f'{r["qty_milli"] / 1000:.3f}',
+                      money.to_str(r["revenue"]), money.to_str(r["gross"]),
+                      money.to_str(r["discount"]), money.to_str(r["cost"]),
+                      money.to_str(r["margin"]),
+                      f'{r["margin_pct"] * 100:.2f}' if r["margin_pct"] is not None else "",
+                      f'{r["share"] * 100:.2f}' if r["share"] is not None else ""]
+                     for r in data["rows"]]
+        elif key == "discounts":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.discount_analysis(conn, tenant, dfrom, dto)
+            rows = [["Invoice", "Date", "Customer", "Gross", "Discount", "Discount %",
+                     "Taxable", "Total"]]
+            rows += [[r["invoice_no"], r["date"], r["customer"], money.to_str(r["gross"]),
+                      money.to_str(r["discount"]),
+                      f'{r["discount_pct"] * 100:.2f}'
+                      if r["discount_pct"] is not None else "",
+                      money.to_str(r["taxable"]), money.to_str(r["total"])]
+                     for r in data["rows"]]
+        elif key == "sales-returns":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.sales_returns(conn, tenant, dfrom, dto)
+            rows = [["Note", "Date", "Customer", "Invoice", "Reason", "Taxable", "GST", "Total"]]
+            rows += [[r["note_no"], r["note_date"], r["customer"], r["invoice_no"] or "",
+                      r["reason"], money.to_str(r["taxable"]), money.to_str(r["tax"]),
+                      money.to_str(r["total"])] for r in data["rows"]]
+        elif key == "top-suppliers":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.top_suppliers(conn, tenant, dfrom, dto)
+            rows = [["Rank", "Supplier", "Bills", "Taxable", "Total", "Share %",
+                     "Cumulative %"]]
+            rows += [[r["rank"], r["name"], r["bills"], money.to_str(r["taxable"]),
+                      money.to_str(r["total"]),
+                      f'{r["share"] * 100:.2f}' if r["share"] is not None else "",
+                      f'{r["cumulative_share"] * 100:.2f}'
+                      if r["cumulative_share"] is not None else ""]
+                     for r in data["rows"]]
+        elif key == "purchase-returns":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.purchase_returns(conn, tenant, dfrom, dto)
+            rows = [["Note", "Date", "Supplier", "Bill", "Reason", "Taxable", "GST", "Total"]]
+            rows += [[r["note_no"], r["note_date"], r["vendor"], r["bill_no"] or "",
+                      r["reason"], money.to_str(r["taxable"]), money.to_str(r["tax"]),
+                      money.to_str(r["total"])] for r in data["rows"]]
+        elif key == "stock-summary":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.stock_summary(conn, tenant, dfrom, dto)
+            rows = [["SKU", "Item", "Unit", "Opening", "In", "Out", "Closing", "Value"]]
+            rows += [[r["sku"], r["name"], r["unit"], f'{r["opening"] / 1000:.3f}',
+                      f'{r["in_period"] / 1000:.3f}', f'{r["out_period"] / 1000:.3f}',
+                      f'{r["closing"] / 1000:.3f}', money.to_str(r["value"])]
+                     for r in data["rows"]]
+        elif key == "credit-limits":
+            as_of = (q.get("as_of") or [today])[0]
+            data = reports_mod.credit_limit_utilisation(conn, tenant, as_of)
+            rows = [["Customer", "Credit days", "Limit", "Outstanding", "Available",
+                     "Utilisation %", "Status"]]
+            for r in data["rows"]:
+                status = ("No limit" if r["no_limit"] else
+                          "Over limit" if r["over_limit"] else "Within limit")
+                rows.append([r["name"], r["credit_days"],
+                             money.to_str(r["limit"]) if r["limit"] > 0 else "",
+                             money.to_str(r["outstanding"]),
+                             money.to_str(r["available"]) if r["available"] is not None else "",
+                             f'{r["utilisation"] * 100:.2f}'
+                             if r["utilisation"] is not None else "", status])
+        elif key == "tb-exceptions":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.trial_balance_exceptions(conn, tenant, dfrom, dto)
+            rows = [["Voucher", "Date", "Type", "Narration", "Lines", "Debit", "Credit",
+                     "Difference", "Issues"]]
+            rows += [[r["entry_no"], r["date"], r["source_type"], r["narration"], r["lines"],
+                      money.to_str(r["debit"]), money.to_str(r["credit"]),
+                      money.to_str(r["difference"]), "; ".join(r["issues"])]
+                     for r in data["rows"]]
         elif key == "invoices":
             data = conn.execute(
                 "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"

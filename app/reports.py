@@ -628,6 +628,475 @@ def working_capital(conn: sqlite3.Connection, tenant, date_from: str,
 
 
 # ---------------------------------------------------------------------------
+# R-302 sales summary, R-303 top customers, R-307 product sales, R-309 discounts
+# ---------------------------------------------------------------------------
+
+def sales_summary_by_period(conn: sqlite3.Connection, tenant, date_from: str,
+                            date_to: str) -> dict:
+    """R-302: posted invoice value grouped by calendar month."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT substr(i.invoice_date, 1, 7) AS period,
+                  COUNT(*) AS invoices,
+                  COALESCE(SUM(i.sub_total_paise), 0) AS taxable,
+                  COALESCE(SUM(i.tax_paise), 0) AS tax,
+                  COALESCE(SUM(i.total_paise), 0) AS total
+           FROM invoice i
+           WHERE i.tenant_id = ? AND i.status = 'posted'
+             AND i.invoice_date BETWEEN ? AND ?
+           GROUP BY period ORDER BY period""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out = []
+    previous = None
+    for row in rows:
+        total = int(row["total"])
+        out.append({
+            "period": row["period"],
+            "invoices": int(row["invoices"]),
+            "taxable": int(row["taxable"]),
+            "tax": int(row["tax"]),
+            "total": total,
+            "growth": _ratio(total - previous, previous) if previous not in (None, 0) else None,
+        })
+        previous = total
+    total_all = sum(r["total"] for r in out)
+    invoices = sum(r["invoices"] for r in out)
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "periods": len(out), "invoices": invoices,
+            "taxable": sum(r["taxable"] for r in out),
+            "tax": sum(r["tax"] for r in out),
+            "total": total_all,
+            "average_invoice": total_all // invoices if invoices else 0,
+        },
+    }
+
+
+def top_customers(conn: sqlite3.Connection, tenant, date_from: str,
+                  date_to: str) -> dict:
+    """R-303: posted invoice revenue ranked by customer and share."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT c.id, c.name, COUNT(i.id) AS invoices,
+                  COALESCE(SUM(i.sub_total_paise), 0) AS taxable,
+                  COALESCE(SUM(i.total_paise), 0) AS total
+           FROM invoice i JOIN customer c ON c.id = i.customer_id
+           WHERE i.tenant_id = ? AND i.status = 'posted'
+             AND i.invoice_date BETWEEN ? AND ?
+           GROUP BY c.id, c.name
+           ORDER BY total DESC, c.name""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    total_all = sum(int(r["total"]) for r in rows)
+    out = []
+    cumulative = 0
+    for index, row in enumerate(rows, start=1):
+        amount = int(row["total"])
+        cumulative += amount
+        out.append({
+            "rank": index, "id": row["id"], "name": row["name"],
+            "invoices": int(row["invoices"]), "taxable": int(row["taxable"]),
+            "total": amount, "share": _ratio(amount, total_all),
+            "cumulative_share": _ratio(cumulative, total_all),
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "customers": len(out), "invoices": sum(r["invoices"] for r in out),
+            "taxable": sum(r["taxable"] for r in out), "total": total_all,
+            "top5_share": _ratio(sum(r["total"] for r in out[:5]), total_all),
+        },
+    }
+
+
+def product_sales(conn: sqlite3.Connection, tenant, date_from: str,
+                  date_to: str) -> dict:
+    """R-307: quantity and taxable revenue by item.
+
+    Margin uses the item master's current cost, not a historical cost layer.
+    That limit is shown on the screen and in the CSV.
+    """
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT l.item_id,
+                  COALESCE(i.sku, '') AS sku,
+                  COALESCE(i.name, l.description) AS name,
+                  COALESCE(i.unit, '') AS unit,
+                  COALESCE(i.cost_paise, 0) AS cost_paise,
+                  COALESCE(SUM(l.qty_milli), 0) AS qty_milli,
+                  COALESCE(SUM(l.taxable_paise), 0) AS revenue,
+                  COALESCE(SUM(l.gross_paise), 0) AS gross,
+                  COALESCE(SUM(l.discount_paise), 0) AS discount
+           FROM invoice_line l
+           JOIN invoice inv ON inv.id = l.invoice_id AND inv.tenant_id = l.tenant_id
+           LEFT JOIN item i ON i.id = l.item_id AND i.tenant_id = l.tenant_id
+           WHERE inv.tenant_id = ? AND inv.status = 'posted'
+             AND inv.invoice_date BETWEEN ? AND ?
+           GROUP BY l.item_id, COALESCE(i.name, l.description), i.sku, i.unit,
+                    i.cost_paise
+           ORDER BY revenue DESC, name""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    total_revenue = sum(int(r["revenue"]) for r in rows)
+    out = []
+    for row in rows:
+        qty = int(row["qty_milli"])
+        revenue = int(row["revenue"])
+        cost = (int(row["cost_paise"]) * qty + 500) // 1000
+        margin = revenue - cost
+        out.append({
+            "item_id": row["item_id"], "sku": row["sku"], "name": row["name"],
+            "unit": row["unit"], "qty_milli": qty, "revenue": revenue,
+            "gross": int(row["gross"]), "discount": int(row["discount"]),
+            "cost": cost, "margin": margin, "margin_pct": _ratio(margin, revenue),
+            "share": _ratio(revenue, total_revenue),
+        })
+    total_cost = sum(r["cost"] for r in out)
+    total_margin = sum(r["margin"] for r in out)
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "products": len(out), "revenue": total_revenue,
+            "cost": total_cost, "margin": total_margin,
+            "margin_pct": _ratio(total_margin, total_revenue),
+            "top_share": _ratio(out[0]["revenue"], total_revenue) if out else None,
+        },
+    }
+
+
+def discount_analysis(conn: sqlite3.Connection, tenant, date_from: str,
+                      date_to: str) -> dict:
+    """R-309: line-level discounts on posted invoices."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT i.id, i.invoice_no, i.invoice_date, c.name AS customer,
+                  COALESCE(SUM(l.gross_paise), 0) AS gross,
+                  COALESCE(SUM(l.discount_paise), 0) AS discount,
+                  COALESCE(SUM(l.taxable_paise), 0) AS taxable,
+                  i.total_paise AS total
+           FROM invoice i
+           JOIN customer c ON c.id = i.customer_id
+           JOIN invoice_line l ON l.invoice_id = i.id AND l.tenant_id = i.tenant_id
+           WHERE i.tenant_id = ? AND i.status = 'posted'
+             AND i.invoice_date BETWEEN ? AND ?
+           GROUP BY i.id, i.invoice_no, i.invoice_date, c.name, i.total_paise
+           ORDER BY discount DESC, i.invoice_date, i.invoice_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out = []
+    for row in rows:
+        gross = int(row["gross"])
+        discount = int(row["discount"])
+        out.append({
+            "id": row["id"], "invoice_no": row["invoice_no"],
+            "date": row["invoice_date"], "customer": row["customer"],
+            "gross": gross, "discount": discount, "taxable": int(row["taxable"]),
+            "total": int(row["total"]), "discount_pct": _ratio(discount, gross),
+        })
+    total_gross = sum(r["gross"] for r in out)
+    total_discount = sum(r["discount"] for r in out)
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "invoices": len(out),
+            "invoices_with_discount": sum(1 for r in out if r["discount"] > 0),
+            "gross": total_gross, "discount": total_discount,
+            "taxable": sum(r["taxable"] for r in out),
+            "discount_share": _ratio(total_discount, total_gross),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-404 suppliers, R-406 purchase returns
+# ---------------------------------------------------------------------------
+
+def top_suppliers(conn: sqlite3.Connection, tenant, date_from: str,
+                  date_to: str) -> dict:
+    """R-404: posted bill value ranked by supplier and share."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT v.id, v.name, COUNT(b.id) AS bills,
+                  COALESCE(SUM(b.sub_total_paise), 0) AS taxable,
+                  COALESCE(SUM(b.total_paise), 0) AS total
+           FROM bill b JOIN vendor v ON v.id = b.vendor_id
+           WHERE b.tenant_id = ? AND b.status = 'posted'
+             AND b.bill_date BETWEEN ? AND ?
+           GROUP BY v.id, v.name
+           ORDER BY total DESC, v.name""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    total_all = sum(int(r["total"]) for r in rows)
+    out = []
+    cumulative = 0
+    for index, row in enumerate(rows, start=1):
+        amount = int(row["total"])
+        cumulative += amount
+        out.append({
+            "rank": index, "id": row["id"], "name": row["name"],
+            "bills": int(row["bills"]), "taxable": int(row["taxable"]),
+            "total": amount, "share": _ratio(amount, total_all),
+            "cumulative_share": _ratio(cumulative, total_all),
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "suppliers": len(out), "bills": sum(r["bills"] for r in out),
+            "taxable": sum(r["taxable"] for r in out), "total": total_all,
+            "top5_share": _ratio(sum(r["total"] for r in out[:5]), total_all),
+        },
+    }
+
+
+def sales_returns(conn: sqlite3.Connection, tenant, date_from: str,
+                  date_to: str) -> dict:
+    """R-306: credit notes and return rate against posted invoice value."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT n.id, n.note_no, n.note_date, c.name AS customer,
+                  i.invoice_no, n.reason, n.sub_total_paise AS taxable,
+                  n.tax_paise AS tax, n.total_paise AS total
+           FROM credit_note n
+           JOIN customer c ON c.id = n.customer_id
+           LEFT JOIN invoice i ON i.id = n.invoice_id
+           WHERE n.tenant_id = ? AND n.note_date BETWEEN ? AND ?
+           ORDER BY n.note_date, n.note_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out = [dict(r) for r in rows]
+    sales = sales_register(conn, tenant_id, date_from, date_to)
+    taxable = sum(int(r["taxable"]) for r in out)
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "notes": len(out), "taxable": taxable,
+            "tax": sum(int(r["tax"]) for r in out),
+            "total": sum(int(r["total"]) for r in out),
+            "sales_taxable": sales["totals"]["taxable"],
+            "return_rate": _ratio(taxable, sales["totals"]["taxable"]),
+        },
+    }
+
+
+def purchase_returns(conn: sqlite3.Connection, tenant, date_from: str,
+                     date_to: str) -> dict:
+    """R-406: debit notes and return rate against posted bill value."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT n.id, n.note_no, n.note_date, v.name AS vendor,
+                  b.bill_no, n.reason, n.sub_total_paise AS taxable,
+                  n.tax_paise AS tax, n.total_paise AS total
+           FROM debit_note n
+           JOIN vendor v ON v.id = n.vendor_id
+           LEFT JOIN bill b ON b.id = n.bill_id
+           WHERE n.tenant_id = ? AND n.note_date BETWEEN ? AND ?
+           ORDER BY n.note_date, n.note_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out = [dict(r) for r in rows]
+    purchases = purchase_register(conn, tenant_id, date_from, date_to)
+    taxable = sum(int(r["taxable"]) for r in out)
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "notes": len(out), "taxable": taxable,
+            "tax": sum(int(r["tax"]) for r in out),
+            "total": sum(int(r["total"]) for r in out),
+            "purchase_taxable": purchases["totals"]["taxable"],
+            "return_rate": _ratio(taxable, purchases["totals"]["taxable"]),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-501 stock summary
+# ---------------------------------------------------------------------------
+
+def stock_summary(conn: sqlite3.Connection, tenant, date_from: str,
+                  date_to: str) -> dict:
+    """R-501: derive period in/out and closing quantity from posted documents.
+
+    The item master holds current stock. Movements after the selected end date
+    are removed to reconstruct the closing quantity at that date. No manual
+    stock-adjustment table exists in this build, so the report states that limit.
+    """
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """WITH movements AS (
+               SELECT l.item_id, i.invoice_date AS doc_date, -l.qty_milli AS qty
+               FROM invoice_line l
+               JOIN invoice i ON i.id = l.invoice_id AND i.tenant_id = l.tenant_id
+               WHERE i.tenant_id = ? AND i.status = 'posted' AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT l.item_id, b.bill_date, l.qty_milli
+               FROM bill_line l
+               JOIN bill b ON b.id = l.bill_id AND b.tenant_id = l.tenant_id
+               WHERE b.tenant_id = ? AND b.status = 'posted' AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT l.item_id, n.note_date, l.qty_milli
+               FROM credit_note_line l
+               JOIN credit_note n ON n.id = l.credit_note_id AND n.tenant_id = l.tenant_id
+               WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT l.item_id, n.note_date, -l.qty_milli
+               FROM debit_note_line l
+               JOIN debit_note n ON n.id = l.debit_note_id AND n.tenant_id = l.tenant_id
+               WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+           )
+           SELECT i.id, i.sku, i.name, i.unit, i.stock_milli AS current_stock,
+                  i.cost_paise,
+                  COALESCE(SUM(CASE WHEN m.doc_date BETWEEN ? AND ? AND m.qty > 0
+                                    THEN m.qty ELSE 0 END), 0) AS in_period,
+                  COALESCE(SUM(CASE WHEN m.doc_date BETWEEN ? AND ? AND m.qty < 0
+                                    THEN -m.qty ELSE 0 END), 0) AS out_period,
+                  COALESCE(SUM(CASE WHEN m.doc_date > ? THEN m.qty ELSE 0 END), 0) AS net_after
+           FROM item i
+           LEFT JOIN movements m ON m.item_id = i.id
+           WHERE i.tenant_id = ? AND i.track_stock = 1
+           GROUP BY i.id, i.sku, i.name, i.unit, i.stock_milli, i.cost_paise
+           ORDER BY i.name""",
+        (tenant_id, tenant_id, tenant_id, tenant_id,
+         date_from, date_to, date_from, date_to, date_to, tenant_id),
+    ).fetchall()
+    out = []
+    for row in rows:
+        current = int(row["current_stock"])
+        in_period = int(row["in_period"])
+        out_period = int(row["out_period"])
+        net_after = int(row["net_after"])
+        closing = current - net_after
+        opening = closing - in_period + out_period
+        value = (closing * int(row["cost_paise"]) + 500) // 1000
+        out.append({
+            "id": row["id"], "sku": row["sku"], "name": row["name"],
+            "unit": row["unit"], "opening": opening, "in_period": in_period,
+            "out_period": out_period, "closing": closing, "value": value,
+            "moved": bool(in_period or out_period), "negative": closing < 0,
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "items": len(out), "moved": sum(1 for r in out if r["moved"]),
+            "negative": sum(1 for r in out if r["negative"]),
+            "closing_value": sum(r["value"] for r in out),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-706 credit limit utilisation
+# ---------------------------------------------------------------------------
+
+def credit_limit_utilisation(conn: sqlite3.Connection, tenant,
+                             as_of: str | None = None) -> dict:
+    """R-706: open receivable against the customer master credit limit."""
+    as_of = as_of or date.today().isoformat()
+    _parse_date(as_of, "As of")
+    tenant_id = _tenant_id(tenant)
+    ageing = acct.receivable_ageing(conn, tenant_id, as_of)
+    outstanding: dict[str, int] = {}
+    for row in ageing["rows"]:
+        customer_id = row.get("customer_id")
+        if customer_id:
+            outstanding[customer_id] = outstanding.get(customer_id, 0) + int(row["outstanding"])
+    customers = conn.execute(
+        """SELECT id, name, credit_days, credit_limit_paise
+           FROM customer WHERE tenant_id = ? ORDER BY name""",
+        (tenant_id,),
+    ).fetchall()
+    rows = []
+    for customer in customers:
+        due = outstanding.get(customer["id"], 0)
+        limit = int(customer["credit_limit_paise"])
+        if limit <= 0 and due <= 0:
+            continue
+        rows.append({
+            "id": customer["id"], "name": customer["name"],
+            "credit_days": int(customer["credit_days"]), "limit": limit,
+            "outstanding": due, "available": limit - due if limit > 0 else None,
+            "utilisation": _ratio(due, limit) if limit > 0 else None,
+            "over_limit": limit > 0 and due > limit,
+            "no_limit": limit <= 0,
+        })
+    rows.sort(key=lambda r: (-(r["utilisation"] or 0), -r["outstanding"], r["name"]))
+    total_limit = sum(r["limit"] for r in rows if r["limit"] > 0)
+    total_outstanding = sum(r["outstanding"] for r in rows)
+    return {
+        "as_of": as_of, "rows": rows,
+        "totals": {
+            "customers": len(rows),
+            "with_limit": sum(1 for r in rows if r["limit"] > 0),
+            "no_limit": sum(1 for r in rows if r["no_limit"]),
+            "over_limit": sum(1 for r in rows if r["over_limit"]),
+            "limit": total_limit, "outstanding": total_outstanding,
+            "available": total_limit - sum(r["outstanding"] for r in rows if r["limit"] > 0),
+            "utilisation": _ratio(
+                sum(r["outstanding"] for r in rows if r["limit"] > 0), total_limit),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-110 trial balance exceptions
+# ---------------------------------------------------------------------------
+
+def trial_balance_exceptions(conn: sqlite3.Connection, tenant, date_from: str,
+                             date_to: str) -> dict:
+    """R-110: find journal entries that fail structural checks."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT e.id, e.entry_no, e.entry_date, e.narration, e.source_type,
+                  e.status, COUNT(l.id) AS lines,
+                  COUNT(DISTINCT l.line_no) AS distinct_lines,
+                  COALESCE(SUM(l.debit_paise), 0) AS debit,
+                  COALESCE(SUM(l.credit_paise), 0) AS credit
+           FROM journal_entry e
+           LEFT JOIN journal_line l ON l.entry_id = e.id AND l.tenant_id = e.tenant_id
+           WHERE e.tenant_id = ? AND e.entry_date BETWEEN ? AND ?
+           GROUP BY e.id, e.entry_no, e.entry_date, e.narration, e.source_type, e.status
+           ORDER BY e.entry_date, e.entry_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out = []
+    for row in rows:
+        debit = int(row["debit"])
+        credit = int(row["credit"])
+        lines = int(row["lines"])
+        issues = []
+        if debit != credit:
+            issues.append("Debit and credit differ")
+        if lines < 2:
+            issues.append("Fewer than two lines")
+        if debit == 0 and credit == 0:
+            issues.append("Zero-value entry")
+        if lines != int(row["distinct_lines"]):
+            issues.append("Duplicate line number")
+        if issues:
+            out.append({
+                "id": row["id"], "entry_no": row["entry_no"],
+                "date": row["entry_date"], "narration": row["narration"],
+                "source_type": row["source_type"], "status": row["status"],
+                "lines": lines, "debit": debit, "credit": credit,
+                "difference": debit - credit, "issues": issues,
+            })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "checked": len(rows), "exceptions": len(out),
+    }
+
+
+# ---------------------------------------------------------------------------
 # report catalogue used by the in-app library
 # ---------------------------------------------------------------------------
 
@@ -647,7 +1116,7 @@ REPORT_CATALOG = [
     _r("R-107", "Financial statements", "Opening vs Closing Balances", "partial", "", "Opening + movements = closing"),
     _r("R-108", "Financial statements", "Financial Ratios", "working", "/reports/ratios", "Liquidity, margin, return and leverage ratios from posted records"),
     _r("R-109", "Financial statements", "Period-over-Period Comparison", "working", "/reports/comparison", "Current period versus equal-length prior period"),
-    _r("R-110", "Financial statements", "Trial Balance Exception Report", "planned", "", "Entries failing balance or precision checks"),
+    _r("R-110", "Financial statements", "Trial Balance Exception Report", "working", "/reports/tb-exceptions", "Entries failing balance or precision checks"),
     # Group 2 — accounting and audit
     _r("R-201", "Accounting & audit", "Audit Trail", "working", "/audit", "Chronological actor, action and target"),
     _r("R-202", "Accounting & audit", "Reversal & Correction Register", "working", "/reports/reversals", "Original entry and its reversal, with reason"),
@@ -657,23 +1126,23 @@ REPORT_CATALOG = [
     _r("R-206", "Accounting & audit", "Rule Version Usage", "planned", "", "Entries grouped by applied rule version"),
     # Group 3 — sales
     _r("R-301", "Sales & customers", "Sales Register", "working", "/reports/sales-register", "Posted invoices with taxable, tax and total"),
-    _r("R-302", "Sales & customers", "Sales Summary by Period", "planned", "", "Grouped totals and growth"),
-    _r("R-303", "Sales & customers", "Top Customers", "planned", "", "Rank by revenue and share"),
+    _r("R-302", "Sales & customers", "Sales Summary by Period", "working", "/reports/sales-summary", "Grouped posted-invoice totals and month-on-month growth"),
+    _r("R-303", "Sales & customers", "Top Customers", "working", "/reports/top-customers", "Rank by posted-invoice revenue, share and cumulative share"),
     _r("R-304", "Sales & customers", "Customer Ageing", "working", "/reports/ar-ageing", "Open AR buckets 0-30/31-60/61-90/90+"),
     _r("R-305", "Sales & customers", "Customer Statement", "working", "/customers", "Opening + invoices − receipts = closing"),
-    _r("R-306", "Sales & customers", "Sales Returns", "planned", "", "Credit notes and return rate"),
-    _r("R-307", "Sales & customers", "Product-wise Sales", "planned", "", "Quantity, revenue and margin by product"),
+    _r("R-306", "Sales & customers", "Sales Returns", "working", "/reports/sales-returns", "Posted credit notes and return rate against invoice value"),
+    _r("R-307", "Sales & customers", "Product-wise Sales", "working", "/reports/product-sales", "Quantity, revenue and margin by product at current item cost"),
     _r("R-308", "Sales & customers", "Salesperson Performance", "planned", "", "Revenue and collection per user"),
-    _r("R-309", "Sales & customers", "Discount Analysis", "planned", "", "Discount value and share of gross"),
+    _r("R-309", "Sales & customers", "Discount Analysis", "working", "/reports/discounts", "Line-level discount value and share of gross"),
     # Group 4 — purchases
     _r("R-401", "Purchases & suppliers", "Purchase Register", "working", "/reports/purchase-register", "Posted bills with taxable, tax and total"),
     _r("R-402", "Purchases & suppliers", "Supplier Ageing", "working", "/reports/ap-ageing", "Open AP buckets 0-30/31-60/61-90/90+"),
     _r("R-403", "Purchases & suppliers", "Supplier Statement", "working", "/vendors", "Opening + purchases − payments = closing"),
-    _r("R-404", "Purchases & suppliers", "Top Suppliers / Concentration", "planned", "", "Rank and share of purchases"),
+    _r("R-404", "Purchases & suppliers", "Top Suppliers / Concentration", "working", "/reports/top-suppliers", "Rank by posted-bill value, share and cumulative share"),
     _r("R-405", "Purchases & suppliers", "Price Variance", "planned", "", "Actual versus last or standard price"),
-    _r("R-406", "Purchases & suppliers", "Purchase Return Analysis", "planned", "", "Debit notes and return rate"),
+    _r("R-406", "Purchases & suppliers", "Purchase Return Analysis", "working", "/reports/purchase-returns", "Posted debit notes and return rate against bill value"),
     # Group 5 — inventory
-    _r("R-501", "Inventory & warehouse", "Stock Summary", "planned", "", "In − out per item"),
+    _r("R-501", "Inventory & warehouse", "Stock Summary", "working", "/reports/stock-summary", "Opening + posted in - posted out = closing per item"),
     _r("R-502", "Inventory & warehouse", "Stock Movement History", "planned", "", "Chronological movement with source document"),
     _r("R-503", "Inventory & warehouse", "Inventory Valuation", "planned", "", "FIFO or weighted-average valuation"),
     _r("R-504", "Inventory & warehouse", "Reorder / Shortage", "planned", "", "Items below reorder threshold"),
@@ -693,7 +1162,7 @@ REPORT_CATALOG = [
     _r("R-703", "Cash, credit & risk", "Bank Reconciliation Statement", "working", "/bank-recon", "Difference = timing + errors"),
     _r("R-704", "Cash, credit & risk", "Receivables Risk", "planned", "", "Overdue value, exposure and trend"),
     _r("R-705", "Cash, credit & risk", "Cash Flow Forecast", "planned", "", "Projected inflows and outflows, explicitly labelled forecast"),
-    _r("R-706", "Cash, credit & risk", "Credit Limit Utilisation", "planned", "", "Outstanding ÷ credit limit"),
+    _r("R-706", "Cash, credit & risk", "Credit Limit Utilisation", "working", "/reports/credit-limits", "Open receivable against customer credit limit"),
     # Group 8 — tax
     _r("R-801", "Tax & compliance", "GST Output Summary", "working", "/reports/gst", "Tax by rate and HSN"),
     _r("R-802", "Tax & compliance", "GST Input Summary", "working", "/reports/gst", "Input tax by rate and HSN"),

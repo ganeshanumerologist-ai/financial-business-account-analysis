@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.15)
+## 11. Implementation status (current Build 0.16)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -201,7 +201,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 | `app/excel.py` | real `.xlsx` actuals workbook, native charts, KPI paise trace | Implemented, tested |
 | `app/bi.py` | static Power BI import ZIP, facts/dimensions, manifest, Power Query starter | Implemented, tested |
 | `app/insights.py` | deterministic grounded observations with basis, metric keys and drill-down | Implemented, tested |
-| `app/reports.py` | Report Library catalogue and deterministic management reports (cash flow, ratios, comparison, registers, activity, working capital) | Implemented, tested |
+| `app/reports.py` | Report Library catalogue and deterministic management reports (cash flow, ratios, comparison, registers, activity, working capital, sales/customer, supplier/return, stock and credit-limit reports) | Implemented, tested |
 | `app/security.py` | scrypt hashing, sessions, CSRF token, RBAC, tenant authorisation, lockout | Implemented, tested |
 | `app/server.py` | HTTP routing, server-rendered UI, cookie/CSRF handling | Implemented, HTTP-tested |
 | `app/demo.py`, `scripts/seed_demo.py` | synthetic demo books | Implemented |
@@ -584,25 +584,30 @@ floats and show `n/a` when the denominator is zero. The module provides:
   line by line, with `n/a` for a zero prior value.
 - R-202 reversal register, R-203 account activity, R-301 sales register, R-401 purchase register,
   R-903 expense breakdown and R-905 working-capital cycle.
+- Build 0.16 adds R-110 trial balance exceptions, R-302 sales summary, R-303 top customers, R-306
+  sales returns, R-307 product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406
+  purchase returns, R-501 stock summary and R-706 credit-limit utilisation. Each report has a CSV
+  export and a formula/reconciliation test.
 - `catalog()`: the 66-row report catalogue with group, formula/source and honest delivery state.
 
 ### 18.2 Report Library
 
 `/reports/library` lists all 66 catalogued reports, filters by group and status, and shows
-**28 working, 1 partial and 37 planned**. Working rows link to a route. Planned rows have no route
+**38 working, 1 partial and 27 planned**. Working rows link to a route. Planned rows have no route
 and no sample data, so a delivery map cannot be mistaken for a finished report.
 
 ### 18.3 Export and security boundary
 
-`/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv` and
-`/export/expense-breakdown.csv` require `report.export`, are tenant-scoped and send `no-store`.
-Amounts are exported as exact decimal strings from integer paise.
+`/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`,
+`/export/expense-breakdown.csv` and the ten Build 0.16 report exports require `report.export`, are
+tenant-scoped and send `no-store`. Amounts are exported as exact decimal strings from integer paise.
+Quantities in the stock report are exported as three-decimal strings.
 
 ### 18.4 Deliberate limits
 
 - Cash flow and ratios are management working papers, not statutory statements, forecasts or
   lender/investor opinions.
-- The remaining 38 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
+- The remaining 28 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
   ~150-template library are not delivered.
 - No mobile viewport, screen-reader, contrast, cross-browser or 4K matrix was run for the new pages.
 
@@ -662,3 +667,27 @@ are not overwritten. `/businesses` adds an owner-only **Start fresh books** flow
 `security.create_business()` creates a separate tenant, standard chart, owner membership and
 `business.created` audit, then the session switches to the empty ledger. This is a convenience for
 testing fresh entries, not a multi-company consolidation feature.
+
+
+## 21. Build 0.16: ten report screens (2026-11-05)
+
+`app/reports.py` gains deterministic functions for the first planned-report batch. Sales summary
+groups posted invoices by month and compares month-on-month growth. Top customers and top suppliers
+rank posted document value with share and cumulative share. Product-wise sales groups invoice lines
+by item and shows quantity, taxable revenue and margin at the item master's **current cost**.
+Discount analysis groups line-level gross and discount values by invoice. Sales and purchase returns
+list posted credit/debit notes and compute a return rate against the matching register. The rate
+compares notes and invoices/bills dated in the same selected period, so a note against an older
+document can make the rate exceed 100%.
+
+Stock summary uses a CTE over posted invoice, bill, credit-note and debit-note lines. It removes
+movements after the selected end date from the item master's current stock, then derives opening
+and closing for the period. There is no manual stock-adjustment table in this build, so an external
+adjustment would show as a difference. Credit-limit utilisation combines open posted receivables
+with the customer master limit and flags customers with exposure but no limit. Trial balance
+exceptions read journal entries and report structural failures without repairing them.
+
+All ten reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
+tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.test_46`. The
+catalogue now shows **38 working, 1 partial and 27 planned**. No new table, column, index or cached
+total was added.
