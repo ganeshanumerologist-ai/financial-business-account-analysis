@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS item (
     tax_rate_bp INTEGER NOT NULL DEFAULT 1800,
     hsn TEXT,
     stock_milli INTEGER NOT NULL DEFAULT 0,
+    reorder_level_milli INTEGER NOT NULL DEFAULT 0,
     track_stock INTEGER NOT NULL DEFAULT 1,
     revenue_code TEXT NOT NULL DEFAULT '4000',
     category TEXT NOT NULL DEFAULT '',
@@ -716,6 +717,7 @@ COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("barcode", "TEXT NOT NULL DEFAULT ''"),
         ("mrp_paise", "INTEGER NOT NULL DEFAULT 0"),
         ("margin_bp", "INTEGER NOT NULL DEFAULT 0"),
+        ("reorder_level_milli", "INTEGER NOT NULL DEFAULT 0"),
     ],
 }
 

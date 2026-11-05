@@ -389,3 +389,24 @@ The frontend receives **no** secrets — only a public API base URL.
   audit metadata or cross-tenant rows.
 - **Residual risk:** the new pages have not had a penetration test or independent accounting review.
   Credit-limit utilisation is advisory and does not enforce a credit hold.
+
+## 20. Build 0.17 addendum - sixteen more report screens and one item field
+
+- **No new permission:** the sixteen new report pages use the existing signed-in member access;
+  every role already has `report.view`. All sixteen CSV exports require the existing `report.export`.
+- **Tenant scope:** every report query filters by the session tenant id. The reports do not accept a
+  caller-supplied tenant id. The locked-period register also filters by tenant.
+- **Read-only:** the reports do not post, reverse, edit, cache or repair. Inventory-to-GL
+  reconciliation shows a difference but never posts a correction. Reorder/shortage never creates a
+  purchase order. Dead/slow stock never writes off an item.
+- **Additive schema:** `item.reorder_level_milli` is added through the additive migration path with a
+  zero default. No table is dropped or rewritten. The item form is permission-checked by the existing
+  `item.manage` permission.
+- **CSV boundary:** exports are generated in memory, sent with `no-store`, and use exact decimal
+  strings from integer paise. Stock quantities use three-decimal strings.
+- **Source limits:** salesperson performance uses the journal creator, not a separate salesperson
+  master. Receivables risk is advisory and never blocks a sale. Price variance is not an accusation of
+  overcharging. Cash-flow and revenue forecasts are deterministic planning aids, not guarantees.
+  Anomaly findings are review prompts, not proof of fraud. These limits are printed on the pages.
+- **Residual risk:** the new pages have not had a penetration test or independent accounting review.
+  There is no approval workflow for reorder levels, and no FIFO/historical cost layer.

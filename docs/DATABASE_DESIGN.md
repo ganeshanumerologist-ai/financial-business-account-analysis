@@ -489,7 +489,7 @@ structures:
 
 ## 22. Build 0.16 report screens: no schema change (2026-11-05)
 
-Build 0.16 adds **no table, no column, no index and no cached total**. The ten new reports read the
+Build 0.16 adds **no table, no column, no index and no cached total**. The sixteen new reports read the
 existing posted invoice, invoice_line, bill, bill_line, credit_note, credit_note_line, debit_note,
 debit_note_line, item, customer, journal_entry and journal_line rows.
 
@@ -499,4 +499,24 @@ debit_note_line, item, customer, journal_entry and journal_line rows.
 - Stock summary derives period movements from the document-line tables and uses `item.stock_milli`
   as the current anchor. It does not write or adjust stock.
 - Report CSV exports are generated from the same functions and are not stored.
+- No report caches a total. Every screen recalculates from posted rows on each request.
+
+## 23. Build 0.17 report screens: one additive item column (2026-11-05)
+
+Build 0.17 adds **one nullable-safe additive column** and no table, index or cached total:
+
+- `item.reorder_level_milli INTEGER NOT NULL DEFAULT 0` stores the item's reorder threshold in the
+  same thousandth-unit convention as `stock_milli`. Existing items receive zero, which means "no
+  level configured". The migration uses the existing additive `_ensure_columns()` path and does not
+  rewrite rows.
+- The item master form accepts the reorder level and stores it with `money.parse_qty()`.
+- R-504 uses the column for below-level shortages and also surfaces zero/negative stock when no level
+  is configured. It never changes stock.
+- The other fifteen reports read existing journal, document, item, customer, vendor, user and
+  `period_lock` rows. No new table is required for opening/closing, locked periods, salesperson
+  performance, price variance, stock movements, inventory valuation, dead/slow stock,
+  inventory-to-GL reconciliation, receivables risk, cash-flow forecast, tax ledger, KPI pack, trend
+  explanation, revenue forecast or anomaly digest.
+- Stock valuation uses the current moving weighted-average `item.cost_paise`; no historical cost
+  layer table exists. FIFO and batch/expiry remain future schema work.
 - No report caches a total. Every screen recalculates from posted rows on each request.

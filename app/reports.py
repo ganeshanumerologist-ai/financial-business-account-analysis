@@ -1097,6 +1097,1168 @@ def trial_balance_exceptions(conn: sqlite3.Connection, tenant, date_from: str,
 
 
 # ---------------------------------------------------------------------------
+# R-107 opening vs closing balances
+# ---------------------------------------------------------------------------
+
+def opening_closing_balances(conn: sqlite3.Connection, tenant, date_from: str,
+                             date_to: str) -> dict:
+    """R-107: opening balance + period movement = closing balance per ledger."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    opening_date = _before(date_from)
+    opening = {r["id"]: r for r in acct.account_balances(conn, tenant_id, opening_date)}
+    closing = {r["id"]: r for r in acct.account_balances(conn, tenant_id, date_to)}
+    movements = {
+        r["account_id"]: {"debit": int(r["debit"] or 0), "credit": int(r["credit"] or 0)}
+        for r in conn.execute(
+            """SELECT l.account_id,
+                      COALESCE(SUM(l.debit_paise), 0) AS debit,
+                      COALESCE(SUM(l.credit_paise), 0) AS credit
+               FROM journal_line l
+               JOIN journal_entry e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
+               WHERE l.tenant_id = ? AND e.entry_date BETWEEN ? AND ?
+               GROUP BY l.account_id""",
+            (tenant_id, date_from, date_to),
+        ).fetchall()
+    }
+    out = []
+    for account_id, row in closing.items():
+        op = opening.get(account_id)
+        opening_balance = int(op["balance"]) if op else 0
+        move = movements.get(account_id, {"debit": 0, "credit": 0})
+        movement = move["debit"] - move["credit"]
+        closing_balance = int(row["balance"])
+        if not any((opening_balance, move["debit"], move["credit"], closing_balance)):
+            continue
+        out.append({
+            "id": account_id, "code": row["code"], "name": row["name"],
+            "type": row["type"], "group": row["group_label"],
+            "opening": opening_balance, "debit": move["debit"],
+            "credit": move["credit"], "movement": movement,
+            "closing": closing_balance,
+            "reconciled": opening_balance + movement == closing_balance,
+        })
+    return {
+        "from": date_from, "to": date_to, "opening_date": opening_date,
+        "rows": out,
+        "totals": {
+            "accounts": len(out),
+            "opening_debit": sum(r["opening"] for r in out if r["opening"] > 0),
+            "opening_credit": -sum(r["opening"] for r in out if r["opening"] < 0),
+            "debit": sum(r["debit"] for r in out),
+            "credit": sum(r["credit"] for r in out),
+            "closing_debit": sum(r["closing"] for r in out if r["closing"] > 0),
+            "closing_credit": -sum(r["closing"] for r in out if r["closing"] < 0),
+            "reconciled": all(r["reconciled"] for r in out),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-205 locked periods
+# ---------------------------------------------------------------------------
+
+def locked_periods(conn: sqlite3.Connection, tenant) -> dict:
+    """R-205: periods whose postings are blocked, with the locking actor."""
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT p.period_start, p.period_end, p.locked_at, p.locked_by,
+                  COALESCE(u.full_name, 'Unknown') AS locked_by_name
+           FROM period_lock p
+           LEFT JOIN user u ON u.id = p.locked_by
+           WHERE p.tenant_id = ?
+           ORDER BY p.period_start, p.period_end""",
+        (tenant_id,),
+    ).fetchall()
+    return {
+        "rows": [dict(r) for r in rows],
+        "totals": {"periods": len(rows)},
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-308 salesperson performance
+# ---------------------------------------------------------------------------
+
+def salesperson_performance(conn: sqlite3.Connection, tenant, date_from: str,
+                            date_to: str) -> dict:
+    """R-308: posted invoice revenue and receipt collections grouped by creator."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    revenue_rows = conn.execute(
+        """SELECT COALESCE(e.created_by, '') AS user_id,
+                  COALESCE(u.full_name, 'Unassigned') AS name,
+                  COUNT(DISTINCT i.id) AS invoices,
+                  COALESCE(SUM(i.sub_total_paise), 0) AS taxable,
+                  COALESCE(SUM(i.total_paise), 0) AS total
+           FROM invoice i
+           JOIN journal_entry e ON e.id = i.journal_entry_id
+           LEFT JOIN user u ON u.id = e.created_by
+           WHERE i.tenant_id = ? AND i.status = 'posted'
+             AND i.invoice_date BETWEEN ? AND ?
+           GROUP BY e.created_by, u.full_name""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    collection_rows = conn.execute(
+        """SELECT COALESCE(e.created_by, '') AS user_id,
+                  COALESCE(u.full_name, 'Unassigned') AS name,
+                  COUNT(DISTINCT p.id) AS receipts,
+                  COALESCE(SUM(p.amount_paise), 0) AS collected
+           FROM payment p
+           JOIN journal_entry e ON e.id = p.journal_entry_id
+           LEFT JOIN user u ON u.id = e.created_by
+           WHERE p.tenant_id = ? AND p.direction = 'receipt'
+             AND p.payment_date BETWEEN ? AND ?
+           GROUP BY e.created_by, u.full_name""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    people: dict[str, dict] = {}
+    for row in revenue_rows:
+        key = row["user_id"] or "unassigned"
+        people.setdefault(key, {"user_id": row["user_id"], "name": row["name"],
+                                "invoices": 0, "taxable": 0, "total": 0,
+                                "receipts": 0, "collected": 0})
+        people[key].update({"name": row["name"], "invoices": int(row["invoices"]),
+                            "taxable": int(row["taxable"]), "total": int(row["total"])})
+    for row in collection_rows:
+        key = row["user_id"] or "unassigned"
+        people.setdefault(key, {"user_id": row["user_id"], "name": row["name"],
+                                "invoices": 0, "taxable": 0, "total": 0,
+                                "receipts": 0, "collected": 0})
+        people[key].update({"name": row["name"], "receipts": int(row["receipts"]),
+                            "collected": int(row["collected"])})
+    out = []
+    for person in people.values():
+        person["collection_rate"] = _ratio(person["collected"], person["total"])
+        out.append(person)
+    out.sort(key=lambda r: (-r["total"], -r["collected"], r["name"]))
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "people": len(out),
+            "invoices": sum(r["invoices"] for r in out),
+            "taxable": sum(r["taxable"] for r in out),
+            "total": sum(r["total"] for r in out),
+            "receipts": sum(r["receipts"] for r in out),
+            "collected": sum(r["collected"] for r in out),
+            "collection_rate": _ratio(sum(r["collected"] for r in out),
+                                      sum(r["total"] for r in out)),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-405 price variance
+# ---------------------------------------------------------------------------
+
+def price_variance(conn: sqlite3.Connection, tenant, date_from: str,
+                   date_to: str) -> dict:
+    """R-405: latest purchase price versus the previous bill and current cost."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT l.item_id, i.sku, i.name, i.unit, i.cost_paise AS current_cost,
+                  b.bill_date, b.bill_no, l.qty_milli, l.unit_price_paise
+           FROM bill_line l
+           JOIN bill b ON b.id = l.bill_id AND b.tenant_id = l.tenant_id
+           JOIN item i ON i.id = l.item_id AND i.tenant_id = l.tenant_id
+           WHERE b.tenant_id = ? AND b.status = 'posted'
+             AND b.bill_date BETWEEN ? AND ? AND l.item_id IS NOT NULL
+           ORDER BY l.item_id, b.bill_date, b.bill_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    by_item: dict[str, dict] = {}
+    for row in rows:
+        item = by_item.setdefault(row["item_id"], {
+            "id": row["item_id"], "sku": row["sku"], "name": row["name"],
+            "unit": row["unit"], "current_cost": int(row["current_cost"]),
+            "documents": {},
+        })
+        doc = item["documents"].setdefault((row["bill_date"], row["bill_no"]),
+                                           {"qty": 0, "value": 0})
+        qty = int(row["qty_milli"])
+        doc["qty"] += qty
+        doc["value"] += int(row["unit_price_paise"]) * qty
+    out = []
+    for item in by_item.values():
+        docs = []
+        for (doc_date, doc_no), values in item["documents"].items():
+            qty = values["qty"]
+            price = (values["value"] + qty // 2) // qty if qty else 0
+            docs.append({"date": doc_date, "doc_no": doc_no, "qty": qty,
+                         "price": price, "value": values["value"] // 1000})
+        docs.sort(key=lambda d: (d["date"], d["doc_no"]))
+        latest = docs[-1]
+        previous = docs[-2] if len(docs) > 1 else None
+        variance = latest["price"] - previous["price"] if previous else None
+        vs_cost = latest["price"] - item["current_cost"]
+        out.append({
+            "id": item["id"], "sku": item["sku"], "name": item["name"],
+            "unit": item["unit"], "purchases": len(docs),
+            "latest_date": latest["date"], "latest_doc": latest["doc_no"],
+            "latest_price": latest["price"], "previous_price":
+                previous["price"] if previous else None,
+            "variance": variance,
+            "variance_pct": _ratio(variance, previous["price"])
+                if previous and previous["price"] else None,
+            "current_cost": item["current_cost"], "vs_cost": vs_cost,
+            "vs_cost_pct": _ratio(vs_cost, item["current_cost"])
+                if item["current_cost"] else None,
+            "latest_value": latest["value"],
+        })
+    out.sort(key=lambda r: (-abs(r["vs_cost"]), r["name"]))
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "items": len(out),
+            "latest_value": sum(r["latest_value"] for r in out),
+            "above_cost": sum(1 for r in out if r["vs_cost"] > 0),
+            "below_cost": sum(1 for r in out if r["vs_cost"] < 0),
+            "unchanged": sum(1 for r in out if r["vs_cost"] == 0),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-502 stock movement history
+# ---------------------------------------------------------------------------
+
+STOCK_MOVEMENTS_CTE = """
+WITH movements AS (
+    SELECT b.bill_date AS doc_date, 'Purchase bill' AS doc_type, b.bill_no AS doc_no,
+           l.item_id, l.qty_milli AS qty, l.unit_price_paise AS unit_price,
+           l.taxable_paise AS value, v.name AS party
+    FROM bill_line l
+    JOIN bill b ON b.id = l.bill_id AND b.tenant_id = l.tenant_id
+    JOIN vendor v ON v.id = b.vendor_id AND v.tenant_id = b.tenant_id
+    WHERE b.tenant_id = ? AND b.status = 'posted' AND l.item_id IS NOT NULL
+    UNION ALL
+    SELECT i.invoice_date, 'Sales invoice', i.invoice_no, l.item_id,
+           -l.qty_milli, l.unit_price_paise, l.taxable_paise, c.name
+    FROM invoice_line l
+    JOIN invoice i ON i.id = l.invoice_id AND i.tenant_id = l.tenant_id
+    JOIN customer c ON c.id = i.customer_id AND c.tenant_id = i.tenant_id
+    WHERE i.tenant_id = ? AND i.status = 'posted' AND l.item_id IS NOT NULL
+    UNION ALL
+    SELECT n.note_date, 'Credit note', n.note_no, l.item_id,
+           l.qty_milli, l.unit_price_paise, l.taxable_paise, c.name
+    FROM credit_note_line l
+    JOIN credit_note n ON n.id = l.credit_note_id AND n.tenant_id = l.tenant_id
+    JOIN customer c ON c.id = n.customer_id AND c.tenant_id = n.tenant_id
+    WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+    UNION ALL
+    SELECT n.note_date, 'Debit note', n.note_no, l.item_id,
+           -l.qty_milli, l.unit_price_paise, l.taxable_paise, v.name
+    FROM debit_note_line l
+    JOIN debit_note n ON n.id = l.debit_note_id AND n.tenant_id = l.tenant_id
+    JOIN vendor v ON v.id = n.vendor_id AND v.tenant_id = n.tenant_id
+    WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+)
+"""
+
+
+def stock_movements(conn: sqlite3.Connection, tenant, date_from: str,
+                    date_to: str) -> dict:
+    """R-502: chronological posted stock movements with their source document."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        STOCK_MOVEMENTS_CTE + """
+        SELECT m.doc_date, m.doc_type, m.doc_no, m.party, m.qty, m.unit_price,
+               m.value, i.sku, i.name, i.unit
+        FROM movements m
+        JOIN item i ON i.id = m.item_id AND i.tenant_id = ?
+        WHERE m.doc_date BETWEEN ? AND ? AND i.track_stock = 1
+        ORDER BY m.doc_date, m.doc_type, m.doc_no, i.name""",
+        (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, date_from, date_to),
+    ).fetchall()
+    out = []
+    for row in rows:
+        qty = int(row["qty"])
+        out.append({
+            "date": row["doc_date"], "doc_type": row["doc_type"],
+            "doc_no": row["doc_no"], "party": row["party"],
+            "sku": row["sku"], "name": row["name"], "unit": row["unit"],
+            "qty": qty, "in_qty": qty if qty > 0 else 0,
+            "out_qty": -qty if qty < 0 else 0,
+            "unit_price": int(row["unit_price"]), "value": int(row["value"]),
+            "direction": "In" if qty > 0 else "Out",
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "movements": len(out),
+            "in_qty": sum(r["in_qty"] for r in out),
+            "out_qty": sum(r["out_qty"] for r in out),
+            "in_value": sum(r["value"] for r in out if r["qty"] > 0),
+            "out_value": sum(r["value"] for r in out if r["qty"] < 0),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-503 inventory valuation
+# ---------------------------------------------------------------------------
+
+def _closing_stock(conn: sqlite3.Connection, tenant_id: str, as_of: str) -> dict[str, int]:
+    """Closing quantity at a date from current item stock and later movements."""
+    rows = conn.execute(
+        """WITH movements AS (
+               SELECT l.item_id, i.invoice_date AS doc_date, -l.qty_milli AS qty
+               FROM invoice_line l
+               JOIN invoice i ON i.id = l.invoice_id AND i.tenant_id = l.tenant_id
+               WHERE i.tenant_id = ? AND i.status = 'posted' AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT l.item_id, b.bill_date, l.qty_milli
+               FROM bill_line l
+               JOIN bill b ON b.id = l.bill_id AND b.tenant_id = l.tenant_id
+               WHERE b.tenant_id = ? AND b.status = 'posted' AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT l.item_id, n.note_date, l.qty_milli
+               FROM credit_note_line l
+               JOIN credit_note n ON n.id = l.credit_note_id AND n.tenant_id = l.tenant_id
+               WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT l.item_id, n.note_date, -l.qty_milli
+               FROM debit_note_line l
+               JOIN debit_note n ON n.id = l.debit_note_id AND n.tenant_id = l.tenant_id
+               WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+           )
+           SELECT i.id, i.stock_milli
+                  - COALESCE(SUM(CASE WHEN m.doc_date > ? THEN m.qty ELSE 0 END), 0) AS closing
+           FROM item i
+           LEFT JOIN movements m ON m.item_id = i.id
+           WHERE i.tenant_id = ?
+           GROUP BY i.id, i.stock_milli""",
+        (tenant_id, tenant_id, tenant_id, tenant_id, as_of, tenant_id),
+    ).fetchall()
+    return {row["id"]: int(row["closing"]) for row in rows}
+
+
+def inventory_valuation(conn: sqlite3.Connection, tenant,
+                        as_of: str | None = None) -> dict:
+    """R-503: current moving weighted-average cost applied to closing quantity."""
+    as_of = as_of or date.today().isoformat()
+    _parse_date(as_of, "As of")
+    tenant_id = _tenant_id(tenant)
+    closing = _closing_stock(conn, tenant_id, as_of)
+    rows = conn.execute(
+        """SELECT id, sku, name, unit, stock_milli, cost_paise, track_stock
+           FROM item WHERE tenant_id = ? AND track_stock = 1 ORDER BY name""",
+        (tenant_id,),
+    ).fetchall()
+    out = []
+    for row in rows:
+        qty = closing.get(row["id"], int(row["stock_milli"]))
+        value = (qty * int(row["cost_paise"]) + 500) // 1000
+        if qty == 0 and value == 0:
+            continue
+        out.append({
+            "id": row["id"], "sku": row["sku"], "name": row["name"],
+            "unit": row["unit"], "qty": qty, "cost": int(row["cost_paise"]),
+            "value": value, "negative": qty < 0,
+        })
+    total = sum(r["value"] for r in out)
+    for row in out:
+        row["share"] = _ratio(row["value"], total)
+    out.sort(key=lambda r: (-r["value"], r["name"]))
+    return {
+        "as_of": as_of, "rows": out,
+        "totals": {
+            "items": len(out), "qty": sum(r["qty"] for r in out),
+            "value": total, "negative": sum(1 for r in out if r["negative"]),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-504 reorder / shortage
+# ---------------------------------------------------------------------------
+
+def reorder_shortage(conn: sqlite3.Connection, tenant,
+                     as_of: str | None = None) -> dict:
+    """R-504: items at or below their configured reorder level, or out of stock."""
+    as_of = as_of or date.today().isoformat()
+    _parse_date(as_of, "As of")
+    tenant_id = _tenant_id(tenant)
+    closing = _closing_stock(conn, tenant_id, as_of)
+    rows = conn.execute(
+        """SELECT id, sku, name, unit, stock_milli, reorder_level_milli, cost_paise
+           FROM item WHERE tenant_id = ? AND track_stock = 1 ORDER BY name""",
+        (tenant_id,),
+    ).fetchall()
+    out = []
+    for row in rows:
+        qty = closing.get(row["id"], int(row["stock_milli"]))
+        level = int(row["reorder_level_milli"])
+        if qty > 0 and (level <= 0 or qty > level):
+            continue
+        shortage = max(0, level - qty)
+        out.append({
+            "id": row["id"], "sku": row["sku"], "name": row["name"],
+            "unit": row["unit"], "stock": qty, "reorder_level": level,
+            "shortage": shortage,
+            "value": (qty * int(row["cost_paise"]) + 500) // 1000,
+            "status": "Out of stock" if qty <= 0 else "Below reorder level",
+            "has_level": level > 0,
+        })
+    out.sort(key=lambda r: (r["status"] != "Out of stock", -r["shortage"], r["name"]))
+    return {
+        "as_of": as_of, "rows": out,
+        "totals": {
+            "items": len(out),
+            "out_of_stock": sum(1 for r in out if r["stock"] <= 0),
+            "below_level": sum(1 for r in out if r["stock"] > 0),
+            "shortage_qty": sum(r["shortage"] for r in out),
+            "value": sum(r["value"] for r in out),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-505 dead / slow stock
+# ---------------------------------------------------------------------------
+
+def dead_stock(conn: sqlite3.Connection, tenant, days: int = 90,
+               as_of: str | None = None) -> dict:
+    """R-505: stocked items with no posted movement for the selected number of days."""
+    as_of = as_of or date.today().isoformat()
+    as_of_d = _parse_date(as_of, "As of")
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        raise ReportError("BAD_DAYS", "Days must be a whole number")
+    if days < 0 or days > 3650:
+        raise ReportError("BAD_DAYS", "Days must be between 0 and 3650")
+    tenant_id = _tenant_id(tenant)
+    closing = _closing_stock(conn, tenant_id, as_of)
+    last_rows = conn.execute(
+        STOCK_MOVEMENTS_CTE + """
+        SELECT m.item_id, MAX(m.doc_date) AS last_date
+        FROM movements m
+        WHERE m.doc_date <= ?
+        GROUP BY m.item_id""",
+        (tenant_id, tenant_id, tenant_id, tenant_id, as_of),
+    ).fetchall()
+    last = {row["item_id"]: row["last_date"] for row in last_rows}
+    rows = conn.execute(
+        """SELECT id, sku, name, unit, stock_milli, cost_paise
+           FROM item WHERE tenant_id = ? AND track_stock = 1 ORDER BY name""",
+        (tenant_id,),
+    ).fetchall()
+    out = []
+    for row in rows:
+        qty = closing.get(row["id"], int(row["stock_milli"]))
+        if qty <= 0:
+            continue
+        last_date = last.get(row["id"])
+        age = (as_of_d - date.fromisoformat(last_date)).days if last_date else None
+        if age is not None and age < days:
+            continue
+        out.append({
+            "id": row["id"], "sku": row["sku"], "name": row["name"],
+            "unit": row["unit"], "stock": qty, "last_date": last_date,
+            "age_days": age,
+            "value": (qty * int(row["cost_paise"]) + 500) // 1000,
+            "never_moved": last_date is None,
+        })
+    out.sort(key=lambda r: (-(r["age_days"] if r["age_days"] is not None else 999999),
+                            r["name"]))
+    return {
+        "as_of": as_of, "days": days, "rows": out,
+        "totals": {
+            "items": len(out),
+            "never_moved": sum(1 for r in out if r["never_moved"]),
+            "value": sum(r["value"] for r in out),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-507 inventory to GL reconciliation
+# ---------------------------------------------------------------------------
+
+def inventory_gl_reconciliation(conn: sqlite3.Connection, tenant,
+                                as_of: str | None = None) -> dict:
+    """R-507: item-master stock value versus the inventory ledger balance."""
+    as_of = as_of or date.today().isoformat()
+    _parse_date(as_of, "As of")
+    tenant_id = _tenant_id(tenant)
+    valuation = inventory_valuation(conn, tenant, as_of)
+    gl_balance = _balance(conn, tenant_id, ("inventory",), as_of)
+    gl_rows = conn.execute(
+        """SELECT a.code, a.name,
+                  COALESCE(SUM(l.debit_paise - l.credit_paise), 0) AS balance
+           FROM account a
+           LEFT JOIN journal_line l
+             ON l.account_id = a.id AND l.tenant_id = a.tenant_id
+           LEFT JOIN journal_entry e
+             ON e.id = l.entry_id AND e.entry_date <= ?
+           WHERE a.tenant_id = ? AND a.group_code = 'inventory'
+           GROUP BY a.id, a.code, a.name ORDER BY a.code""",
+        (as_of, tenant_id),
+    ).fetchall()
+    stock_value = valuation["totals"]["value"]
+    difference = stock_value - gl_balance
+    return {
+        "as_of": as_of, "rows": valuation["rows"],
+        "gl_accounts": [dict(r) for r in gl_rows],
+        "totals": {
+            "items": valuation["totals"]["items"],
+            "stock_value": stock_value,
+            "gl_balance": gl_balance,
+            "difference": difference,
+            "reconciled": difference == 0,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-704 receivables risk
+# ---------------------------------------------------------------------------
+
+def receivables_risk(conn: sqlite3.Connection, tenant,
+                     as_of: str | None = None, prior_days: int = 30) -> dict:
+    """R-704: overdue exposure, credit utilisation and the prior-period trend."""
+    as_of = as_of or date.today().isoformat()
+    as_of_d = _parse_date(as_of, "As of")
+    try:
+        prior_days = int(prior_days)
+    except (TypeError, ValueError):
+        raise ReportError("BAD_DAYS", "Prior days must be a whole number")
+    if prior_days < 1 or prior_days > 3650:
+        raise ReportError("BAD_DAYS", "Prior days must be between 1 and 3650")
+    tenant_id = _tenant_id(tenant)
+    prior_as_of = (as_of_d - timedelta(days=prior_days)).isoformat()
+    current = acct.receivable_ageing(conn, tenant_id, as_of)
+    prior = acct.receivable_ageing(conn, tenant_id, prior_as_of)
+    customers = {
+        row["id"]: row for row in conn.execute(
+            """SELECT id, name, credit_days, credit_limit_paise
+               FROM customer WHERE tenant_id = ?""",
+            (tenant_id,),
+        ).fetchall()
+    }
+
+    def summarise(ageing):
+        result: dict[str, dict] = {}
+        for row in ageing["rows"]:
+            cid = row.get("customer_id")
+            if not cid:
+                continue
+            customer = customers.get(cid)
+            credit_days = int(customer["credit_days"]) if customer else 0
+            entry = result.setdefault(cid, {
+                "outstanding": 0, "overdue": 0, "current": 0,
+                "oldest_days": 0, "invoices": 0,
+            })
+            amount = int(row["outstanding"])
+            entry["outstanding"] += amount
+            entry["invoices"] += 1
+            entry["oldest_days"] = max(entry["oldest_days"], int(row["days"]))
+            if int(row["days"]) > credit_days:
+                entry["overdue"] += amount
+            else:
+                entry["current"] += amount
+        return result
+
+    current_by_customer = summarise(current)
+    prior_by_customer = summarise(prior)
+    out = []
+    for cid, entry in current_by_customer.items():
+        customer = customers.get(cid)
+        if not customer:
+            continue
+        limit = int(customer["credit_limit_paise"])
+        utilisation = _ratio(entry["outstanding"], limit) if limit > 0 else None
+        over_limit = limit > 0 and entry["outstanding"] > limit
+        prior_overdue = prior_by_customer.get(cid, {}).get("overdue", 0)
+        if over_limit or (entry["overdue"] > 0 and entry["oldest_days"] > 90):
+            risk = "High"
+        elif entry["overdue"] > 0 or (utilisation is not None and utilisation >= 0.8):
+            risk = "Medium"
+        else:
+            risk = "Low"
+        out.append({
+            "id": cid, "name": customer["name"],
+            "credit_days": int(customer["credit_days"]), "limit": limit,
+            "outstanding": entry["outstanding"], "overdue": entry["overdue"],
+            "current": entry["current"], "oldest_days": entry["oldest_days"],
+            "invoices": entry["invoices"], "utilisation": utilisation,
+            "over_limit": over_limit, "prior_overdue": prior_overdue,
+            "overdue_change": entry["overdue"] - prior_overdue,
+            "risk": risk,
+        })
+    rank = {"High": 0, "Medium": 1, "Low": 2}
+    out.sort(key=lambda r: (rank[r["risk"]], -r["overdue"], -r["outstanding"], r["name"]))
+    return {
+        "as_of": as_of, "prior_as_of": prior_as_of, "rows": out,
+        "totals": {
+            "customers": len(out),
+            "outstanding": sum(r["outstanding"] for r in out),
+            "overdue": sum(r["overdue"] for r in out),
+            "current": sum(r["current"] for r in out),
+            "over_limit": sum(1 for r in out if r["over_limit"]),
+            "high_risk": sum(1 for r in out if r["risk"] == "High"),
+            "prior_overdue": sum(r["prior_overdue"] for r in out),
+            "overdue_change": sum(r["overdue_change"] for r in out),
+        },
+    }
+
+
+
+# ---------------------------------------------------------------------------
+# R-705 cash flow forecast
+# ---------------------------------------------------------------------------
+
+def cash_flow_forecast(conn: sqlite3.Connection, tenant, as_of: str | None = None,
+                       horizon_days: int = 90) -> dict:
+    """R-705: deterministic collection/payment forecast from open documents.
+
+    This is a forecast, not an actual. Overdue receivables are assumed to arrive
+    in the first bucket; overdue payables are assumed to leave in the first bucket.
+    Items not yet due are placed in the week containing their due date.
+    """
+    as_of = as_of or date.today().isoformat()
+    as_of_d = _parse_date(as_of, "As of")
+    try:
+        horizon_days = int(horizon_days)
+    except (TypeError, ValueError):
+        raise ReportError("BAD_HORIZON", "Horizon days must be a whole number")
+    if horizon_days < 7 or horizon_days > 365:
+        raise ReportError("BAD_HORIZON", "Horizon days must be between 7 and 365")
+    tenant_id = _tenant_id(tenant)
+    weeks = (horizon_days + 6) // 7
+    buckets = [{"week": i + 1, "start_day": i * 7,
+                "end_day": min(horizon_days, (i + 1) * 7 - 1),
+                "inflow": 0, "outflow": 0} for i in range(weeks)]
+
+    def place(amount: int, planned: date, key: str) -> bool:
+        index = max(0, (planned - as_of_d).days) // 7
+        if index >= weeks:
+            return False
+        buckets[index][key] += amount
+        return True
+
+    opening = _cash_balance(conn, tenant_id, as_of)
+    open_receivables = 0
+    open_payables = 0
+    overdue_receivables = 0
+    overdue_payables = 0
+    beyond_in = 0
+    beyond_out = 0
+    invoices = conn.execute(
+        """SELECT i.id, i.invoice_no, i.invoice_date, c.name AS party,
+                  c.credit_days
+           FROM invoice i JOIN customer c ON c.id = i.customer_id
+           WHERE i.tenant_id = ? AND i.status = 'posted' AND i.invoice_date <= ?
+           ORDER BY i.invoice_date""",
+        (tenant_id, as_of),
+    ).fetchall()
+    for row in invoices:
+        outstanding = acct.invoice_outstanding(conn, tenant_id, row["id"])
+        if outstanding <= 0:
+            continue
+        open_receivables += outstanding
+        due = date.fromisoformat(row["invoice_date"]) + timedelta(days=int(row["credit_days"]))
+        if due < as_of_d:
+            overdue_receivables += outstanding
+            planned = as_of_d
+        else:
+            planned = due
+        if not place(outstanding, planned, "inflow"):
+            beyond_in += outstanding
+    bills = conn.execute(
+        """SELECT b.id, b.bill_no, b.bill_date, v.name AS party,
+                  v.credit_days
+           FROM bill b JOIN vendor v ON v.id = b.vendor_id
+           WHERE b.tenant_id = ? AND b.status = 'posted' AND b.bill_date <= ?
+           ORDER BY b.bill_date""",
+        (tenant_id, as_of),
+    ).fetchall()
+    for row in bills:
+        outstanding = acct.bill_outstanding(conn, tenant_id, row["id"])
+        if outstanding <= 0:
+            continue
+        open_payables += outstanding
+        due = date.fromisoformat(row["bill_date"]) + timedelta(days=int(row["credit_days"]))
+        if due < as_of_d:
+            overdue_payables += outstanding
+            planned = as_of_d
+        else:
+            planned = due
+        if not place(outstanding, planned, "outflow"):
+            beyond_out += outstanding
+
+    running = opening
+    rows = []
+    for bucket in buckets:
+        net = bucket["inflow"] - bucket["outflow"]
+        running += net
+        rows.append({**bucket, "net": net, "closing": running})
+    return {
+        "as_of": as_of, "horizon_days": horizon_days,
+        "opening_cash": opening, "closing_cash": running,
+        "open_receivables": open_receivables, "open_payables": open_payables,
+        "overdue_receivables": overdue_receivables,
+        "overdue_payables": overdue_payables,
+        "scheduled_inflow": sum(b["inflow"] for b in buckets),
+        "scheduled_outflow": sum(b["outflow"] for b in buckets),
+        "beyond_inflow": beyond_in, "beyond_outflow": beyond_out,
+        "rows": rows,
+        "method": "Overdue items are assumed in week 1; not-yet-due items are placed in "
+                  "the week containing their due date. No new sales or purchases are assumed.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-807 tax ledger
+# ---------------------------------------------------------------------------
+
+def tax_ledger(conn: sqlite3.Connection, tenant, date_from: str,
+               date_to: str) -> dict:
+    """R-807: movement on output-tax and input-credit ledgers."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    accounts = conn.execute(
+        """SELECT id, code, name, group_code, type
+           FROM account
+           WHERE tenant_id = ? AND group_code IN ('duties_taxes', 'gst_input')
+           ORDER BY code""",
+        (tenant_id,),
+    ).fetchall()
+    movements = {
+        row["account_id"]: {"debit": int(row["debit"] or 0),
+                            "credit": int(row["credit"] or 0)}
+        for row in conn.execute(
+            """SELECT l.account_id,
+                      COALESCE(SUM(l.debit_paise), 0) AS debit,
+                      COALESCE(SUM(l.credit_paise), 0) AS credit
+               FROM journal_line l
+               JOIN journal_entry e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
+               WHERE l.tenant_id = ? AND e.entry_date BETWEEN ? AND ?
+               GROUP BY l.account_id""",
+            (tenant_id, date_from, date_to),
+        ).fetchall()
+    }
+    rows = []
+    for account in accounts:
+        opening = acct.account_balance(conn, tenant_id, account["id"], _before(date_from))
+        move = movements.get(account["id"], {"debit": 0, "credit": 0})
+        closing = opening + move["debit"] - move["credit"]
+        if not any((opening, move["debit"], move["credit"], closing)):
+            continue
+        kind = "Output tax" if account["group_code"] == "duties_taxes" else "Input credit"
+        rows.append({
+            "code": account["code"], "name": account["name"], "kind": kind,
+            "group": account["group_code"], "opening": opening,
+            "debit": move["debit"], "credit": move["credit"], "closing": closing,
+        })
+    output_payable = sum(-r["closing"] for r in rows if r["group"] == "duties_taxes")
+    input_credit = sum(r["closing"] for r in rows if r["group"] == "gst_input")
+    return {
+        "from": date_from, "to": date_to, "rows": rows,
+        "totals": {
+            "accounts": len(rows),
+            "debit": sum(r["debit"] for r in rows),
+            "credit": sum(r["credit"] for r in rows),
+            "output_payable": output_payable,
+            "input_credit": input_credit,
+            "net_payable": output_payable - input_credit,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-904 KPI dashboard pack
+# ---------------------------------------------------------------------------
+
+def kpi_dashboard(conn: sqlite3.Connection, tenant, date_from: str,
+                  date_to: str) -> dict:
+    """R-904: one actual-only KPI pack assembled from existing deterministic reports."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    pnl = acct.profit_and_loss(conn, tenant_id, date_from, date_to)
+    bs = acct.balance_sheet(conn, tenant_id, date_to)
+    ratios = financial_ratios(conn, tenant, date_from, date_to)
+    cash = cash_flow(conn, tenant, date_from, date_to)
+    wc = working_capital(conn, tenant, date_from, date_to)
+    ar = acct.receivable_ageing(conn, tenant_id, date_to)
+    ap = acct.payable_ageing(conn, tenant_id, date_to)
+    valuation = inventory_valuation(conn, tenant, date_to)
+    ratio_map = {r["key"]: r for r in ratios["rows"]}
+    monthly = sales_summary_by_period(conn, tenant, date_from, date_to)
+    growth = None
+    if len(monthly["rows"]) >= 2:
+        last = monthly["rows"][-1]
+        prev = monthly["rows"][-2]
+        growth = _ratio(last["taxable"] - prev["taxable"], prev["taxable"])
+
+    def kpi(label, value, kind, formula, source):
+        return {"label": label, "value": value, "kind": kind,
+                "formula": formula, "source": source, "actual": True}
+
+    kpis = [
+        kpi("Revenue", pnl["total_income"], "money", "posted income", "P&L"),
+        kpi("Net profit", pnl["net_profit"], "money", "income - expenses", "P&L"),
+        kpi("Cash and bank", cash["closing"], "money", "posted cash/bank balance", "cash flow"),
+        kpi("Receivables", ar["grand_total"], "money", "open posted invoices", "ageing"),
+        kpi("Payables", ap["grand_total"], "money", "open posted bills", "ageing"),
+        kpi("Inventory value", valuation["totals"]["value"], "money",
+            "closing quantity x current cost", "inventory valuation"),
+        kpi("Gross margin", ratio_map["gross_margin"]["value"], "percent",
+            ratio_map["gross_margin"]["formula"], "ratios"),
+        kpi("Net margin", ratio_map["net_margin"]["value"], "percent",
+            ratio_map["net_margin"]["formula"], "ratios"),
+        kpi("Current ratio", ratio_map["current_ratio"]["value"], "ratio",
+            ratio_map["current_ratio"]["formula"], "ratios"),
+        kpi("DSO", wc["dso"], "days", "receivable days", "working capital"),
+        kpi("DIO", wc["dio"], "days", "inventory days", "working capital"),
+        kpi("DPO", wc["dpo"], "days", "payable days", "working capital"),
+        kpi("Cash conversion cycle", wc["ccc"], "days", "DSO + DIO - DPO", "working capital"),
+        kpi("Revenue growth", growth, "percent", "latest month vs previous month", "sales summary"),
+    ]
+    return {
+        "from": date_from, "to": date_to, "kpis": kpis,
+        "checks": {
+            "balance_sheet_balanced": bs["balanced"],
+            "balance_sheet_difference": bs["difference"],
+            "cash_flow_difference": cash["difference"],
+            "working_capital_days": wc["days"],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-1001 trend explanation
+# ---------------------------------------------------------------------------
+
+def _months_between(date_from: str, date_to: str, limit: int = 12) -> list[str]:
+    start = date.fromisoformat(date_from)
+    end = date.fromisoformat(date_to)
+    months = []
+    year, month = start.year, start.month
+    while (year, month) <= (end.year, end.month) and len(months) < limit:
+        months.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month == 13:
+            month = 1
+            year += 1
+    return months
+
+
+def _inr(paise: int) -> str:
+    return f"Rs {paise / 100:,.2f}"
+
+
+def trend_explanation(conn: sqlite3.Connection, tenant, date_from: str,
+                      date_to: str) -> dict:
+    """R-1001: deterministic narrative over monthly posted revenue and expenses."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    months = _months_between(date_from, date_to)
+    revenue = {
+        row["period"]: int(row["taxable"])
+        for row in conn.execute(
+            """SELECT substr(invoice_date, 1, 7) AS period,
+                      COALESCE(SUM(sub_total_paise), 0) AS taxable
+               FROM invoice
+               WHERE tenant_id = ? AND status = 'posted'
+                 AND invoice_date BETWEEN ? AND ?
+               GROUP BY period""",
+            (tenant_id, date_from, date_to),
+        ).fetchall()
+    }
+    expenses = {
+        row["period"]: int(row["amount"])
+        for row in conn.execute(
+            """SELECT substr(e.entry_date, 1, 7) AS period,
+                      COALESCE(SUM(l.debit_paise - l.credit_paise), 0) AS amount
+               FROM journal_line l
+               JOIN journal_entry e ON e.id = l.entry_id AND e.tenant_id = l.tenant_id
+               JOIN account a ON a.id = l.account_id AND a.tenant_id = l.tenant_id
+               WHERE l.tenant_id = ? AND a.type = 'expense'
+                 AND e.entry_date BETWEEN ? AND ?
+               GROUP BY period""",
+            (tenant_id, date_from, date_to),
+        ).fetchall()
+    }
+    rows = []
+    for month in months:
+        rev = revenue.get(month, 0)
+        exp = expenses.get(month, 0)
+        rows.append({"period": month, "revenue": rev, "expenses": exp,
+                     "net": rev - exp})
+    narrative = []
+    if len(rows) >= 2:
+        first_rev = next((r for r in rows if r["revenue"]), rows[0])
+        last_rev = next((r for r in reversed(rows) if r["revenue"]), rows[-1])
+        first_exp = next((r for r in rows if r["expenses"]), rows[0])
+        last_exp = next((r for r in reversed(rows) if r["expenses"]), rows[-1])
+        rev_change = last_rev["revenue"] - first_rev["revenue"]
+        exp_change = last_exp["expenses"] - first_exp["expenses"]
+        rev_pct = _ratio(rev_change, first_rev["revenue"])
+        exp_pct = _ratio(exp_change, first_exp["expenses"])
+        narrative.append(
+            f"Revenue moved from {_inr(first_rev['revenue'])} in {first_rev['period']} to "
+            f"{_inr(last_rev['revenue'])} in {last_rev['period']} "
+            f"({_signed_pct(rev_pct)}).")
+        narrative.append(
+            f"Expenses moved from {_inr(first_exp['expenses'])} in {first_exp['period']} to "
+            f"{_inr(last_exp['expenses'])} in {last_exp['period']} "
+            f"({_signed_pct(exp_pct)}).")
+        revenue_moves = [(rows[i]["revenue"] - rows[i - 1]["revenue"], rows[i]["period"])
+                         for i in range(1, len(rows))]
+        expense_moves = [(rows[i]["expenses"] - rows[i - 1]["expenses"], rows[i]["period"])
+                         for i in range(1, len(rows))]
+        if revenue_moves:
+            amount, month = max(revenue_moves)
+            narrative.append(
+                f"The largest month-on-month revenue change was {_inr(amount)} in {month}.")
+        if expense_moves:
+            amount, month = max(expense_moves)
+            narrative.append(
+                f"The largest month-on-month expense change was {_inr(amount)} in {month}.")
+    else:
+        narrative.append("Not enough monthly actuals to explain a trend.")
+    return {
+        "from": date_from, "to": date_to, "rows": rows, "narrative": narrative,
+        "method": "Actual posted invoices and expense-account journal lines, grouped by month. "
+                  "No estimate or forecast is included.",
+    }
+
+
+def _signed_pct(value) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value * 100:+.2f}%"
+
+
+# ---------------------------------------------------------------------------
+# R-1002 revenue forecast
+# ---------------------------------------------------------------------------
+
+def _next_month(period: str) -> str:
+    year, month = (int(part) for part in period.split("-"))
+    month += 1
+    if month == 13:
+        month = 1
+        year += 1
+    return f"{year:04d}-{month:02d}"
+
+
+def revenue_forecast(conn: sqlite3.Connection, tenant, date_from: str,
+                     date_to: str, periods: int = 3) -> dict:
+    """R-1002: transparent linear forecast from monthly actual net revenue."""
+    _validate_period(date_from, date_to)
+    try:
+        periods = int(periods)
+    except (TypeError, ValueError):
+        raise ReportError("BAD_PERIODS", "Forecast periods must be a whole number")
+    if periods < 1 or periods > 12:
+        raise ReportError("BAD_PERIODS", "Forecast periods must be between 1 and 12")
+    tenant_id = _tenant_id(tenant)
+    months = _months_between(date_from, date_to)
+    revenue = {
+        row["period"]: int(row["taxable"])
+        for row in conn.execute(
+            """SELECT substr(invoice_date, 1, 7) AS period,
+                      COALESCE(SUM(sub_total_paise), 0) AS taxable
+               FROM invoice
+               WHERE tenant_id = ? AND status = 'posted'
+                 AND invoice_date BETWEEN ? AND ?
+               GROUP BY period""",
+            (tenant_id, date_from, date_to),
+        ).fetchall()
+    }
+    actuals = [{"period": m, "revenue": revenue.get(m, 0), "actual": True}
+               for m in months]
+    if not actuals:
+        return {"from": date_from, "to": date_to, "actuals": [],
+                "forecast": [], "method": "No actual months in the selected period.",
+                "confidence": "none", "slope": 0, "intercept": 0,
+                "r_squared": None, "residual_std": None}
+    values = [row["revenue"] for row in actuals]
+    n = len(values)
+    if n >= 3:
+        x_mean = (n - 1) / 2
+        y_mean = sum(values) / n
+        denom = sum((i - x_mean) ** 2 for i in range(n))
+        slope = sum((i - x_mean) * (values[i] - y_mean) for i in range(n)) / denom
+        intercept = y_mean - slope * x_mean
+        fitted = [intercept + slope * i for i in range(n)]
+        residuals = [values[i] - fitted[i] for i in range(n)]
+        residual_std = (sum(r * r for r in residuals) / max(1, n - 2)) ** 0.5
+        total = sum((v - y_mean) ** 2 for v in values)
+        r_squared = 1 - (sum(r * r for r in residuals) / total) if total else None
+        confidence = "medium" if n >= 6 else "low"
+    else:
+        slope = 0
+        intercept = sum(values) / n
+        residual_std = (sum((v - intercept) ** 2 for v in values) / n) ** 0.5
+        r_squared = None
+        confidence = "low"
+    forecast = []
+    last_period = actuals[-1]["period"]
+    for step in range(1, periods + 1):
+        period = _next_month(last_period)
+        for _ in range(step - 1):
+            period = _next_month(period)
+        value = intercept + slope * (n - 1 + step)
+        value = max(0, int(round(value)))
+        band = int(round(1.96 * (residual_std or 0)))
+        forecast.append({
+            "period": period, "revenue": value, "actual": False,
+            "lower": max(0, value - band), "upper": value + band,
+        })
+    return {
+        "from": date_from, "to": date_to, "actuals": actuals, "forecast": forecast,
+        "method": "Ordinary least-squares line through monthly actual net revenue. "
+                  "The band is +/- 1.96 residual standard errors and is indicative only.",
+        "confidence": confidence, "slope": slope, "intercept": intercept,
+        "r_squared": r_squared, "residual_std": residual_std,
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-1003 anomaly digest
+# ---------------------------------------------------------------------------
+
+def anomaly_digest(conn: sqlite3.Connection, tenant, date_from: str,
+                   date_to: str) -> dict:
+    """R-1003: rule-based review prompts, never a fraud finding."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = []
+
+    exceptions = trial_balance_exceptions(conn, tenant, date_from, date_to)
+    for row in exceptions["rows"][:10]:
+        rows.append({
+            "kind": "Journal structure", "severity": "High",
+            "date": row["date"], "reference": row["entry_no"],
+            "description": ", ".join(row["issues"]), "amount": row["difference"],
+        })
+
+    entries = conn.execute(
+        """SELECT e.id, e.entry_no, e.entry_date, e.narration,
+                  COALESCE(SUM(l.debit_paise), 0) AS total
+           FROM journal_entry e
+           LEFT JOIN journal_line l ON l.entry_id = e.id AND l.tenant_id = e.tenant_id
+           WHERE e.tenant_id = ? AND e.entry_date BETWEEN ? AND ?
+           GROUP BY e.id
+           HAVING total > 0
+           ORDER BY total DESC""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    if entries:
+        totals = [int(e["total"]) for e in entries]
+        mean = sum(totals) / len(totals)
+        variance = sum((t - mean) ** 2 for t in totals) / len(totals)
+        std = variance ** 0.5
+        threshold = mean + 2 * std
+        for entry in entries:
+            total = int(entry["total"])
+            if total <= threshold or total < 100000:
+                continue
+            rows.append({
+                "kind": "Large journal", "severity": "Medium",
+                "date": entry["entry_date"], "reference": entry["entry_no"],
+                "description": f"Entry value is above the two-standard-deviation review line "
+                               f"({_inr(int(threshold))}).",
+                "amount": total,
+            })
+            if sum(1 for r in rows if r["kind"] == "Large journal") >= 10:
+                break
+
+    duplicates = conn.execute(
+        """SELECT i.invoice_date, i.total_paise, c.name AS customer,
+                  COUNT(*) AS n, GROUP_CONCAT(i.invoice_no) AS refs
+           FROM invoice i JOIN customer c ON c.id = i.customer_id
+           WHERE i.tenant_id = ? AND i.status = 'posted'
+             AND i.invoice_date BETWEEN ? AND ?
+           GROUP BY i.customer_id, i.invoice_date, i.total_paise
+           HAVING n > 1
+           ORDER BY i.invoice_date DESC""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    for row in duplicates[:10]:
+        rows.append({
+            "kind": "Possible duplicate invoice", "severity": "Medium",
+            "date": row["invoice_date"], "reference": row["refs"],
+            "description": f"{row['n']} posted invoices for {row['customer']} share the "
+                           f"same date and total.",
+            "amount": int(row["total_paise"]),
+        })
+
+    backdated = conn.execute(
+        """SELECT entry_no, entry_date, posted_at, narration
+           FROM journal_entry
+           WHERE tenant_id = ? AND entry_date BETWEEN ? AND ?
+           ORDER BY entry_date""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    for row in backdated:
+        try:
+            created = date.fromisoformat(str(row["posted_at"])[:10])
+            entry_date = date.fromisoformat(row["entry_date"])
+        except ValueError:
+            continue
+        if (created - entry_date).days > 7:
+            rows.append({
+                "kind": "Backdated entry", "severity": "Low",
+                "date": row["entry_date"], "reference": row["entry_no"],
+                "description": f"Created {created.isoformat()}, more than 7 days after the "
+                               f"entry date. Narration: {row['narration'][:80]}",
+                "amount": 0,
+            })
+            if sum(1 for r in rows if r["kind"] == "Backdated entry") >= 10:
+                break
+
+    negative = conn.execute(
+        """SELECT sku, name, stock_milli FROM item
+           WHERE tenant_id = ? AND track_stock = 1 AND stock_milli < 0
+           ORDER BY stock_milli LIMIT 10""",
+        (tenant_id,),
+    ).fetchall()
+    for row in negative:
+        rows.append({
+            "kind": "Negative stock", "severity": "High", "date": date_to,
+            "reference": row["sku"],
+            "description": f"{row['name']} has negative stock "
+                           f"({row['stock_milli'] / 1000:.3f}).",
+            "amount": 0,
+        })
+
+    ageing = acct.receivable_ageing(conn, tenant_id, date_to)
+    for row in ageing["rows"]:
+        if int(row["days"]) > 90 and int(row["outstanding"]) > 0:
+            rows.append({
+                "kind": "Overdue receivable", "severity": "Medium",
+                "date": row["date"], "reference": row["invoice_no"],
+                "description": f"{row['customer']} is {row['days']} days old with "
+                               f"{_inr(int(row['outstanding']))} outstanding.",
+                "amount": int(row["outstanding"]),
+            })
+            if sum(1 for r in rows if r["kind"] == "Overdue receivable") >= 10:
+                break
+
+    rank = {"High": 0, "Medium": 1, "Low": 2}
+    rows.sort(key=lambda r: (rank[r["severity"]], r["date"], r["reference"]))
+    return {
+        "from": date_from, "to": date_to, "rows": rows,
+        "totals": {
+            "findings": len(rows),
+            "high": sum(1 for r in rows if r["severity"] == "High"),
+            "medium": sum(1 for r in rows if r["severity"] == "Medium"),
+            "low": sum(1 for r in rows if r["severity"] == "Low"),
+        },
+        "method": "Deterministic review rules over posted rows: journal structure, large entries, "
+                  "same-date/same-total invoices, backdating, negative stock and 90+ day receivables. "
+                  "These are review prompts, not fraud findings.",
+    }
+
+
+# ---------------------------------------------------------------------------
 # report catalogue used by the in-app library
 # ---------------------------------------------------------------------------
 
@@ -1113,7 +2275,7 @@ REPORT_CATALOG = [
     _r("R-104", "Financial statements", "Cash Flow", "working", "/reports/cash-flow", "Direct cash movement + indirect bridge from net profit and working capital"),
     _r("R-105", "Financial statements", "General Ledger", "working", "/ledger", "Running balance per account"),
     _r("R-106", "Financial statements", "Journal Register / Day Book", "working", "/daybook", "Chronological posted entries with totals"),
-    _r("R-107", "Financial statements", "Opening vs Closing Balances", "partial", "", "Opening + movements = closing"),
+    _r("R-107", "Financial statements", "Opening vs Closing Balances", "working", "/reports/opening-closing", "Opening + period debit - period credit = closing per ledger"),
     _r("R-108", "Financial statements", "Financial Ratios", "working", "/reports/ratios", "Liquidity, margin, return and leverage ratios from posted records"),
     _r("R-109", "Financial statements", "Period-over-Period Comparison", "working", "/reports/comparison", "Current period versus equal-length prior period"),
     _r("R-110", "Financial statements", "Trial Balance Exception Report", "working", "/reports/tb-exceptions", "Entries failing balance or precision checks"),
@@ -1122,7 +2284,7 @@ REPORT_CATALOG = [
     _r("R-202", "Accounting & audit", "Reversal & Correction Register", "working", "/reports/reversals", "Original entry and its reversal, with reason"),
     _r("R-203", "Accounting & audit", "Account Activity Summary", "working", "/reports/account-activity", "Line count, debit, credit and net per account"),
     _r("R-204", "Accounting & audit", "Unposted / Draft Entries", "planned", "", "Draft entries and their age"),
-    _r("R-205", "Accounting & audit", "Locked Period Register", "planned", "", "Locked periods and who locked them"),
+    _r("R-205", "Accounting & audit", "Locked Period Register", "working", "/reports/locked-periods", "Locked periods with locking actor and timestamp"),
     _r("R-206", "Accounting & audit", "Rule Version Usage", "planned", "", "Entries grouped by applied rule version"),
     # Group 3 — sales
     _r("R-301", "Sales & customers", "Sales Register", "working", "/reports/sales-register", "Posted invoices with taxable, tax and total"),
@@ -1132,23 +2294,23 @@ REPORT_CATALOG = [
     _r("R-305", "Sales & customers", "Customer Statement", "working", "/customers", "Opening + invoices − receipts = closing"),
     _r("R-306", "Sales & customers", "Sales Returns", "working", "/reports/sales-returns", "Posted credit notes and return rate against invoice value"),
     _r("R-307", "Sales & customers", "Product-wise Sales", "working", "/reports/product-sales", "Quantity, revenue and margin by product at current item cost"),
-    _r("R-308", "Sales & customers", "Salesperson Performance", "planned", "", "Revenue and collection per user"),
+    _r("R-308", "Sales & customers", "Salesperson Performance", "working", "/reports/salesperson", "Posted invoice revenue and receipt collections grouped by creator"),
     _r("R-309", "Sales & customers", "Discount Analysis", "working", "/reports/discounts", "Line-level discount value and share of gross"),
     # Group 4 — purchases
     _r("R-401", "Purchases & suppliers", "Purchase Register", "working", "/reports/purchase-register", "Posted bills with taxable, tax and total"),
     _r("R-402", "Purchases & suppliers", "Supplier Ageing", "working", "/reports/ap-ageing", "Open AP buckets 0-30/31-60/61-90/90+"),
     _r("R-403", "Purchases & suppliers", "Supplier Statement", "working", "/vendors", "Opening + purchases − payments = closing"),
     _r("R-404", "Purchases & suppliers", "Top Suppliers / Concentration", "working", "/reports/top-suppliers", "Rank by posted-bill value, share and cumulative share"),
-    _r("R-405", "Purchases & suppliers", "Price Variance", "planned", "", "Actual versus last or standard price"),
+    _r("R-405", "Purchases & suppliers", "Price Variance", "working", "/reports/price-variance", "Latest bill price vs previous bill price and current weighted-average cost"),
     _r("R-406", "Purchases & suppliers", "Purchase Return Analysis", "working", "/reports/purchase-returns", "Posted debit notes and return rate against bill value"),
     # Group 5 — inventory
     _r("R-501", "Inventory & warehouse", "Stock Summary", "working", "/reports/stock-summary", "Opening + posted in - posted out = closing per item"),
-    _r("R-502", "Inventory & warehouse", "Stock Movement History", "planned", "", "Chronological movement with source document"),
-    _r("R-503", "Inventory & warehouse", "Inventory Valuation", "planned", "", "FIFO or weighted-average valuation"),
-    _r("R-504", "Inventory & warehouse", "Reorder / Shortage", "planned", "", "Items below reorder threshold"),
-    _r("R-505", "Inventory & warehouse", "Dead / Slow Stock", "planned", "", "No movement in N days"),
+    _r("R-502", "Inventory & warehouse", "Stock Movement History", "working", "/reports/stock-movements", "Chronological posted stock in/out with source document"),
+    _r("R-503", "Inventory & warehouse", "Inventory Valuation", "working", "/reports/inventory-valuation", "Closing quantity x current moving weighted-average cost"),
+    _r("R-504", "Inventory & warehouse", "Reorder / Shortage", "working", "/reports/reorder", "Items at or below reorder level, or out of stock"),
+    _r("R-505", "Inventory & warehouse", "Dead / Slow Stock", "working", "/reports/dead-stock", "Stocked items with no posted movement for N days"),
     _r("R-506", "Inventory & warehouse", "Stock Adjustment Register", "planned", "", "Adjustments with reason and approver"),
-    _r("R-507", "Inventory & warehouse", "Inventory ↔ GL Reconciliation", "planned", "", "Stock value versus inventory ledger"),
+    _r("R-507", "Inventory & warehouse", "Inventory to GL Reconciliation", "working", "/reports/inventory-gl", "Item-master stock value versus inventory ledger balance"),
     _r("R-508", "Inventory & warehouse", "Expiry / Batch Report", "planned", "", "Days to expiry buckets"),
     # Group 6 — costing
     _r("R-601", "Costing & operations", "Job / Project Costing", "planned", "", "Direct plus allocated indirect cost"),
@@ -1160,8 +2322,8 @@ REPORT_CATALOG = [
     _r("R-701", "Cash, credit & risk", "Cash Book", "working", "/reports/cash-book", "Opening + receipts − payments"),
     _r("R-702", "Cash, credit & risk", "Bank Book", "working", "/reports/bank-book", "Opening + receipts − payments per bank"),
     _r("R-703", "Cash, credit & risk", "Bank Reconciliation Statement", "working", "/bank-recon", "Difference = timing + errors"),
-    _r("R-704", "Cash, credit & risk", "Receivables Risk", "planned", "", "Overdue value, exposure and trend"),
-    _r("R-705", "Cash, credit & risk", "Cash Flow Forecast", "planned", "", "Projected inflows and outflows, explicitly labelled forecast"),
+    _r("R-704", "Cash, credit & risk", "Receivables Risk", "working", "/reports/receivables-risk", "Overdue exposure, credit utilisation and prior-period trend"),
+    _r("R-705", "Cash, credit & risk", "Cash Flow Forecast", "working", "/reports/cash-flow-forecast", "Weekly opening cash + scheduled collections - scheduled payments"),
     _r("R-706", "Cash, credit & risk", "Credit Limit Utilisation", "working", "/reports/credit-limits", "Open receivable against customer credit limit"),
     # Group 8 — tax
     _r("R-801", "Tax & compliance", "GST Output Summary", "working", "/reports/gst", "Tax by rate and HSN"),
@@ -1170,17 +2332,17 @@ REPORT_CATALOG = [
     _r("R-804", "Tax & compliance", "GSTR-3B Working Paper", "working", "/reports/gstr3b", "Output tax − eligible ITC, head-wise"),
     _r("R-805", "Tax & compliance", "HSN/SAC Summary", "working", "/reports/gst", "Quantity, value and tax per HSN/SAC"),
     _r("R-806", "Tax & compliance", "ITC Reconciliation (2B)", "working", "/gstr2b", "Matched, mismatched and missing ITC"),
-    _r("R-807", "Tax & compliance", "Tax Ledger", "planned", "", "Opening + payable − paid = closing"),
+    _r("R-807", "Tax & compliance", "Tax Ledger", "working", "/reports/tax-ledger", "Opening + output tax - input credit = closing per tax ledger"),
     # Group 9 — strategy and process
     _r("R-901", "Strategy & process", "Budget vs Actual", "planned", "", "Variance = actual − budget"),
     _r("R-902", "Strategy & process", "Department / Branch P&L", "planned", "", "Contribution by scope"),
     _r("R-903", "Strategy & process", "Expense Breakdown", "working", "/reports/expense-breakdown", "Expense by account with share of total"),
-    _r("R-904", "Strategy & process", "KPI Dashboard Pack", "planned", "", "Composite with definitions shown"),
+    _r("R-904", "Management & KPIs", "KPI Dashboard Pack", "working", "/reports/kpi-pack", "Actual-only KPI cards from statements, ratios, cash, ageing and inventory"),
     _r("R-905", "Strategy & process", "Working Capital Cycle", "working", "/reports/working-capital", "DSO + DIO − DPO"),
     # Group 10 — AI and cross-business
-    _r("R-1001", "AI & cross-business", "Trend Explanation", "planned", "", "Deterministic statistics and narrative with sources"),
-    _r("R-1002", "AI & cross-business", "Revenue Forecast", "planned", "", "Model output, labelled forecast with error band"),
-    _r("R-1003", "AI & cross-business", "Anomaly Digest", "planned", "", "Flagged items with reasons"),
+    _r("R-1001", "AI-assisted analysis", "Trend Explanation", "working", "/reports/trend-explanation", "Deterministic narrative over monthly actual revenue and expenses"),
+    _r("R-1002", "AI-assisted analysis", "Revenue Forecast", "working", "/reports/revenue-forecast", "Least-squares forecast from monthly actual net revenue, with an indicative band"),
+    _r("R-1003", "AI-assisted analysis", "Anomaly Digest", "working", "/reports/anomaly-digest", "Rule-based review prompts over posted journals, invoices, stock and receivables"),
     _r("R-1004", "AI & cross-business", "Consolidated Multi-Company", "planned", "", "Sum with intercompany eliminations, authorised only"),
 ]
 

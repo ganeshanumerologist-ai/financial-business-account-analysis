@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.4 |
+| Version | 1.5 |
 | Date | 2026-11-05 |
-| Status | **38 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 adds ten more) |
+| Status | **54 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds sixteen more) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -20,11 +20,18 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > formula/source and honest delivery state. Build 0.13 added nine working reports: R-104, R-108,
 > R-109, R-202, R-203, R-301, R-401, R-903 and R-905.
 >
-> **Build 0.16 report batch:** ten more working reports were added with CSV exports: R-110 trial
+> **Build 0.16 report batch:** sixteen more working reports were added with CSV exports: R-110 trial
 > balance exceptions, R-302 sales summary, R-303 top customers, R-306 sales returns, R-307
 > product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501
-> stock summary and R-706 credit-limit utilisation. The library now marks **38 working, 1 partial and
-> 27 planned**; planned rows still have no route and are never filled with sample data.
+> stock summary and R-706 credit-limit utilisation.
+>
+> **Build 0.17 report batch:** sixteen more working reports were added with CSV exports: R-107 opening
+> vs closing balances, R-205 locked period register, R-308 salesperson performance, R-405 price
+> variance, R-502 stock movement history, R-503 inventory valuation, R-504 reorder/shortage, R-505
+> dead/slow stock, R-507 inventory-to-GL reconciliation, R-704 receivables risk, R-705 cash flow
+> forecast, R-807 tax ledger, R-904 KPI dashboard pack, R-1001 trend explanation, R-1002 revenue
+> forecast and R-1003 anomaly digest. The library now marks **54 working, 0 partial and 12 planned**;
+> planned rows still have no route and are never filled with sample data.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
 > trial balance, P&L, balance sheet, ageing, cash/bank, inventory and GST working sheets, and the
@@ -61,7 +68,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-104 | Cash Flow (direct + indirect bridge) | journal_line + cash/bank accounts | Direct cash movements classified by counterpart; bridge = net profit ± working capital ± investing/financing | To movement detail | 2 | Working (Build 0.13) |
 | R-105 | General Ledger | journal_line | Running balance per account | To journal entry | 2 | Working (Build 0.1) |
 | R-106 | Journal Register / Day Book | journal_entry + lines | Chronological list, entry totals | To entry | 2 | Working (Build 0.1) |
-| R-107 | Opening vs Closing Balances | account_balance | Opening + movements = closing | To ledger | 2 | Partial (statement opening/closing) |
+| R-107 | Opening vs Closing Balances | journal_line + account | Opening + period debit ? period credit = closing per ledger | To ledger | 2 | Working (Build 0.17) |
 | R-108 | Financial Ratios | P&L + BS | Current/quick ratio, gross/net margin, ROE, ROCE, debt-equity, asset turnover, working capital | To inputs table | 6 | Working (Build 0.13) |
 | R-109 | Period-over-Period Comparison | account_balance | Δ amount and Δ % between two equal-length periods | To both periods | 6 | Working (Build 0.13) |
 | R-110 | Trial Balance Exception Report | journal_entry + journal_line | Entries failing balance/line-structure checks | To entry | 2 | Working (Build 0.16) |
@@ -76,7 +83,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-202 | Reversal & Correction Register | journal_entry (reversal_of) | List with reasons and links | 2 | Working (Build 0.13) |
 | R-203 | Account Activity Summary | journal_line | Count + value per account per period | 2 | Working (Build 0.13) |
 | R-204 | Unposted / Draft Entries | journal_entry status=draft | List + age | 2 | Not implemented |
-| R-205 | Locked Period Register | fiscal_period | Periods with status + who locked | 2 | Not implemented |
+| R-205 | Locked Period Register | period_lock + user | Locked periods with locking actor and timestamp | To audit log | 2 | Working (Build 0.17) |
 | R-206 | Rule Version Usage | journal_entry | Entries grouped by applied rule version | 2 | Not implemented |
 
 ---
@@ -92,7 +99,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-305 | Customer Statement | invoice + receipt | Opening + invoices − receipts = closing | 3 | Working + share link (Build 0.6) |
 | R-306 | Sales Returns | credit notes | Returns and return rate % | 3 | Working (Build 0.16) |
 | R-307 | Product-wise Sales | invoice lines + product | Qty, revenue, margin at current cost | 3 | Working (Build 0.16) |
-| R-308 | Salesperson Performance | invoice + user | Revenue and collection per user | 6 | Not implemented |
+| R-308 | Salesperson Performance | invoice + payment + journal creator | Posted invoice revenue and receipt collections per creator | To invoices/receipts | 6 | Working (Build 0.17) |
 | R-309 | Discount Analysis | invoice lines | Discount value and % of gross | 6 | Working (Build 0.16) |
 
 ---
@@ -105,7 +112,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-402 | Supplier Ageing | open AP items | Buckets 0-30/31-60/61-90/90+ | 3 | Working (Build 0.2) |
 | R-403 | Supplier Statement | purchase + payment | Opening + purchases − payments | 3 | Working + share link (Build 0.6) |
 | R-404 | Top Suppliers / Concentration | purchase + vendor | Rank + share % | 6 | Working (Build 0.16) |
-| R-405 | Price Variance | purchase lines | Actual vs last/standard price | 6 | Not implemented |
+| R-405 | Price Variance | bill lines + item cost | Latest bill price vs previous bill and current weighted-average cost | To bill | 6 | Working (Build 0.17) |
 | R-406 | Purchase Return Analysis | debit notes | Returns + rate | 3 | Working (Build 0.16) |
 
 ---
@@ -115,12 +122,12 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
 | R-501 | Stock Summary | posted invoice/bill/credit/debit lines + item | Opening + in - out = closing per item | 4 | Working (Build 0.16) |
-| R-502 | Stock Movement History | stock_movement | Chronological with source doc | 4 | Not implemented |
-| R-503 | Inventory Valuation | stock + cost layer | FIFO / weighted average | 4 | Not implemented |
-| R-504 | Reorder / Shortage | stock + reorder level | Items below threshold | 4 | Not implemented |
-| R-505 | Dead / Slow Stock | stock_movement | No movement in N days | 4 | Not implemented |
+| R-502 | Stock Movement History | posted invoice/bill/credit/debit lines | Chronological in/out with source document | To document | 4 | Working (Build 0.17) |
+| R-503 | Inventory Valuation | item stock + current cost | Closing quantity ? current moving weighted-average cost | To item | 4 | Working (Build 0.17) |
+| R-504 | Reorder / Shortage | item stock + reorder level | Items at or below reorder level, or out of stock | To item | 4 | Working (Build 0.17) |
+| R-505 | Dead / Slow Stock | posted stock movements + item | Stocked items with no movement for N days | To item | 4 | Working (Build 0.17) |
 | R-506 | Stock Adjustment Register | adjustments | List with reasons + approver | 4 | Not implemented |
-| R-507 | Inventory ↔ GL Reconciliation | stock value vs GL | Difference + cause | 4 | Not implemented |
+| R-507 | Inventory ? GL Reconciliation | item stock value + inventory ledger | Item-master stock value versus inventory account balance | To ledger/item | 4 | Working (Build 0.17) |
 | R-508 | Expiry / Batch Report | batch | Days to expiry buckets | 4 | Not implemented |
 
 ---
@@ -144,8 +151,8 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-701 | Cash Book | journal_line (cash accounts) | Opening + receipts − payments | 2 | Working (Build 0.9) |
 | R-702 | Bank Book | journal_line (each linked bank account) | Opening + receipts - payments | 2 | Working (Build 0.10, multi-bank) |
 | R-703 | Bank Reconciliation Statement | statement + ledger | Difference = timing + errors (explained) | 3 | Working (Build 0.4) |
-| R-704 | Receivables Risk | AR + ageing + history | Overdue value, exposure, trend | 6 | Not implemented |
-| R-705 | Cash Flow Forecast | AR/AP due dates + history | Projected inflows/outflows (**labelled forecast**) | 6 | Not implemented |
+| R-704 | Receivables Risk | open AR + ageing + credit limit | Overdue exposure, credit utilisation and prior-period trend | To customer/invoice | 6 | Working (Build 0.17) |
+| R-705 | Cash Flow Forecast | open AR/AP + due dates | Weekly opening cash + scheduled collections - scheduled payments (**labelled forecast**) | To customer/vendor | 6 | Working (Build 0.17) |
 | R-706 | Credit Limit Utilisation | customer + open AR | Outstanding vs limit | 6 | Working (Build 0.16) |
 
 ---
@@ -160,7 +167,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-804 | GSTR-3B Working Paper | invoices, credit notes, bills, debit notes | Output − eligible ITC, head-wise | 9 | Working (Build 0.5) |
 | R-805 | HSN/SAC Summary | invoice/purchase lines | Qty + value + tax per code | 3 | Working (GSTR-1 HSN section, Build 0.3) |
 | R-806 | ITC Reconciliation (2B) | imported 2B + purchase | Matched / mismatched / missing + ITC review + 3B eligible ITC | 9 | Working (Build 0.7, working CSV; no ITC posting) |
-| R-807 | Tax Ledger | journal_line (tax accounts) | Opening + payable − paid = closing | 3 | Not implemented |
+| R-807 | Tax Ledger | journal_line on tax accounts | Opening + output tax - input credit = closing per tax ledger | To ledger | 3 | Working (Build 0.17) |
 
 ⚠️ Tax reports require professional review; none may be presented as a filed return.
 
@@ -173,7 +180,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-901 | Budget vs Actual | budget + journal_line | Variance = actual − budget | 6 | Not implemented |
 | R-902 | Department / Branch P&L | journal_line + scoping | Contribution by scope | 6 | Not implemented |
 | R-903 | Expense Breakdown | journal_line (expense) | Σ by account + share % | 6 | Working (Build 0.13) |
-| R-904 | KPI Dashboard Pack | multiple | Composite with definitions shown | 6 | Not implemented |
+| R-904 | KPI Dashboard Pack | statements + ratios + cash + ageing + inventory | Actual-only KPI cards with formula and source | To source report | 6 | Working (Build 0.17) |
 | R-905 | Working Capital Cycle | BS + AR/AP + bills | DSO + DIO - DPO | 6 | Working (Build 0.13) |
 
 ---
@@ -182,9 +189,9 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-1001 | Trend Explanation | historical series | Deterministic stats + narrative, sources cited | 8 | Not implemented |
-| R-1002 | Revenue Forecast | history | Model output, **explicitly labelled forecast** with error band | 8 | Not implemented |
-| R-1003 | Anomaly Digest | ledger + rules | Flagged items with reasons | 8 | Not implemented |
+| R-1001 | Trend Explanation | posted monthly revenue + expenses | Deterministic statistics and narrative, sources cited | To month | 8 | Working (Build 0.17) |
+| R-1002 | Revenue Forecast | posted monthly revenue | Least-squares output, **explicitly labelled forecast** with indicative band | To actual month | 8 | Working (Build 0.17) |
+| R-1003 | Anomaly Digest | journal + invoice + stock + AR | Rule-based review prompts with reasons | To document | 8 | Working (Build 0.17) |
 | R-1004 | Consolidated Multi-Company | multiple tenants/entities | Sum with intercompany eliminations (**authorised only**) | 7 | Not implemented |
 
 **Rule:** AI reports never replace deterministic calculations; every number must trace to records.

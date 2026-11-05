@@ -681,3 +681,37 @@ and documentation agree.
 - Manual stock-adjustment table; stock summary currently reconstructs from documents and current item master stock.
 - Historical cost layers; product margin uses the current item cost and is labelled as an estimate.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.16.
+
+## 25. Status after sixteen more report screens (Build 0.17, 2026-11-05)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Opening vs Closing Balances | `/reports/opening-closing` | opening signed balance + period debit ? credit = closing for every ledger; reconciliation flag; `test_opening_closing_balances_reconcile` |
+| Locked Period Register | `/reports/locked-periods` | reads `period_lock` with locking actor and timestamp; never changes a lock; `test_locked_period_register_reads_lock_actor` |
+| Salesperson Performance | `/reports/salesperson` | posted invoice revenue and receipt collections grouped by journal creator; collection rate can exceed 100% when receipts relate to older invoices; `test_salesperson_revenue_and_collections_reconcile` |
+| Price Variance | `/reports/price-variance` | latest bill price vs previous bill in the period and current moving weighted-average cost; `test_price_variance_uses_latest_and_current_cost` |
+| Stock Movement History | `/reports/stock-movements` | chronological posted purchase, sale, credit-note and debit-note lines with source document and party; excludes opening stock; `test_stock_movements_match_stock_summary_quantities` |
+| Inventory Valuation | `/reports/inventory-valuation` | closing quantity at a date ? current moving weighted-average cost; share and negative-stock flags; `test_inventory_valuation_matches_stock_summary_value` |
+| Reorder / Shortage | `/reports/reorder` | items at or below `item.reorder_level_milli`, plus out-of-stock items with no configured level; `test_reorder_shortage_uses_item_level` |
+| Dead / Slow Stock | `/reports/dead-stock` | stocked items whose latest posted movement is older than N days, including never-moved stock; `test_dead_stock_uses_last_posted_movement` |
+| Inventory to GL Reconciliation | `/reports/inventory-gl` | item-master stock value vs posted inventory account balance with difference; never posts a correction; `test_inventory_gl_reconciliation_shows_difference` |
+| Receivables Risk | `/reports/receivables-risk` | overdue exposure against customer credit days, limit utilisation, prior-period overdue trend and High/Medium/Low risk; `test_receivables_risk_reconciles_to_ageing` |
+| Cash Flow Forecast | `/reports/cash-flow-forecast` | weekly opening cash plus scheduled collections minus scheduled payments; overdue items in the first bucket; explicitly labelled forecast; `test_cash_flow_forecast_reconciles_opening_to_closing` |
+| Tax Ledger | `/reports/tax-ledger` | output-tax and input-credit ledgers with opening, debit, credit, closing and net payable; working aid only; `test_tax_ledger_reconciles_output_and_input` |
+| KPI Dashboard Pack | `/reports/kpi-pack` | actual-only revenue, profit, cash, receivables, payables, inventory, margins, ratios, DSO/DIO/DPO and CCC cards with formula and source; `test_kpi_pack_is_actual_only_and_checks_balance` |
+| Trend Explanation | `/reports/trend-explanation` | deterministic narrative over monthly actual revenue and expenses, with the largest moves called out; no generative AI; `test_trend_explanation_matches_monthly_sales` |
+| Revenue Forecast | `/reports/revenue-forecast` | least-squares forecast from monthly actual net revenue, with an indicative band, confidence and actual/forecast separation; `test_revenue_forecast_separates_actuals_and_forecast` |
+| Anomaly Digest | `/reports/anomaly-digest` | deterministic review prompts for journal structure, large entries, possible duplicates, backdating, negative stock and 90+ day receivables; `test_anomaly_digest_returns_review_prompts` |
+| Item reorder level | `/items` | additive `item.reorder_level_milli` column and item-master input; no destructive migration; existing items default to zero |
+| Report coverage | Reports menu | 54 of 66 working; 0 partial; 12 planned |
+| Offline package 0.17 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.17.zip` | embedded Python 3.14.6, `openpyxl` 3.1.5, health smoke test passed |
+
+### Still not implemented
+
+- 12 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
+- Manual stock-adjustment table; stock reports reconstruct from posted documents and current item stock.
+- FIFO or historical cost layers; inventory valuation uses the current moving weighted-average cost.
+- Batch/expiry, job/project costing, WIP/production/yield, cost-centre, budget and department/branch P&L data models.
+- Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.17.

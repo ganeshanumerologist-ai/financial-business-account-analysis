@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.16)
+## 11. Implementation status (current Build 0.17)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -593,13 +593,13 @@ floats and show `n/a` when the denominator is zero. The module provides:
 ### 18.2 Report Library
 
 `/reports/library` lists all 66 catalogued reports, filters by group and status, and shows
-**38 working, 1 partial and 27 planned**. Working rows link to a route. Planned rows have no route
+**54 working, 0 partial and 12 planned**. Working rows link to a route. Planned rows have no route
 and no sample data, so a delivery map cannot be mistaken for a finished report.
 
 ### 18.3 Export and security boundary
 
 `/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`,
-`/export/expense-breakdown.csv` and the ten Build 0.16 report exports require `report.export`, are
+`/export/expense-breakdown.csv`, the ten Build 0.16 report exports and the sixteen Build 0.17 report exports require `report.export`, are
 tenant-scoped and send `no-store`. Amounts are exported as exact decimal strings from integer paise.
 Quantities in the stock report are exported as three-decimal strings.
 
@@ -607,7 +607,7 @@ Quantities in the stock report are exported as three-decimal strings.
 
 - Cash flow and ratios are management working papers, not statutory statements, forecasts or
   lender/investor opinions.
-- The remaining 28 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
+- The remaining 12 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
   ~150-template library are not delivered.
 - No mobile viewport, screen-reader, contrast, cross-browser or 4K matrix was run for the new pages.
 
@@ -687,7 +687,41 @@ adjustment would show as a difference. Credit-limit utilisation combines open po
 with the customer master limit and flags customers with exposure but no limit. Trial balance
 exceptions read journal entries and report structural failures without repairing them.
 
-All ten reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
+All sixteen reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
 tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.test_46`. The
 catalogue now shows **38 working, 1 partial and 27 planned**. No new table, column, index or cached
 total was added.
+
+## 22. Build 0.17: sixteen more report screens (2026-11-05)
+
+`app/reports.py` gains sixteen deterministic functions that read posted records only. Opening vs closing
+uses signed account balances on the day before the period and on the end date, then reconciles
+opening + debit ? credit to closing for every ledger. Locked periods read `period_lock` and the
+locking user. Salesperson performance groups posted invoices and receipts by the creator of their
+journal entry, so the report is a document-creator view rather than a separate salesperson master.
+Price variance compares the latest bill price in the period with the previous bill and the current
+moving weighted-average item cost.
+
+Stock movement history is a chronological union of posted purchase, sale, credit-note and
+debit-note lines with source document and party; opening stock is not a document line and is
+excluded. Inventory valuation reconstructs closing quantity at a date from current item stock and
+later movements, then applies the current moving weighted-average cost. Reorder/shortage uses the
+new additive `item.reorder_level_milli` column and also surfaces zero/negative stock when no level
+is configured. Dead/slow stock finds stocked items whose latest posted movement is older than the
+selected number of days. Inventory-to-GL reconciliation compares item-master stock value with the
+posted inventory account balance and shows the difference without posting a correction. Receivables
+risk combines open receivable ageing with customer credit days and limits, compares overdue value
+with a prior date and labels High/Medium/Low risk.
+
+The same batch adds R-705 cash-flow forecast (weekly opening cash plus scheduled collections minus
+scheduled payments, explicitly labelled forecast), R-807 tax ledger (output-tax and input-credit
+ledgers with net payable), R-904 KPI dashboard pack (actual-only cards from statements, ratios, cash,
+ageing and inventory), R-1001 trend explanation (deterministic narrative over monthly actuals),
+R-1002 revenue forecast (least-squares line with an indicative band and actual/forecast separation)
+and R-1003 anomaly digest (rule-based review prompts, never fraud findings).
+
+All sixteen reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
+tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.test_46`. The only
+schema change is the additive `item.reorder_level_milli` column with a zero default; no table,
+index, cached total or destructive migration was added. The catalogue now shows **54 working,
+0 partial and 12 planned**.

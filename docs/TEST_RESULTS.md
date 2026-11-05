@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.16.** The latest application run is `RUN-2026-11-05-02` with
-> **274 tests, OK**, Python 3.14.6, Windows - see section 31. The table immediately below is the original
+> **Current status: Build 0.17.** The latest application run is `RUN-2026-11-05-03` with
+> **290 tests, OK**, Python 3.14.6, Windows - see section 32. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1476,3 +1476,52 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
 - The offline package was rebuilt as `dist\ARTHIVIO-Offline` and
   `dist\ARTHIVIO-Offline-0.16.zip`; the embedded runtime returned `Server: ARTHIVIO/0.16`
   from `/health`.
+
+## 32. Build 0.17 verification - sixteen report screens (2026-11-05)
+
+Run ID: `RUN-2026-11-05-03`.
+
+### 32.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **290 tests, OK**, 29.028 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_reports -v` | 32 report tests, OK |
+| `python -m unittest tests.test_web.WebTest.test_46_report_library_and_management_reports -v` | HTTP report library, 35 report pages and 30 CSV exports, OK |
+| Live report library | `/reports/library` shows **54 working, 0 partial and 12 planned** of 66 |
+| Opening vs closing | Opening + period debit - period credit = closing for every ledger; mismatch flag present |
+| Locked periods | Reads `period_lock` with actor and timestamp; no lock is changed by the report |
+| Salesperson performance | Posted invoice revenue and receipt collections grouped by journal creator; collection rate may exceed 100% |
+| Price variance | Latest bill price compared with the previous bill and current moving weighted-average cost |
+| Stock movements and valuation | Movement history reconciles to stock-summary quantities; valuation uses closing quantity x current cost |
+| Reorder, dead stock and inventory-to-GL | Additive reorder level works; dead stock uses the last posted movement; GL difference is shown, never posted |
+| Receivables risk | Overdue exposure and prior-period trend reconcile to receivable ageing; advisory only |
+| Cash-flow forecast | Opening cash + scheduled inflow - scheduled outflow = closing cash; forecast is labelled |
+| Tax ledger | Opening + debit - credit = closing per tax ledger; net payable = output tax - input credit |
+| KPI dashboard pack | All cards are actual-only; balance-sheet and cash-flow checks are shown |
+| Trend explanation | Monthly actual revenue reconciles to the sales summary; narrative is deterministic |
+| Revenue forecast | Actuals and forecast rows are separate; forecast is non-negative and inside its indicative band |
+| Anomaly digest | Rule-based review prompts only; severity counts reconcile to the findings |
+| Offline package build | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.17.zip` rebuilt; embedded runtime reports `arthivio 0.17` |
+| Package health | `GET /health` returned `ok`; `Server: ARTHIVIO/0.17 Python/3.14.6` |
+| Trial server | `127.0.0.1:8010`, `data/arthivio-trial.db`, `/health` returned `ok` and `ARTHIVIO/0.17` |
+| Trial login | `ganesha4558@gmail.com` signed in; `/reports/library` showed **54 of 66 working** |
+| Public quick tunnel | `https://coupled-karen-knee-arrow.trycloudflare.com/health` returned `ok` |
+
+### 32.2 Honest limits
+
+- The cash-flow and revenue forecasts are deterministic planning aids, not guarantees. They are kept
+  visually separate from actuals and are never added into actual totals.
+- The anomaly digest is a rule-based review prompt, not a fraud finding or an audit opinion.
+- Inventory valuation uses the current moving weighted-average cost. There are no FIFO or historical
+  cost layers, and stock movements exclude opening stock because it is not a document line.
+- Salesperson performance uses the journal creator, not a separate salesperson master. Receivables
+  risk is advisory and never blocks a sale.
+- Twelve catalogued reports still have no screen: R-204, R-206, R-506, R-508, R-601 to R-605, R-901,
+  R-902 and R-1004. They need draft-document, rule-version, stock-adjustment, batch/expiry,
+  job/project/cost-centre, budget, department/branch or intercompany-elimination data that does not
+  exist yet.
+- No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
+  accounting review was run for Build 0.17.
+- The trial URL is a temporary Cloudflare quick tunnel with no uptime guarantee. The database is
+  synthetic and must not hold real financial data.

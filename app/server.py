@@ -30,7 +30,7 @@ from . import reports as reports_mod
 from . import sharing
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.16"
+APP_VERSION = "0.17"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -459,11 +459,13 @@ NAV = [
                 ("reports/cash-flow", "rep", "Cash Flow"),
                 ("reports/ratios", "rep", "Financial Ratios"),
                 ("reports/comparison", "rep", "Period Comparison"),
+                ("reports/opening-closing", "rep", "Opening vs Closing"),
             ]),
             ("Accounting &amp; audit", [
                 ("reports/reversals", "audit", "Reversal Register"),
                 ("reports/account-activity", "audit", "Account Activity"),
                 ("reports/tb-exceptions", "audit", "Trial Balance Exceptions"),
+                ("reports/locked-periods", "audit", "Locked Periods"),
             ]),
             ("Sales &amp; purchases", [
                 ("reports/sales-register", "rep", "Sales Register"),
@@ -472,26 +474,40 @@ NAV = [
                 ("reports/product-sales", "rep", "Product-wise Sales"),
                 ("reports/discounts", "rep", "Discount Analysis"),
                 ("reports/sales-returns", "rep", "Sales Returns"),
+                ("reports/salesperson", "rep", "Salesperson Performance"),
                 ("reports/purchase-register", "rep", "Purchase Register"),
                 ("reports/top-suppliers", "rep", "Top Suppliers"),
+                ("reports/price-variance", "rep", "Price Variance"),
                 ("reports/purchase-returns", "rep", "Purchase Returns"),
             ]),
             ("Receivables &amp; payables", [
                 ("reports/ar-ageing", "rep", "Receivables Ageing"),
                 ("reports/ap-ageing", "rep", "Payables Ageing"),
                 ("reports/credit-limits", "rep", "Credit Limit Utilisation"),
+                ("reports/receivables-risk", "rep", "Receivables Risk"),
                 ("reports/working-capital", "rep", "Working Capital Cycle"),
+                ("reports/cash-flow-forecast", "rep", "Cash Flow Forecast"),
             ]),
             ("Inventory", [
                 ("reports/stock-summary", "item", "Stock Summary"),
+                ("reports/stock-movements", "item", "Stock Movements"),
+                ("reports/inventory-valuation", "item", "Inventory Valuation"),
+                ("reports/reorder", "item", "Reorder / Shortage"),
+                ("reports/dead-stock", "item", "Dead / Slow Stock"),
+                ("reports/inventory-gl", "item", "Inventory to GL"),
             ]),
             ("Expense analysis", [
                 ("reports/expense-breakdown", "rep", "Expense Breakdown"),
+                ("reports/kpi-pack", "rep", "KPI Dashboard Pack"),
+                ("reports/trend-explanation", "rep", "Trend Explanation"),
+                ("reports/revenue-forecast", "rep", "Revenue Forecast"),
+                ("reports/anomaly-digest", "rep", "Anomaly Digest"),
             ]),
             ("GST &amp; tax working papers", [
                 ("reports/gst", "gst", "GST Summary &amp; GSTR-1"),
                 ("reports/gstr3b", "gst", "GSTR-3B Working"),
                 ("gstr2b", "gst", "GSTR-2B Reconciliation"),
+                ("reports/tax-ledger", "gst", "Tax Ledger"),
             ]),
         ],
     },
@@ -1804,6 +1820,38 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_credit_limits(conn, user, tenant, q))
             if path == "/reports/tb-exceptions":
                 return self._send(self.page_tb_exceptions(conn, user, tenant, q))
+            if path == "/reports/opening-closing":
+                return self._send(self.page_opening_closing(conn, user, tenant, q))
+            if path == "/reports/locked-periods":
+                return self._send(self.page_locked_periods(conn, user, tenant))
+            if path == "/reports/salesperson":
+                return self._send(self.page_salesperson(conn, user, tenant, q))
+            if path == "/reports/price-variance":
+                return self._send(self.page_price_variance(conn, user, tenant, q))
+            if path == "/reports/stock-movements":
+                return self._send(self.page_stock_movements(conn, user, tenant, q))
+            if path == "/reports/inventory-valuation":
+                return self._send(self.page_inventory_valuation(conn, user, tenant, q))
+            if path == "/reports/reorder":
+                return self._send(self.page_reorder(conn, user, tenant, q))
+            if path == "/reports/dead-stock":
+                return self._send(self.page_dead_stock(conn, user, tenant, q))
+            if path == "/reports/inventory-gl":
+                return self._send(self.page_inventory_gl(conn, user, tenant, q))
+            if path == "/reports/receivables-risk":
+                return self._send(self.page_receivables_risk(conn, user, tenant, q))
+            if path == "/reports/cash-flow-forecast":
+                return self._send(self.page_cash_flow_forecast(conn, user, tenant, q))
+            if path == "/reports/tax-ledger":
+                return self._send(self.page_tax_ledger(conn, user, tenant, q))
+            if path == "/reports/kpi-pack":
+                return self._send(self.page_kpi_pack(conn, user, tenant, q))
+            if path == "/reports/trend-explanation":
+                return self._send(self.page_trend_explanation(conn, user, tenant, q))
+            if path == "/reports/revenue-forecast":
+                return self._send(self.page_revenue_forecast(conn, user, tenant, q))
+            if path == "/reports/anomaly-digest":
+                return self._send(self.page_anomaly_digest(conn, user, tenant, q))
             if path == "/customers":
                 return self._send(self.page_customers(conn, user, tenant, sess))
             if re.fullmatch(r"/customers/[0-9a-f]{32}", path):
@@ -5744,6 +5792,713 @@ date. A customer with no limit is shown as a warning, not as unlimited credit. T
 An exception means the entry needs investigation. Reversal and correction remain separate audited actions.</p>"""
         return layout("Trial balance exceptions", body, "reports/tb-exceptions", user, tenant)
 
+    def page_opening_closing(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.opening_closing_balances(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td>{esc(r["type"])}</td>'
+            f'<td class="num">{money.fmt(r["opening"])}</td>'
+            f'<td class="num">{money.fmt(r["debit"])}</td>'
+            f'<td class="num">{money.fmt(r["credit"])}</td>'
+            f'<td class="num"><b>{money.fmt(r["closing"])}</b></td>'
+            f'<td>{"<span class=\"badge ok\">OK</span>" if r["reconciled"] else "<span class=\"badge bad\">Check</span>"}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No ledger balances in this period</td></tr>'
+        t = data["totals"]
+        badge = ('<span class="badge ok">All ledgers reconcile</span>'
+                 if t["reconciled"] else '<span class="badge bad">A ledger does not reconcile</span>')
+        body = f"""
+<form method="get" action="/reports/opening-closing" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-107 - opening + movement = closing</span>
+<a class="btn ghost small" href="/export/opening-closing.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Ledgers", str(t["accounts"]), "with an opening, movement or closing balance")}
+  {kpi("Opening debit", money.fmt(t["opening_debit"]), "debit-positive ledgers")}
+  {kpi("Closing debit", money.fmt(t["closing_debit"]), "debit-positive ledgers")}
+  {kpi("Reconciliation", badge, "opening + period movement")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Code</th><th>Ledger</th><th>Type</th><th class="num">Opening</th>
+<th class="num">Debit</th><th class="num">Credit</th><th class="num">Closing</th><th>Check</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="3">Totals</td><td class="num">{money.fmt(t["opening_debit"] - t["opening_credit"])}</td>
+<td class="num">{money.fmt(t["debit"])}</td><td class="num">{money.fmt(t["credit"])}</td>
+<td class="num">{money.fmt(t["closing_debit"] - t["closing_credit"])}</td><td></td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Opening is the signed balance on the day before the period.
+Debit minus credit is the period movement. A ledger with no opening, movement or closing balance is omitted.
+This report reads posted journal lines and never rewrites a balance.</p>"""
+        return layout("Opening vs closing balances", body, "reports/opening-closing", user, tenant)
+
+    def page_locked_periods(self, conn, user, tenant) -> str:
+        data = reports_mod.locked_periods(conn, tenant)
+        rows = "".join(
+            f'<tr><td>{esc(r["period_start"])}</td><td>{esc(r["period_end"])}</td>'
+            f'<td>{esc(r["locked_at"])}</td><td>{esc(r["locked_by_name"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="4" class="empty">No locked periods</td></tr>'
+        body = f"""
+<div class="sect"><span class="badge neutral">R-205 - posting guard register</span></div>
+<div class="kpis">
+  {kpi("Locked periods", str(data["totals"]["periods"]), "periods currently blocked")}
+  {kpi("Posting guard", "Active", "dates inside a lock are rejected")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Period start</th><th>Period end</th><th>Locked at</th><th>Locked by</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">A locked period blocks new postings whose date falls inside it.
+This register reads <code>period_lock</code>; it never changes a lock. The current build has no lock/unlock
+screen, so rows appear only when an administrator or migration inserts them.</p>"""
+        return layout("Locked period register", body, "reports/locked-periods", user, tenant)
+
+    def page_salesperson(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.salesperson_performance(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["name"])}</td><td class="num">{r["invoices"]}</td>'
+            f'<td class="num">{money.fmt(r["taxable"])}</td>'
+            f'<td class="num">{money.fmt(r["total"])}</td>'
+            f'<td class="num">{r["receipts"]}</td>'
+            f'<td class="num">{money.fmt(r["collected"])}</td>'
+            f'<td class="num">{pct(r["collection_rate"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="7" class="empty">No posted invoices or receipts in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/salesperson" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-308 - creator of the posted document</span>
+<a class="btn ghost small" href="/export/salesperson.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("People", str(t["people"]), "with revenue or receipts")}
+  {kpi("Invoice value", money.fmt(t["total"]), "posted invoices")}
+  {kpi("Collected", money.fmt(t["collected"]), "receipts in the same period")}
+  {kpi("Collection rate", pct(t["collection_rate"]), "collected / invoice value")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Person</th><th class="num">Invoices</th><th class="num">Taxable</th>
+<th class="num">Invoice total</th><th class="num">Receipts</th><th class="num">Collected</th>
+<th class="num">Collection rate</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td>Total</td><td class="num">{t["invoices"]}</td>
+<td class="num">{money.fmt(t["taxable"])}</td><td class="num">{money.fmt(t["total"])}</td>
+<td class="num">{t["receipts"]}</td><td class="num">{money.fmt(t["collected"])}</td>
+<td class="num">{pct(t["collection_rate"])}</td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">The person is the creator of the posted journal entry, not a
+separate salesperson master. Collections may relate to invoices from an earlier period, so a collection rate
+above 100% is possible. Unassigned documents are shown together.</p>"""
+        return layout("Salesperson performance", body, "reports/salesperson", user, tenant)
+
+    def page_price_variance(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.price_variance(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
+            f'<td>{esc(r["latest_date"])}</td><td>{esc(r["latest_doc"])}</td>'
+            f'<td class="num">{money.fmt(r["latest_price"])}</td>'
+            f'<td class="num">{money.fmt(r["previous_price"]) if r["previous_price"] is not None else "n/a"}</td>'
+            f'<td class="num">{money.fmt(r["variance"]) if r["variance"] is not None else "n/a"}</td>'
+            f'<td class="num">{pct(r["variance_pct"])}</td>'
+            f'<td class="num">{money.fmt(r["current_cost"])}</td>'
+            f'<td class="num">{money.fmt(r["vs_cost"])}</td>'
+            f'<td class="num">{pct(r["vs_cost_pct"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="11" class="empty">No posted purchase lines in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/price-variance" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-405 - bill price vs previous bill and current cost</span>
+<a class="btn ghost small" href="/export/price-variance.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Items", str(t["items"]), "with posted purchases")}
+  {kpi("Above current cost", str(t["above_cost"]), "latest price is higher")}
+  {kpi("Below current cost", str(t["below_cost"]), "latest price is lower")}
+  {kpi("Latest purchase value", money.fmt(t["latest_value"]), "latest bill per item")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>SKU</th><th>Item</th><th>Latest date</th><th>Document</th>
+<th class="num">Latest price</th><th class="num">Previous</th><th class="num">Change</th>
+<th class="num">Change %</th><th class="num">Current cost</th><th class="num">vs cost</th>
+<th class="num">vs cost %</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">Previous is the prior posted bill in the selected period.
+Current cost is the moving weighted-average cost maintained by posted bills. A price above current cost is
+not automatically an error: it may be a genuine supplier increase. This report never changes an item cost.</p>"""
+        return layout("Price variance", body, "reports/price-variance", user, tenant)
+
+    def page_stock_movements(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.stock_movements(conn, tenant, dfrom, dto)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["date"])}</td><td>{esc(r["doc_type"])}</td>'
+            f'<td>{esc(r["doc_no"])}</td><td>{esc(r["party"])}</td>'
+            f'<td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{qty(r["in_qty"])}</td>'
+            f'<td class="num">{qty(r["out_qty"])}</td>'
+            f'<td class="num">{money.fmt(r["unit_price"])}</td>'
+            f'<td class="num">{money.fmt(r["value"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="10" class="empty">No posted stock movements in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/stock-movements" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-502 - posted documents only</span>
+<a class="btn ghost small" href="/export/stock-movements.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Movements", str(t["movements"]), "posted document lines")}
+  {kpi("Quantity in", qty(t["in_qty"]), "purchases + sales returns")}
+  {kpi("Quantity out", qty(t["out_qty"]), "sales + purchase returns")}
+  {kpi("Movement value", money.fmt(t["in_value"] + t["out_value"]), "taxable value of both directions")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Date</th><th>Source</th><th>Document</th><th>Party</th><th>SKU</th><th>Item</th>
+<th class="num">In</th><th class="num">Out</th><th class="num">Unit price</th>
+<th class="num">Taxable value</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">This is a chronological posted-document history, not a running
+stock ledger. Opening stock is not a document line, so it is excluded. Sales and purchase returns appear with
+their source note. No manual stock adjustment exists in this build.</p>"""
+        return layout("Stock movement history", body, "reports/stock-movements", user, tenant)
+
+    def page_inventory_valuation(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        try:
+            data = reports_mod.inventory_valuation(conn, tenant, as_of)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            data = reports_mod.inventory_valuation(conn, tenant, as_of)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{qty(r["qty"])}</td><td>{esc(r["unit"])}</td>'
+            f'<td class="num">{money.fmt(r["cost"])}</td>'
+            f'<td class="num">{money.fmt(r["value"])}</td>'
+            f'<td class="num">{pct(r["share"])}</td>'
+            f'<td>{"<span class=\"badge bad\">Negative</span>" if r["negative"] else ""}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No stock-tracked items with value</td></tr>'
+        t = data["totals"]
+        share_total = "100.00%" if data["rows"] and t["value"] else "n/a"
+        body = f"""
+<form method="get" action="/reports/inventory-valuation" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-503 - moving weighted-average cost</span>
+<a class="btn ghost small" href="/export/inventory-valuation.csv?as_of={esc(as_of)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Items", str(t["items"]), "with a quantity or value")}
+  {kpi("Quantity", qty(t["qty"]), "sum across units")}
+  {kpi("Stock value", money.fmt(t["value"]), "closing quantity x current cost")}
+  {kpi("Negative stock", str(t["negative"]), "needs investigation")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>SKU</th><th>Item</th><th class="num">Quantity</th><th>Unit</th>
+<th class="num">Unit cost</th><th class="num">Value</th><th class="num">Share</th><th>Status</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot><tr><td colspan="5">Total</td><td class="num">{money.fmt(t["value"])}</td>
+<td class="num">{share_total}</td><td></td></tr></tfoot>
+</table></div></div>
+<p class="small muted" style="margin-top:10px">Quantity is reconstructed at the selected date from current item
+stock and later posted movements. Unit cost is the current moving weighted-average cost maintained by posted
+bills. This is not a FIFO layer valuation; no historical cost layers are stored.</p>"""
+        return layout("Inventory valuation", body, "reports/inventory-valuation", user, tenant)
+
+    def page_reorder(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        try:
+            data = reports_mod.reorder_shortage(conn, tenant, as_of)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            data = reports_mod.reorder_shortage(conn, tenant, as_of)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{qty(r["stock"])}</td>'
+            f'<td class="num">{qty(r["reorder_level"]) if r["has_level"] else "n/a"}</td>'
+            f'<td class="num">{qty(r["shortage"])}</td>'
+            f'<td class="num">{money.fmt(r["value"])}</td>'
+            f'<td><span class="badge {"bad" if r["stock"] <= 0 else "warn"}">{esc(r["status"])}</span></td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="7" class="empty">No item is below its reorder level</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/reorder" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-504 - reorder level or zero stock</span>
+<a class="btn ghost small" href="/export/reorder.csv?as_of={esc(as_of)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Items", str(t["items"]), "out of stock or below level")}
+  {kpi("Out of stock", str(t["out_of_stock"]), "quantity is zero or negative")}
+  {kpi("Below level", str(t["below_level"]), "positive stock below reorder level")}
+  {kpi("Shortage quantity", qty(t["shortage_qty"]), "level - stock, never negative")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>SKU</th><th>Item</th><th class="num">Stock</th>
+<th class="num">Reorder level</th><th class="num">Shortage</th><th class="num">Value</th>
+<th>Status</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">Set a reorder level on the item master. Items with no level
+appear only when stock is zero or negative. This report is advisory; it does not create a purchase order or
+change stock.</p>"""
+        return layout("Reorder and shortage", body, "reports/reorder", user, tenant)
+
+    def page_dead_stock(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        days_text = (q.get("days") or ["90"])[0]
+        try:
+            days = int(days_text)
+        except ValueError:
+            days = 90
+        try:
+            data = reports_mod.dead_stock(conn, tenant, days, as_of)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            days = 90
+            data = reports_mod.dead_stock(conn, tenant, days, as_of)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{qty(r["stock"])}</td>'
+            f'<td>{esc(r["last_date"]) if r["last_date"] else "Never moved"}</td>'
+            f'<td class="num">{r["age_days"] if r["age_days"] is not None else "n/a"}</td>'
+            f'<td class="num">{money.fmt(r["value"])}</td>'
+            f'<td>{"<span class=\"badge warn\">Never moved</span>" if r["never_moved"] else ""}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="7" class="empty">No dead or slow stock at this threshold</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/dead-stock" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<div><label>No movement for days</label><input name="days" value="{days}" inputmode="numeric" style="width:90px"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-505 - posted movement age</span>
+<a class="btn ghost small" href="/export/dead-stock.csv?as_of={esc(as_of)}&amp;days={days}">CSV</a></form>
+<div class="kpis">
+  {kpi("Items", str(t["items"]), "stocked and slow or dead")}
+  {kpi("Never moved", str(t["never_moved"]), "no posted document movement")}
+  {kpi("Locked value", money.fmt(t["value"]), "stock quantity x current cost")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>SKU</th><th>Item</th><th class="num">Stock</th><th>Last movement</th>
+<th class="num">Days</th><th class="num">Value</th><th>Status</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">Age is measured from the latest posted purchase, sale, credit
+note or debit note on or before the selected date. Opening stock is not a document movement. A high value here
+is a review prompt, not an automatic write-off.</p>"""
+        return layout("Dead and slow stock", body, "reports/dead-stock", user, tenant)
+
+    def page_inventory_gl(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        try:
+            data = reports_mod.inventory_gl_reconciliation(conn, tenant, as_of)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            data = reports_mod.inventory_gl_reconciliation(conn, tenant, as_of)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{qty(r["qty"])}</td><td class="num">{money.fmt(r["value"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="4" class="empty">No stock-tracked items with value</td></tr>'
+        gl_rows = "".join(
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{money.fmt(r["balance"])}</td></tr>'
+            for r in data["gl_accounts"]) or \
+            '<tr><td colspan="3" class="empty">No inventory ledger</td></tr>'
+        t = data["totals"]
+        badge = ('<span class="badge ok">Reconciled</span>' if t["reconciled"]
+                 else '<span class="badge bad">Difference</span>')
+        body = f"""
+<form method="get" action="/reports/inventory-gl" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-507 - item master vs inventory ledger</span>
+<a class="btn ghost small" href="/export/inventory-gl.csv?as_of={esc(as_of)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Stock value", money.fmt(t["stock_value"]), "closing quantity x current cost")}
+  {kpi("Inventory ledger", money.fmt(t["gl_balance"]), "posted inventory account balance")}
+  {kpi("Difference", money.fmt(t["difference"]), "stock value - ledger")}
+  {kpi("Status", badge, "a difference needs investigation")}
+</div>
+<div class="grid2">
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>SKU</th><th>Item</th><th class="num">Quantity</th><th class="num">Value</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Code</th><th>Inventory ledger</th><th class="num">Balance</th></tr></thead>
+<tbody>{gl_rows}</tbody></table></div></div>
+</div>
+<p class="small muted" style="margin-top:10px">The left side values stock at the current moving weighted-average
+cost. The right side is the posted balance of accounts in the inventory group. A non-zero difference can come
+from opening entries, manual journals or a missing stock adjustment. This report never posts a correction.</p>"""
+        return layout("Inventory to GL reconciliation", body, "reports/inventory-gl", user, tenant)
+
+    def page_receivables_risk(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        prior_text = (q.get("prior_days") or ["30"])[0]
+        try:
+            prior_days = int(prior_text)
+        except ValueError:
+            prior_days = 30
+        try:
+            data = reports_mod.receivables_risk(conn, tenant, as_of, prior_days)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            prior_days = 30
+            data = reports_mod.receivables_risk(conn, tenant, as_of, prior_days)
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["name"])}</td><td class="num">{r["credit_days"]}</td>'
+            f'<td class="num">{money.fmt(r["limit"]) if r["limit"] > 0 else "No limit"}</td>'
+            f'<td class="num">{money.fmt(r["outstanding"])}</td>'
+            f'<td class="num">{money.fmt(r["overdue"])}</td>'
+            f'<td class="num">{money.fmt(r["current"])}</td>'
+            f'<td class="num">{r["oldest_days"]}</td>'
+            f'<td class="num">{pct(r["utilisation"])}</td>'
+            f'<td class="num">{money.fmt(r["prior_overdue"])}</td>'
+            f'<td class="num">{money.fmt(r["overdue_change"])}</td>'
+            f'<td><span class="badge {"bad" if r["risk"] == "High" else "warn" if r["risk"] == "Medium" else "ok"}">{esc(r["risk"])}</span></td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="11" class="empty">No open receivables</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/receivables-risk" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<div><label>Compare prior days</label><input name="prior_days" value="{prior_days}" inputmode="numeric" style="width:90px"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-704 - overdue exposure and trend</span>
+<a class="btn ghost small" href="/export/receivables-risk.csv?as_of={esc(as_of)}&amp;prior_days={prior_days}">CSV</a></form>
+<div class="kpis">
+  {kpi("Outstanding", money.fmt(t["outstanding"]), "open posted invoices")}
+  {kpi("Overdue", money.fmt(t["overdue"]), "past customer credit days")}
+  {kpi("High risk", str(t["high_risk"]), "over limit or very old")}
+  {kpi("Overdue change", money.fmt(t["overdue_change"]), f'vs {esc(data["prior_as_of"])}')}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Customer</th><th class="num">Credit days</th><th class="num">Limit</th>
+<th class="num">Outstanding</th><th class="num">Overdue</th><th class="num">Current</th>
+<th class="num">Oldest days</th><th class="num">Utilisation</th><th class="num">Prior overdue</th>
+<th class="num">Change</th><th>Risk</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">Overdue is the open invoice amount older than the customer's
+credit days. High risk means over the credit limit or more than 90 days old with an overdue balance. The report
+is advisory and never blocks a sale. Collections and credit notes reduce the open amount through posted
+allocations.</p>"""
+        return layout("Receivables risk", body, "reports/receivables-risk", user, tenant)
+
+    def page_cash_flow_forecast(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        horizon_text = (q.get("horizon_days") or ["90"])[0]
+        try:
+            horizon = int(horizon_text)
+        except ValueError:
+            horizon = 90
+        try:
+            data = reports_mod.cash_flow_forecast(conn, tenant, as_of, horizon)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            horizon = 90
+            data = reports_mod.cash_flow_forecast(conn, tenant, as_of, horizon)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        rows = "".join(
+            f'<tr><td>Week {r["week"]}</td><td>{r["start_day"]}-{r["end_day"]} days</td>'
+            f'<td class="num">{money.fmt(r["inflow"])}</td>'
+            f'<td class="num">{money.fmt(r["outflow"])}</td>'
+            f'<td class="num">{money.fmt(r["net"])}</td>'
+            f'<td class="num"><b>{money.fmt(r["closing"])}</b></td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="6" class="empty">No forecast buckets</td></tr>'
+        body = f"""
+<form method="get" action="/reports/cash-flow-forecast" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<div><label>Horizon days</label><input name="horizon_days" value="{horizon}" inputmode="numeric" style="width:100px"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge warn">Forecast - not actual</span>
+<a class="btn ghost small" href="/export/cash-flow-forecast.csv?as_of={esc(as_of)}&amp;horizon_days={horizon}">CSV</a></form>
+<div class="kpis">
+  {kpi("Opening cash", money.fmt(data["opening_cash"]), "posted cash and bank")}
+  {kpi("Scheduled inflow", money.fmt(data["scheduled_inflow"]), "open receivable collections")}
+  {kpi("Scheduled outflow", money.fmt(data["scheduled_outflow"]), "open payable payments")}
+  {kpi("Closing cash", money.fmt(data["closing_cash"]), "forecast, not actual")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Bucket</th><th>Days from as-of</th><th class="num">Inflow</th>
+<th class="num">Outflow</th><th class="num">Net</th><th class="num">Closing cash</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">{esc(data["method"])} Open receivables
+{money.fmt(data["open_receivables"])}, open payables {money.fmt(data["open_payables"])};
+overdue receivables {money.fmt(data["overdue_receivables"])} and overdue payables
+{money.fmt(data["overdue_payables"])}. Beyond the horizon: inflow {money.fmt(data["beyond_inflow"])},
+outflow {money.fmt(data["beyond_outflow"])}. This is a deterministic working forecast, not a
+guarantee and not a substitute for a cash-flow statement.</p>"""
+        return layout("Cash flow forecast", body, "reports/cash-flow-forecast", user, tenant)
+
+    def page_tax_ledger(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.tax_ledger(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td>{esc(r["kind"])}</td><td class="num">{money.fmt(r["opening"])}</td>'
+            f'<td class="num">{money.fmt(r["debit"])}</td>'
+            f'<td class="num">{money.fmt(r["credit"])}</td>'
+            f'<td class="num"><b>{money.fmt(r["closing"])}</b></td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="7" class="empty">No tax-ledger movement in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/tax-ledger" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge warn">Working aid - not a filed return</span>
+<a class="btn ghost small" href="/export/tax-ledger.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Output tax", money.fmt(t["output_payable"]), "credit balance in duties & taxes")}
+  {kpi("Input credit", money.fmt(t["input_credit"]), "debit balance in GST input")}
+  {kpi("Net payable", money.fmt(t["net_payable"]), "output tax - input credit")}
+  {kpi("Tax ledgers", str(t["accounts"]), "with opening or movement")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Code</th><th>Tax ledger</th><th>Kind</th><th class="num">Opening</th>
+<th class="num">Debit</th><th class="num">Credit</th><th class="num">Closing</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">Opening is the signed balance on the day before the
+period. Output tax is shown as a credit-positive liability; input credit is shown as a debit-positive
+asset. Net payable is output tax minus input credit. This is a ledger working aid, not a GSTR-3B
+filing and not tax advice.</p>"""
+        return layout("Tax ledger", body, "reports/tax-ledger", user, tenant)
+
+    def page_kpi_pack(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.kpi_dashboard(conn, tenant, dfrom, dto)
+
+        def display(k):
+            value = k["value"]
+            if value is None:
+                return "n/a"
+            if k["kind"] == "money":
+                return money.fmt(value)
+            if k["kind"] == "percent":
+                return f"{value * 100:.2f}%"
+            if k["kind"] == "days":
+                return f"{value:.1f} days"
+            return f"{value:.2f}"
+
+        cards = "".join(kpi(k["label"], display(k), f'{k["formula"]} - {k["source"]}')
+                        for k in data["kpis"])
+        checks = data["checks"]
+        check_badge = ('<span class="badge ok">Balanced</span>'
+                       if checks["balance_sheet_balanced"]
+                       else '<span class="badge bad">Check balance sheet</span>')
+        body = f"""
+<form method="get" action="/reports/kpi-pack" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge ok">Actuals only</span>
+<a class="btn ghost small" href="/export/kpi-pack.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">{cards}</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Check</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Balance sheet</td><td>{check_badge} difference {money.fmt(checks["balance_sheet_difference"])}</td></tr>
+<tr><td>Cash-flow bridge</td><td>difference {money.fmt(checks["cash_flow_difference"])}</td></tr>
+<tr><td>Working-capital days</td><td>{checks["working_capital_days"]}</td></tr>
+</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">Every card is an actual from posted records. No
+estimate or forecast is mixed into this pack. Ratios and days are management indicators, not
+statutory measures or lender opinions.</p>"""
+        return layout("KPI dashboard pack", body, "reports/kpi-pack", user, tenant)
+
+    def page_trend_explanation(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.trend_explanation(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:+.2f}%" if value is not None else "n/a"
+
+        rows = []
+        previous = None
+        for row in data["rows"]:
+            rev_change = (row["revenue"] - previous["revenue"]) if previous else None
+            exp_change = (row["expenses"] - previous["expenses"]) if previous else None
+            rows.append(
+                f'<tr><td>{esc(row["period"])}</td>'
+                f'<td class="num">{money.fmt(row["revenue"])}</td>'
+                f'<td class="num">{money.fmt(row["expenses"])}</td>'
+                f'<td class="num"><b>{money.fmt(row["net"])}</b></td>'
+                f'<td class="num">{pct(reports_mod._ratio(rev_change, previous["revenue"])) if previous else "n/a"}</td>'
+                f'<td class="num">{pct(reports_mod._ratio(exp_change, previous["expenses"])) if previous else "n/a"}</td></tr>')
+            previous = row
+        table_rows = "".join(rows) or '<tr><td colspan="6" class="empty">No monthly actuals</td></tr>'
+        narrative = "".join(f"<li>{esc(line)}</li>" for line in data["narrative"])
+        body = f"""
+<form method="get" action="/reports/trend-explanation" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge ok">Actuals only</span>
+<a class="btn ghost small" href="/export/trend-explanation.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="card pad"><h3 style="margin-top:0">What moved</h3><ul>{narrative}</ul>
+<p class="small muted">{esc(data["method"])}</p></div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Month</th><th class="num">Revenue</th><th class="num">Expenses</th>
+<th class="num">Net</th><th class="num">Revenue change</th><th class="num">Expense change</th></tr></thead>
+<tbody>{table_rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">This is a deterministic explanation of actual posted
+records, not generative AI and not a forecast. Zero months are shown so the trend is not hidden.</p>"""
+        return layout("Trend explanation", body, "reports/trend-explanation", user, tenant)
+
+    def page_revenue_forecast(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        periods_text = (q.get("periods") or ["3"])[0]
+        try:
+            periods = int(periods_text)
+        except ValueError:
+            periods = 3
+        try:
+            data = reports_mod.revenue_forecast(conn, tenant, dfrom, dto, periods)
+        except reports_mod.ReportError:
+            periods = 3
+            data = reports_mod.revenue_forecast(conn, tenant, dfrom, dto, periods)
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        actual_rows = "".join(
+            f'<tr><td>{esc(r["period"])}</td><td class="num">{money.fmt(r["revenue"])}</td>'
+            f'<td><span class="badge ok">Actual</span></td></tr>'
+            for r in data["actuals"]) or '<tr><td colspan="3" class="empty">No actual months</td></tr>'
+        forecast_rows = "".join(
+            f'<tr><td>{esc(r["period"])}</td><td class="num">{money.fmt(r["revenue"])}</td>'
+            f'<td class="num">{money.fmt(r["lower"])}</td><td class="num">{money.fmt(r["upper"])}</td>'
+            f'<td><span class="badge warn">Forecast</span></td></tr>'
+            for r in data["forecast"]) or '<tr><td colspan="5" class="empty">No forecast</td></tr>'
+        body = f"""
+<form method="get" action="/reports/revenue-forecast" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<div><label>Forecast months</label><input name="periods" value="{periods}" inputmode="numeric" style="width:90px"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge warn">Forecast separated from actuals</span>
+<a class="btn ghost small" href="/export/revenue-forecast.csv?from={esc(dfrom)}&amp;to={esc(dto)}&amp;periods={periods}">CSV</a></form>
+<div class="kpis">
+  {kpi("Method", "Least squares", "ordinary least-squares line")}
+  {kpi("Confidence", esc(data["confidence"]), "low for fewer than six months")}
+  {kpi("R-squared", pct(data["r_squared"]), "fit of the actual months")}
+  {kpi("Residual std", money.fmt(int(data["residual_std"] or 0)), "spread around the line")}
+</div>
+<div class="grid2">
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Actual month</th><th class="num">Net revenue</th><th>Type</th></tr></thead>
+<tbody>{actual_rows}</tbody></table></div></div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Forecast month</th><th class="num">Estimate</th><th class="num">Lower</th>
+<th class="num">Upper</th><th>Type</th></tr></thead>
+<tbody>{forecast_rows}</tbody></table></div></div>
+</div>
+<p class="small muted" style="margin-top:10px">{esc(data["method"])} The forecast is a planning
+aid, not a promise. It is kept visually separate from actuals and is never mixed into actual totals.</p>"""
+        return layout("Revenue forecast", body, "reports/revenue-forecast", user, tenant)
+
+    def page_anomaly_digest(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.anomaly_digest(conn, tenant, dfrom, dto)
+
+        def badge(severity):
+            cls = "bad" if severity == "High" else "warn" if severity == "Medium" else "neutral"
+            return f'<span class="badge {cls}">{esc(severity)}</span>'
+
+        rows = "".join(
+            f'<tr><td>{badge(r["severity"])}</td><td>{esc(r["kind"])}</td>'
+            f'<td>{esc(r["date"])}</td><td>{esc(r["reference"])}</td>'
+            f'<td>{esc(r["description"])}</td><td class="num">{money.fmt(r["amount"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="6" class="empty">No review prompts in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/anomaly-digest" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge warn">Review prompts - not fraud findings</span>
+<a class="btn ghost small" href="/export/anomaly-digest.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Findings", str(t["findings"]), "deterministic review prompts")}
+  {kpi("High", str(t["high"]), "structural or negative-stock issues")}
+  {kpi("Medium", str(t["medium"]), "large, duplicate or overdue items")}
+  {kpi("Low", str(t["low"]), "backdated entries")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Severity</th><th>Rule</th><th>Date</th><th>Reference</th>
+<th>Description</th><th class="num">Amount</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">{esc(data["method"])} These are prompts for a human
+review. They are not proof of fraud, error or intent.</p>"""
+        return layout("Anomaly digest", body, "reports/anomaly-digest", user, tenant)
+
     def page_analytics(self, conn, user, tenant, q) -> str:
         default = analytics_mod.resolve_period(tenant)
         dfrom = (q.get("from") or [default["from"]])[0] or default["from"]
@@ -6060,8 +6815,9 @@ An exception means the entry needs investigation. Reversal and correction remain
             f'<td class="num">{item_margin(r)/100:.2f}%</td>'
             f'<td class="num">{r["tax_rate_bp"]/100:.2f}%</td>'
             f'<td class="num">{r["stock_milli"]/1000:.3f}</td>'
+            f'<td class="num">{r["reorder_level_milli"]/1000:.3f}</td>'
             f'<td class="num">{money.fmt(r["cost_paise"])}</td></tr>' for r in rows) or \
-            '<tr><td colspan="9" class="empty">No items</td></tr>'
+            '<tr><td colspan="10" class="empty">No items</td></tr>'
         income_accounts = conn.execute(
             "SELECT code, name FROM account WHERE tenant_id=? AND type='income'"
             " AND status='active' ORDER BY code", (tenant["id"],)).fetchall()
@@ -6074,7 +6830,7 @@ An exception means the entry needs investigation. Reversal and correction remain
 only classifies the accounting posting, so one Sales ledger can hold many products.</div></div></div>
 <div class="grid2">
 <div class="card table-wrap"><table><thead><tr><th>SKU</th><th>Name</th><th>Category</th><th>HSN</th>
-<th class="num">Sale price</th><th class="num">Margin</th><th class="num">GST</th><th class="num">Stock</th><th class="num">Cost</th></tr></thead>
+<th class="num">Sale price</th><th class="num">Margin</th><th class="num">GST</th><th class="num">Stock</th><th class="num">Reorder</th><th class="num">Cost</th></tr></thead>
 <tbody>{trs}</tbody></table></div>
 <div class="card pad"><h2 style="margin-bottom:12px">Add product / service</h2>
 <form method="post" action="/items">
@@ -6090,8 +6846,9 @@ only classifies the accounting posting, so one Sales ledger can hold many produc
 <div class="field"><label>Margin % (on cost)</label><input name="margin" inputmode="decimal" placeholder="20"></div>
 <div class="field"><label>Sale price</label><input name="price" inputmode="decimal" placeholder="Blank = cost + margin"></div>
 <div class="field"><label>MRP</label><input name="mrp" inputmode="decimal" placeholder="0.00"></div></div>
-<div class="row c3"><div class="field"><label>GST %</label><input name="tax" value="18" inputmode="decimal"></div>
+<div class="row c4"><div class="field"><label>GST %</label><input name="tax" value="18" inputmode="decimal"></div>
 <div class="field"><label>Opening stock</label><input name="stock" value="0" inputmode="decimal"></div>
+<div class="field"><label>Reorder level</label><input name="reorder_level" value="0" inputmode="decimal"></div>
 <div class="field"><label>Stock tracking</label><select name="track"><option value="1">Yes (goods)</option><option value="0">No (service)</option></select></div></div>
 <button class="btn" type="submit">Save product</button>
 <p class="small muted" style="margin:8px 0 0">GST is a working rate for invoices, not a claim of input
@@ -7039,6 +7796,7 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                 margin_bp = max(0, ((price - cost) * 10000) // cost)
             rate = money.parse_percent(first(form, "tax") or "18")
             stock = money.parse_qty(first(form, "stock") or "0")
+            reorder_level = money.parse_qty(first(form, "reorder_level") or "0")
             mrp = money.parse_amount(first(form, "mrp") or "0")
         except money.MoneyError as e:
             return self._item_error(user, tenant, str(e))
@@ -7053,11 +7811,11 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         iid = db.new_id()
         conn.execute(
             "INSERT INTO item (id, tenant_id, sku, name, sale_price_paise, cost_paise,"
-            " tax_rate_bp, hsn, stock_milli, track_stock, revenue_code, category, brand,"
-            " barcode, mrp_paise, margin_bp)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " tax_rate_bp, hsn, stock_milli, reorder_level_milli, track_stock,"
+            " revenue_code, category, brand, barcode, mrp_paise, margin_bp)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (iid, tenant["id"], sku[:40], name[:120], price, cost, rate,
-             first(form, "hsn").strip()[:12], stock,
+             first(form, "hsn").strip()[:12], stock, reorder_level,
              1 if first(form, "track") != "0" else 0, revenue_code,
              first(form, "category").strip()[:60], first(form, "brand").strip()[:60],
              first(form, "barcode").strip()[:40], mrp, margin_bp))
@@ -7867,6 +8625,193 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                       money.to_str(r["debit"]), money.to_str(r["credit"]),
                       money.to_str(r["difference"]), "; ".join(r["issues"])]
                      for r in data["rows"]]
+        elif key == "opening-closing":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.opening_closing_balances(conn, tenant, dfrom, dto)
+            rows = [["Code", "Ledger", "Type", "Group", "Opening", "Debit", "Credit",
+                     "Closing", "Reconciled"]]
+            rows += [[r["code"], r["name"], r["type"], r["group"],
+                      money.to_str(r["opening"]), money.to_str(r["debit"]),
+                      money.to_str(r["credit"]), money.to_str(r["closing"]),
+                      "Yes" if r["reconciled"] else "No"] for r in data["rows"]]
+        elif key == "locked-periods":
+            data = reports_mod.locked_periods(conn, tenant)
+            rows = [["Period start", "Period end", "Locked at", "Locked by"]]
+            rows += [[r["period_start"], r["period_end"], r["locked_at"],
+                      r["locked_by_name"]] for r in data["rows"]]
+        elif key == "salesperson":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.salesperson_performance(conn, tenant, dfrom, dto)
+            rows = [["Person", "Invoices", "Taxable", "Invoice total", "Receipts",
+                     "Collected", "Collection %"]]
+            rows += [[r["name"], r["invoices"], money.to_str(r["taxable"]),
+                      money.to_str(r["total"]), r["receipts"], money.to_str(r["collected"]),
+                      f'{r["collection_rate"] * 100:.2f}'
+                      if r["collection_rate"] is not None else ""]
+                     for r in data["rows"]]
+        elif key == "price-variance":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.price_variance(conn, tenant, dfrom, dto)
+            rows = [["SKU", "Item", "Latest date", "Document", "Latest price",
+                     "Previous price", "Change", "Change %", "Current cost", "vs cost",
+                     "vs cost %"]]
+            for r in data["rows"]:
+                rows.append([
+                    r["sku"], r["name"], r["latest_date"], r["latest_doc"],
+                    money.to_str(r["latest_price"]),
+                    money.to_str(r["previous_price"]) if r["previous_price"] is not None else "",
+                    money.to_str(r["variance"]) if r["variance"] is not None else "",
+                    f'{r["variance_pct"] * 100:.2f}' if r["variance_pct"] is not None else "",
+                    money.to_str(r["current_cost"]), money.to_str(r["vs_cost"]),
+                    f'{r["vs_cost_pct"] * 100:.2f}' if r["vs_cost_pct"] is not None else ""])
+        elif key == "stock-movements":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.stock_movements(conn, tenant, dfrom, dto)
+            rows = [["Date", "Source", "Document", "Party", "SKU", "Item", "In", "Out",
+                     "Unit price", "Taxable value"]]
+            rows += [[r["date"], r["doc_type"], r["doc_no"], r["party"], r["sku"],
+                      r["name"], f'{r["in_qty"] / 1000:.3f}',
+                      f'{r["out_qty"] / 1000:.3f}', money.to_str(r["unit_price"]),
+                      money.to_str(r["value"])] for r in data["rows"]]
+        elif key == "inventory-valuation":
+            as_of = (q.get("as_of") or [today])[0]
+            data = reports_mod.inventory_valuation(conn, tenant, as_of)
+            rows = [["SKU", "Item", "Unit", "Quantity", "Unit cost", "Value", "Share %"]]
+            rows += [[r["sku"], r["name"], r["unit"], f'{r["qty"] / 1000:.3f}',
+                      money.to_str(r["cost"]), money.to_str(r["value"]),
+                      f'{r["share"] * 100:.2f}' if r["share"] is not None else ""]
+                     for r in data["rows"]]
+        elif key == "reorder":
+            as_of = (q.get("as_of") or [today])[0]
+            data = reports_mod.reorder_shortage(conn, tenant, as_of)
+            rows = [["SKU", "Item", "Stock", "Reorder level", "Shortage", "Value",
+                     "Status"]]
+            rows += [[r["sku"], r["name"], f'{r["stock"] / 1000:.3f}',
+                      f'{r["reorder_level"] / 1000:.3f}' if r["has_level"] else "",
+                      f'{r["shortage"] / 1000:.3f}', money.to_str(r["value"]),
+                      r["status"]] for r in data["rows"]]
+        elif key == "dead-stock":
+            as_of = (q.get("as_of") or [today])[0]
+            days = (q.get("days") or ["90"])[0]
+            data = reports_mod.dead_stock(conn, tenant, days, as_of)
+            rows = [["SKU", "Item", "Stock", "Last movement", "Days", "Value", "Status"]]
+            rows += [[r["sku"], r["name"], f'{r["stock"] / 1000:.3f}',
+                      r["last_date"] or "", r["age_days"] if r["age_days"] is not None else "",
+                      money.to_str(r["value"]),
+                      "Never moved" if r["never_moved"] else "Slow"] for r in data["rows"]]
+        elif key == "inventory-gl":
+            as_of = (q.get("as_of") or [today])[0]
+            data = reports_mod.inventory_gl_reconciliation(conn, tenant, as_of)
+            rows = [["Section", "Code", "Name", "Quantity", "Value"]]
+            rows += [["Stock item", r["sku"], r["name"], f'{r["qty"] / 1000:.3f}',
+                      money.to_str(r["value"])] for r in data["rows"]]
+            rows += [["GL account", r["code"], r["name"], "",
+                      money.to_str(r["balance"])] for r in data["gl_accounts"]]
+            rows.append(["Summary", "", "Stock value", "",
+                         money.to_str(data["totals"]["stock_value"])])
+            rows.append(["Summary", "", "Inventory ledger", "",
+                         money.to_str(data["totals"]["gl_balance"])])
+            rows.append(["Summary", "", "Difference", "",
+                         money.to_str(data["totals"]["difference"])])
+        elif key == "receivables-risk":
+            as_of = (q.get("as_of") or [today])[0]
+            prior_days = (q.get("prior_days") or ["30"])[0]
+            data = reports_mod.receivables_risk(conn, tenant, as_of, prior_days)
+            rows = [["Customer", "Credit days", "Limit", "Outstanding", "Overdue",
+                     "Current", "Oldest days", "Utilisation %", "Prior overdue",
+                     "Change", "Risk"]]
+            for r in data["rows"]:
+                rows.append([
+                    r["name"], r["credit_days"],
+                    money.to_str(r["limit"]) if r["limit"] > 0 else "",
+                    money.to_str(r["outstanding"]), money.to_str(r["overdue"]),
+                    money.to_str(r["current"]), r["oldest_days"],
+                    f'{r["utilisation"] * 100:.2f}'
+                    if r["utilisation"] is not None else "",
+                    money.to_str(r["prior_overdue"]), money.to_str(r["overdue_change"]),
+                    r["risk"]])
+        elif key == "cash-flow-forecast":
+            as_of = (q.get("as_of") or [today])[0]
+            horizon = (q.get("horizon_days") or ["90"])[0]
+            data = reports_mod.cash_flow_forecast(conn, tenant, as_of, horizon)
+            rows = [["Bucket", "Start day", "End day", "Inflow", "Outflow", "Net",
+                     "Closing cash"]]
+            rows += [[f'Week {r["week"]}', r["start_day"], r["end_day"],
+                      money.to_str(r["inflow"]), money.to_str(r["outflow"]),
+                      money.to_str(r["net"]), money.to_str(r["closing"])]
+                     for r in data["rows"]]
+            rows.append([])
+            rows.append(["Forecast only", data["method"]])
+        elif key == "tax-ledger":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.tax_ledger(conn, tenant, dfrom, dto)
+            rows = [["Code", "Tax ledger", "Kind", "Opening", "Debit", "Credit", "Closing"]]
+            rows += [[r["code"], r["name"], r["kind"], money.to_str(r["opening"]),
+                      money.to_str(r["debit"]), money.to_str(r["credit"]),
+                      money.to_str(r["closing"])] for r in data["rows"]]
+            rows.append([])
+            rows.append(["Output tax", money.to_str(data["totals"]["output_payable"])])
+            rows.append(["Input credit", money.to_str(data["totals"]["input_credit"])])
+            rows.append(["Net payable", money.to_str(data["totals"]["net_payable"])])
+        elif key == "kpi-pack":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.kpi_dashboard(conn, tenant, dfrom, dto)
+            rows = [["KPI", "Value", "Kind", "Formula", "Source", "Actual"]]
+            for k in data["kpis"]:
+                value = k["value"]
+                if value is None:
+                    shown = ""
+                elif k["kind"] == "money":
+                    shown = money.to_str(value)
+                elif k["kind"] == "percent":
+                    shown = f"{value * 100:.2f}"
+                elif k["kind"] == "days":
+                    shown = f"{value:.1f}"
+                else:
+                    shown = f"{value:.2f}"
+                rows.append([k["label"], shown, k["kind"], k["formula"], k["source"],
+                             "Yes" if k["actual"] else "No"])
+        elif key == "trend-explanation":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.trend_explanation(conn, tenant, dfrom, dto)
+            rows = [["Month", "Revenue", "Expenses", "Net"]]
+            rows += [[r["period"], money.to_str(r["revenue"]), money.to_str(r["expenses"]),
+                      money.to_str(r["net"])] for r in data["rows"]]
+            rows.append([])
+            rows.append(["Explanation", data["method"]])
+            rows += [["Narrative", line] for line in data["narrative"]]
+        elif key == "revenue-forecast":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            periods = (q.get("periods") or ["3"])[0]
+            data = reports_mod.revenue_forecast(conn, tenant, dfrom, dto, periods)
+            rows = [["Month", "Revenue", "Type", "Lower", "Upper"]]
+            rows += [[r["period"], money.to_str(r["revenue"]), "Actual", "", ""]
+                     for r in data["actuals"]]
+            rows += [[r["period"], money.to_str(r["revenue"]), "Forecast",
+                      money.to_str(r["lower"]), money.to_str(r["upper"])]
+                     for r in data["forecast"]]
+            rows.append([])
+            rows.append(["Method", data["method"]])
+            rows.append(["Confidence", data["confidence"]])
+            rows.append(["R-squared", f'{data["r_squared"]:.4f}'
+                         if data["r_squared"] is not None else ""])
+        elif key == "anomaly-digest":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.anomaly_digest(conn, tenant, dfrom, dto)
+            rows = [["Severity", "Rule", "Date", "Reference", "Description", "Amount"]]
+            rows += [[r["severity"], r["kind"], r["date"], r["reference"],
+                      r["description"], money.to_str(r["amount"])] for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
         elif key == "invoices":
             data = conn.execute(
                 "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"

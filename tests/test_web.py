@@ -1740,7 +1740,7 @@ class WebTest(unittest.TestCase):
         status, page = self.get("/reports/library")
         self.assertEqual(status, 200)
         self.assertIn("Report library", page)
-        self.assertIn("38 of 66 working", page)
+        self.assertIn("54 of 66 working", page)
         self.assertIn("R-104", page)
         self.assertIn("R-905", page)
         self.assertIn("Planned reports are deliberately not filled with sample data", page)
@@ -1765,6 +1765,22 @@ class WebTest(unittest.TestCase):
             "/reports/purchase-returns": "Purchase returns",
             "/reports/stock-summary": "Stock summary",
             "/reports/credit-limits": "Credit limit utilisation",
+            "/reports/opening-closing": "Opening vs closing balances",
+            "/reports/locked-periods": "Locked period register",
+            "/reports/salesperson": "Salesperson performance",
+            "/reports/price-variance": "Price variance",
+            "/reports/stock-movements": "Stock movement history",
+            "/reports/inventory-valuation": "Inventory valuation",
+            "/reports/reorder": "Reorder and shortage",
+            "/reports/dead-stock": "Dead and slow stock",
+            "/reports/inventory-gl": "Inventory to GL reconciliation",
+            "/reports/receivables-risk": "Receivables risk",
+            "/reports/cash-flow-forecast": "Cash flow forecast",
+            "/reports/tax-ledger": "Tax ledger",
+            "/reports/kpi-pack": "KPI dashboard pack",
+            "/reports/trend-explanation": "Trend explanation",
+            "/reports/revenue-forecast": "Revenue forecast",
+            "/reports/anomaly-digest": "Anomaly digest",
         }
         for path, title in routes.items():
             status, body = self.get(path)
@@ -1787,6 +1803,22 @@ class WebTest(unittest.TestCase):
             "/export/stock-summary.csv?from=2026-04-01&to=2026-10-31": "SKU",
             "/export/credit-limits.csv?as_of=2026-10-31": "Customer",
             "/export/tb-exceptions.csv?from=2026-04-01&to=2026-10-31": "Voucher",
+            "/export/opening-closing.csv?from=2026-04-01&to=2026-10-31": "Reconciled",
+            "/export/locked-periods.csv": "Period start",
+            "/export/salesperson.csv?from=2026-04-01&to=2026-10-31": "Collection %",
+            "/export/price-variance.csv?from=2026-04-01&to=2026-10-31": "Latest price",
+            "/export/stock-movements.csv?from=2026-04-01&to=2026-10-31": "Source",
+            "/export/inventory-valuation.csv?as_of=2026-10-31": "Unit cost",
+            "/export/reorder.csv?as_of=2026-10-31": "Reorder level",
+            "/export/dead-stock.csv?as_of=2026-10-31&days=90": "Last movement",
+            "/export/inventory-gl.csv?as_of=2026-10-31": "GL account",
+            "/export/receivables-risk.csv?as_of=2026-10-31&prior_days=30": "Prior overdue",
+            "/export/cash-flow-forecast.csv?as_of=2026-10-31&horizon_days=90": "Closing cash",
+            "/export/tax-ledger.csv?from=2026-04-01&to=2026-10-31": "Net payable",
+            "/export/kpi-pack.csv?from=2026-04-01&to=2026-10-31": "Formula",
+            "/export/trend-explanation.csv?from=2026-04-01&to=2026-10-31": "Narrative",
+            "/export/revenue-forecast.csv?from=2026-04-01&to=2026-10-31&periods=3": "Forecast",
+            "/export/anomaly-digest.csv?from=2026-04-01&to=2026-10-31": "Severity",
         }
         for path, expected in csv_exports.items():
             status, body = self.get(path)

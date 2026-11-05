@@ -23,17 +23,19 @@ class ReportsTest(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_catalog_has_66_rows_and_38_working(self):
+    def test_catalog_has_66_rows_and_54_working(self):
         cat = reports.catalog()
         self.assertEqual(cat["total"], 66)
-        self.assertEqual(cat["working"], 38)
-        self.assertEqual(cat["partial"], 1)
-        self.assertEqual(cat["planned"], 27)
+        self.assertEqual(cat["working"], 54)
+        self.assertEqual(cat["partial"], 0)
+        self.assertEqual(cat["planned"], 12)
         working = [r for g in cat["groups"] for r in g["reports"] if r["status"] == "working"]
         self.assertTrue(all(r["route"] for r in working))
-        for rid in ("R-104", "R-108", "R-109", "R-110", "R-202", "R-203",
-                    "R-301", "R-302", "R-303", "R-306", "R-307", "R-309",
-                    "R-401", "R-404", "R-406", "R-501", "R-706", "R-903", "R-905"):
+        for rid in ("R-104", "R-107", "R-108", "R-109", "R-110", "R-202", "R-203",
+                    "R-205", "R-301", "R-302", "R-303", "R-306", "R-307", "R-308",
+                    "R-309", "R-401", "R-404", "R-405", "R-406", "R-501", "R-502",
+                    "R-503", "R-504", "R-505", "R-507", "R-704", "R-705", "R-706",
+                    "R-807", "R-903", "R-904", "R-905", "R-1001", "R-1002", "R-1003"):
             row = next(r for r in reports.REPORT_CATALOG if r["id"] == rid)
             self.assertEqual(row["status"], "working", rid)
             self.assertTrue(row["route"], rid)
@@ -248,6 +250,192 @@ class ReportsTest(unittest.TestCase):
         self.assertEqual(data["rows"][0]["entry_no"], "BAD-1")
         self.assertEqual(data["rows"][0]["difference"], 100)
         self.assertIn("Debit and credit differ", data["rows"][0]["issues"])
+
+    def test_opening_closing_balances_reconcile(self):
+        data = reports.opening_closing_balances(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertTrue(data["rows"])
+        self.assertTrue(data["totals"]["reconciled"])
+        for row in data["rows"]:
+            self.assertEqual(row["opening"] + row["debit"] - row["credit"],
+                             row["closing"])
+        self.assertEqual(data["totals"]["debit"], data["totals"]["credit"])
+
+    def test_locked_period_register_reads_lock_actor(self):
+        tenant_id = self.tenant["id"]
+        user_id = self.conn.execute("SELECT id FROM user LIMIT 1").fetchone()["id"]
+        self.conn.execute(
+            "INSERT INTO period_lock (tenant_id, period_start, period_end, locked_at,"
+            " locked_by) VALUES (?,?,?,?,?)",
+            (tenant_id, "2026-04-01", "2026-04-30", db.now(), user_id))
+        data = reports.locked_periods(self.conn, self.tenant)
+        self.assertEqual(data["totals"]["periods"], 1)
+        self.assertEqual(data["rows"][0]["period_start"], "2026-04-01")
+        self.assertTrue(data["rows"][0]["locked_by_name"])
+
+    def test_salesperson_revenue_and_collections_reconcile(self):
+        data = reports.salesperson_performance(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        sales = reports.sales_register(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(data["totals"]["total"], sales["totals"]["total"])
+        self.assertEqual(data["totals"]["invoices"], sales["totals"]["count"])
+        receipts = self.conn.execute(
+            "SELECT COALESCE(SUM(amount_paise),0) FROM payment WHERE tenant_id=?"
+            " AND direction='receipt' AND payment_date BETWEEN ? AND ?",
+            (self.tenant["id"], "2026-04-01", "2026-10-31")).fetchone()[0]
+        self.assertEqual(data["totals"]["collected"], receipts)
+
+    def test_price_variance_uses_latest_and_current_cost(self):
+        data = reports.price_variance(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertTrue(data["rows"])
+        for row in data["rows"]:
+            self.assertGreater(row["latest_price"], 0)
+            self.assertGreater(row["current_cost"], 0)
+            if row["previous_price"] is not None:
+                self.assertEqual(row["variance"],
+                                 row["latest_price"] - row["previous_price"])
+            self.assertEqual(row["vs_cost"], row["latest_price"] - row["current_cost"])
+
+    def test_stock_movements_match_stock_summary_quantities(self):
+        movements = reports.stock_movements(
+            self.conn, self.tenant, "2026-04-01", "2026-12-31")
+        summary = reports.stock_summary(
+            self.conn, self.tenant, "2026-04-01", "2026-12-31")
+        self.assertEqual(movements["totals"]["in_qty"],
+                         sum(r["in_period"] for r in summary["rows"]))
+        self.assertEqual(movements["totals"]["out_qty"],
+                         sum(r["out_period"] for r in summary["rows"]))
+        self.assertTrue(all(r["direction"] in ("In", "Out") for r in movements["rows"]))
+
+    def test_inventory_valuation_matches_stock_summary_value(self):
+        valuation = reports.inventory_valuation(
+            self.conn, self.tenant, "2026-12-31")
+        summary = reports.stock_summary(
+            self.conn, self.tenant, "2026-04-01", "2026-12-31")
+        self.assertEqual(valuation["totals"]["value"],
+                         summary["totals"]["closing_value"])
+        self.assertTrue(valuation["rows"])
+
+    def test_reorder_shortage_uses_item_level(self):
+        item = self.conn.execute(
+            "SELECT id, stock_milli FROM item WHERE tenant_id=? AND track_stock=1"
+            " ORDER BY name LIMIT 1", (self.tenant["id"],)).fetchone()
+        self.conn.execute(
+            "UPDATE item SET reorder_level_milli=? WHERE id=?",
+            (int(item["stock_milli"]) + 5000, item["id"]))
+        data = reports.reorder_shortage(self.conn, self.tenant, "2026-12-31")
+        row = next(r for r in data["rows"] if r["id"] == item["id"])
+        self.assertTrue(row["has_level"])
+        self.assertEqual(row["status"], "Below reorder level")
+        self.assertEqual(row["shortage"], 5000)
+        self.assertEqual(data["totals"]["below_level"], 1)
+
+    def test_dead_stock_uses_last_posted_movement(self):
+        data = reports.dead_stock(self.conn, self.tenant, 0, "2026-12-31")
+        self.assertTrue(data["rows"])
+        for row in data["rows"]:
+            self.assertGreater(row["stock"], 0)
+            self.assertGreaterEqual(row["value"], 0)
+            if row["last_date"]:
+                self.assertIsNotNone(row["age_days"])
+        self.assertGreaterEqual(data["totals"]["items"], 1)
+
+    def test_inventory_gl_reconciliation_shows_difference(self):
+        data = reports.inventory_gl_reconciliation(
+            self.conn, self.tenant, "2026-12-31")
+        self.assertEqual(data["totals"]["stock_value"],
+                         sum(r["value"] for r in data["rows"]))
+        self.assertEqual(data["totals"]["difference"],
+                         data["totals"]["stock_value"] - data["totals"]["gl_balance"])
+        self.assertTrue(data["gl_accounts"])
+
+    def test_receivables_risk_reconciles_to_ageing(self):
+        data = reports.receivables_risk(
+            self.conn, self.tenant, "2026-10-31", 30)
+        ageing = acct.receivable_ageing(self.conn, self.tenant["id"], "2026-10-31")
+        self.assertEqual(data["totals"]["outstanding"], ageing["grand_total"])
+        self.assertEqual(data["prior_as_of"], "2026-10-01")
+        self.assertTrue(data["rows"])
+        for row in data["rows"]:
+            self.assertLessEqual(row["overdue"], row["outstanding"])
+            self.assertIn(row["risk"], ("High", "Medium", "Low"))
+
+    def test_cash_flow_forecast_reconciles_opening_to_closing(self):
+        data = reports.cash_flow_forecast(
+            self.conn, self.tenant, "2026-10-31", 90)
+        self.assertEqual(data["opening_cash"] + data["scheduled_inflow"]
+                         - data["scheduled_outflow"], data["closing_cash"])
+        self.assertEqual(data["rows"][-1]["closing"], data["closing_cash"])
+        self.assertEqual(data["scheduled_inflow"] + data["beyond_inflow"],
+                         data["open_receivables"])
+        self.assertEqual(data["scheduled_outflow"] + data["beyond_outflow"],
+                         data["open_payables"])
+        self.assertGreaterEqual(data["overdue_receivables"], 0)
+
+    def test_tax_ledger_reconciles_output_and_input(self):
+        data = reports.tax_ledger(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertTrue(data["rows"])
+        self.assertEqual(data["totals"]["net_payable"],
+                         data["totals"]["output_payable"] - data["totals"]["input_credit"])
+        for row in data["rows"]:
+            self.assertEqual(row["opening"] + row["debit"] - row["credit"],
+                             row["closing"])
+        self.assertEqual(data["totals"]["debit"],
+                         sum(r["debit"] for r in data["rows"]))
+
+    def test_kpi_pack_is_actual_only_and_checks_balance(self):
+        data = reports.kpi_dashboard(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertTrue(data["kpis"])
+        self.assertTrue(all(k["actual"] for k in data["kpis"]))
+        self.assertTrue(data["checks"]["balance_sheet_balanced"])
+        self.assertEqual(data["checks"]["cash_flow_difference"], 0)
+        labels = {k["label"] for k in data["kpis"]}
+        for label in ("Revenue", "Net profit", "Cash and bank", "Receivables",
+                      "Payables", "Inventory value", "DSO", "DIO", "DPO"):
+            self.assertIn(label, labels)
+
+    def test_trend_explanation_matches_monthly_sales(self):
+        data = reports.trend_explanation(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        summary = reports.sales_summary_by_period(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(sum(r["revenue"] for r in data["rows"]),
+                         summary["totals"]["taxable"])
+        self.assertEqual(len(data["rows"]), 7)
+        self.assertTrue(data["narrative"])
+        self.assertIn("No estimate or forecast", data["method"])
+
+    def test_revenue_forecast_separates_actuals_and_forecast(self):
+        data = reports.revenue_forecast(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31", 3)
+        summary = reports.sales_summary_by_period(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(sum(r["revenue"] for r in data["actuals"]),
+                         summary["totals"]["taxable"])
+        self.assertTrue(all(r["actual"] for r in data["actuals"]))
+        self.assertEqual(len(data["forecast"]), 3)
+        self.assertTrue(all(not r["actual"] for r in data["forecast"]))
+        for row in data["forecast"]:
+            self.assertGreaterEqual(row["revenue"], 0)
+            self.assertLessEqual(row["lower"], row["revenue"])
+            self.assertGreaterEqual(row["upper"], row["revenue"])
+        self.assertIn(data["confidence"], ("low", "medium", "high"))
+
+    def test_anomaly_digest_returns_review_prompts(self):
+        data = reports.anomaly_digest(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertGreaterEqual(data["totals"]["findings"], 0)
+        self.assertEqual(data["totals"]["findings"],
+                         data["totals"]["high"] + data["totals"]["medium"]
+                         + data["totals"]["low"])
+        self.assertIn("not fraud findings", data["method"])
+        for row in data["rows"]:
+            self.assertIn(row["severity"], ("High", "Medium", "Low"))
+            self.assertTrue(row["kind"])
 
     def test_other_tenant_is_isolated(self):
         other = db.create_tenant(self.conn, "Other Reports Co", "other-reports", state_code="27")

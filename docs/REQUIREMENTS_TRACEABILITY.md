@@ -430,3 +430,28 @@ accounting data.
 | Offline package 0.16 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.16.zip`; embedded runtime import and `/health` smoke-tested |
 | Manual stock adjustment / historical cost | **Not implemented** | stock report uses document movements and current item cost; product margin is labelled as an estimate |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.16 |
+
+## 25. Status after sixteen more report screens (Build 0.17, 2026-11-05)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Ledger reconciliation | **Verified** | R-107 shows opening + period debit ? period credit = closing for every ledger and flags any mismatch; `test_opening_closing_balances_reconcile` |
+| Locked periods | **Verified as a read-only register** | R-205 reads `period_lock` with actor and timestamp; posting guard already rejects locked dates; `test_locked_period_register_reads_lock_actor` |
+| Salesperson performance | **Verified with a source limit** | R-308 groups posted invoices and receipts by journal creator, not a separate salesperson master; collection rate can exceed 100%; `test_salesperson_revenue_and_collections_reconcile` |
+| Purchase price variance | **Verified with a source limit** | R-405 compares latest bill price with previous bill and current moving weighted-average cost; higher price is not automatically an error; `test_price_variance_uses_latest_and_current_cost` |
+| Stock movement history | **Verified as a document history** | R-502 lists posted purchase, sale, credit-note and debit-note lines with source and party; opening stock is excluded; `test_stock_movements_match_stock_summary_quantities` |
+| Inventory valuation | **Verified as current-cost working paper** | R-503 reconstructs closing quantity at a date and applies current moving weighted-average cost; no FIFO/historical layers; `test_inventory_valuation_matches_stock_summary_value` |
+| Reorder / shortage | **Verified** | R-504 uses additive `item.reorder_level_milli` and also shows zero/negative stock; advisory only; `test_reorder_shortage_uses_item_level` |
+| Dead / slow stock | **Verified as a review prompt** | R-505 finds stocked items with no posted movement for N days, including never-moved stock; not an automatic write-off; `test_dead_stock_uses_last_posted_movement` |
+| Inventory-to-GL reconciliation | **Verified** | R-507 compares item-master stock value with the posted inventory account balance and shows the difference; never posts a correction; `test_inventory_gl_reconciliation_shows_difference` |
+| Receivables risk | **Verified as advisory** | R-704 combines open receivable ageing, credit days, limits and prior-period overdue; never blocks a sale; `test_receivables_risk_reconciles_to_ageing` |
+| Cash-flow forecast | **Verified as a labelled forecast** | R-705 places open collections and payments by due date, puts overdue items in the first bucket and reconciles opening cash to closing cash; `test_cash_flow_forecast_reconciles_opening_to_closing` |
+| Tax ledger | **Verified as a working aid** | R-807 shows output-tax and input-credit ledgers with opening, debit, credit, closing and net payable; not a filed return; `test_tax_ledger_reconciles_output_and_input` |
+| KPI dashboard pack | **Verified as actual-only** | R-904 assembles revenue, profit, cash, receivables, payables, inventory, margins, ratios, DSO/DIO/DPO and CCC from existing reports; `test_kpi_pack_is_actual_only_and_checks_balance` |
+| Trend explanation | **Verified as deterministic** | R-1001 explains monthly actual revenue and expenses with the largest moves; no generative AI; `test_trend_explanation_matches_monthly_sales` |
+| Revenue forecast | **Verified as a labelled forecast** | R-1002 fits a least-squares line to monthly actual net revenue and keeps forecast rows separate from actual rows; `test_revenue_forecast_separates_actuals_and_forecast` |
+| Anomaly digest | **Verified as a review aid** | R-1003 lists deterministic review prompts for journal structure, large entries, duplicates, backdating, negative stock and 90+ day receivables; not a fraud finding; `test_anomaly_digest_returns_review_prompts` |
+| Report coverage | **54 of 66** | 38 prior working reports plus sixteen Build 0.17 reports; 0 partial and 12 planned remain |
+| Offline package 0.17 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.17.zip`; embedded runtime import and `/health` smoke-tested |
+| Manual stock adjustment / historical cost / batch / job costing | **Not implemented** | stock reports use document movements and current item cost; FIFO, batch/expiry, job/project, WIP, cost-centre and budget models remain future work |
+| Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.17 |
