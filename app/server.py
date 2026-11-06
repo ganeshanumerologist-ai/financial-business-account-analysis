@@ -33,7 +33,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.17"
+APP_VERSION = "0.18"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -480,6 +480,7 @@ NAV = [
                 ("reports/reversals", "audit", "Reversal Register"),
                 ("reports/account-activity", "audit", "Account Activity"),
                 ("reports/tb-exceptions", "audit", "Trial Balance Exceptions"),
+                ("reports/draft-entries", "audit", "Draft Entries"),
                 ("reports/locked-periods", "audit", "Locked Periods"),
                 ("reports/rule-versions", "audit", "Rule Version Usage"),
             ]),
@@ -1793,8 +1794,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/invoices/new":
                 return self._send(self.page_invoice_new(conn, user, tenant, sess))
             if re.fullmatch(r"/invoices/[0-9a-f]{32}/print", path):
-                return self._send(self.page_invoice_print(conn, user, tenant,
-                                                          path.split("/")[2]))
+                body, status = self.page_invoice_print(conn, user, tenant,
+                                                       path.split("/")[2])
+                return self._send(body, status)
             if re.fullmatch(r"/invoices/[0-9a-f]{32}", path):
                 return self._send(self.page_invoice_detail(conn, user, tenant, sess,
                                                            path.rsplit("/", 1)[1]))
@@ -1870,6 +1872,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_tb_exceptions(conn, user, tenant, q))
             if path == "/reports/opening-closing":
                 return self._send(self.page_opening_closing(conn, user, tenant, q))
+            if path == "/reports/draft-entries":
+                return self._send(self.page_draft_entries(conn, user, tenant, q))
             if path == "/reports/locked-periods":
                 return self._send(self.page_locked_periods(conn, user, tenant))
             if path == "/reports/rule-versions":
@@ -2085,6 +2089,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._error_page(user, tenant, f"Backup failed: {exc}", "/backup")
                 return self._redirect("/backup?done=1")
 
+            invoice_post = re.fullmatch(r"/invoices/([0-9a-f]{32})/post", path)
+            if invoice_post:
+                return self._post_draft_invoice(conn, user, tenant, form, invoice_post.group(1))
+            invoice_void = re.fullmatch(r"/invoices/([0-9a-f]{32})/void", path)
+            if invoice_void:
+                return self._void_draft_invoice(conn, user, tenant, form, invoice_void.group(1))
             if path == "/invoices":
                 return self._create_invoice(conn, user, tenant, sess, form)
             if path == "/receipts":
@@ -2199,8 +2209,8 @@ class Handler(BaseHTTPRequestHandler):
         d = acct.dashboard(conn, tenant["id"], start.isoformat(), today.isoformat())
         recent = conn.execute(
             "SELECT i.id, i.invoice_no, i.invoice_date, i.total_paise, c.name FROM invoice i"
-            " JOIN customer c ON c.id=i.customer_id WHERE i.tenant_id=? ORDER BY i.invoice_date DESC,"
-            " i.invoice_no DESC LIMIT 6", (tenant["id"],)).fetchall()
+            " JOIN customer c ON c.id=i.customer_id WHERE i.tenant_id=? AND i.status='posted'"
+            " ORDER BY i.invoice_date DESC, i.invoice_no DESC LIMIT 6", (tenant["id"],)).fetchall()
 
         rows = "".join(
             f'<tr><td><a href="/invoices/{esc(r["id"])}">{esc(r["invoice_no"])}</a></td>'
@@ -2314,23 +2324,38 @@ class Handler(BaseHTTPRequestHandler):
             (tenant["id"],)).fetchall()
         trs = ""
         total_out = 0
+        draft_count = 0
         for r in rows:
-            out = acct.invoice_outstanding(conn, tenant["id"], r["id"])
-            total_out += out
-            status = "Paid" if out <= 0 else ("Partial" if out < r["total_paise"] else "Open")
-            badge = "ok" if status == "Paid" else ("neutral" if status == "Partial" else "bad")
+            if r["status"] == "draft":
+                out = 0
+                status = "Draft"
+                badge = "warn"
+                out_display = "&mdash;"
+                draft_count += 1
+            elif r["status"] == "void":
+                out = 0
+                status = "Void"
+                badge = "bad"
+                out_display = "&mdash;"
+            else:
+                out = acct.invoice_outstanding(conn, tenant["id"], r["id"])
+                total_out += out
+                status = "Paid" if out <= 0 else ("Partial" if out < r["total_paise"] else "Open")
+                badge = "ok" if status == "Paid" else ("neutral" if status == "Partial" else "bad")
+                out_display = money.fmt(out)
             trs += (f'<tr><td><a href="/invoices/{r["id"]}">{esc(r["invoice_no"])}</a></td>'
                     f'<td>{esc(r["invoice_date"])}</td><td>{esc(r["name"])}</td>'
                     f'<td class="num">{money.fmt(r["sub_total_paise"])}</td>'
                     f'<td class="num">{money.fmt(r["tax_paise"])}</td>'
                     f'<td class="num"><b>{money.fmt(r["total_paise"])}</b></td>'
-                    f'<td class="num">{money.fmt(out)}</td>'
+                    f'<td class="num">{out_display}</td>'
                     f'<td><span class="badge {badge}">{status}</span></td></tr>')
         trs = trs or '<tr><td colspan="8" class="empty">No invoices yet. Create the first one.</td></tr>'
         body = f"""
 <div class="kpis">
   {kpi("Invoices shown", str(len(rows)), "latest 100")}
-  {kpi("Outstanding", money.fmt(total_out), "from these invoices")}
+  {kpi("Outstanding", money.fmt(total_out), "posted invoices only")}
+  {kpi("Drafts", str(draft_count), "not posted; no stock or ledger effect")}
 </div>
 <div class="sect-head"><h2>Sales invoices</h2>
 <div><a class="btn" href="/invoices/new">New invoice</a>
@@ -2380,8 +2405,10 @@ class Handler(BaseHTTPRequestHandler):
 <tbody id="lines">{rows}</tbody></table>
 <div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
 </div>
-<button class="btn" type="submit">Post invoice</button>
+<button class="btn" type="submit" name="action" value="post">Post invoice</button>
+<button class="btn ghost" type="submit" name="action" value="draft" style="margin-left:8px">Save as draft</button>
 <a class="btn ghost" href="/invoices" style="margin-left:8px">Cancel</a>
+<div class="small muted" style="margin-top:8px">A draft does not post a journal entry, reduce stock or consume a tax-invoice number.</div>
 <script>
 const tpl = document.querySelector('#lines tr').outerHTML;
 function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
@@ -2402,13 +2429,40 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             f'<td class="num">{money.fmt(l["tax_paise"])}</td><td class="num"><b>{money.fmt(l["line_total_paise"])}</b></td></tr>'
             for l in lines)
         je = conn.execute("SELECT * FROM journal_entry WHERE id=?", (inv["journal_entry_id"],)).fetchone()
-        out = acct.invoice_outstanding(conn, tenant["id"], invoice_id)
-        status = "Paid" if out <= 0 else ("Part paid" if out < inv["total_paise"] else "Open")
-        badge = "ok" if out <= 0 else ("neutral" if out < inv["total_paise"] else "bad")
+        is_draft = inv["status"] == "draft"
+        is_void = inv["status"] == "void"
+        if is_draft:
+            out = 0
+            badge_html = '<span class="badge warn">Draft - not posted</span>'
+        elif is_void:
+            out = 0
+            badge_html = '<span class="badge bad">Void</span>'
+        else:
+            out = acct.invoice_outstanding(conn, tenant["id"], invoice_id)
+            badge = "ok" if out <= 0 else ("neutral" if out < inv["total_paise"] else "bad")
+            badge_html = f'<span class="badge {badge}">Outstanding {money.fmt(out)}</span>'
 
         receipt_form = ""
-        if out > 0:
-            receipt_form = f"""
+        credit_form = ""
+        draft_actions = ""
+        if is_draft:
+            draft_actions = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Draft actions</h2>
+<p class="small muted">Posting is the only step that creates accounting records. Voiding does not post anything.</p>
+<div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+<form method="post" action="/invoices/{esc(invoice_id)}/post">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn" type="submit">Post draft</button>
+</form>
+<form method="post" action="/invoices/{esc(invoice_id)}/void" style="display:flex;gap:8px;align-items:end">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field"><label>Void reason</label><input name="reason" required maxlength="200" placeholder="Duplicate / cancelled / wrong entry"></div>
+<button class="btn ghost" type="submit">Void draft</button>
+</form>
+</div></div>"""
+        elif not is_void:
+            if out > 0:
+                receipt_form = f"""
 <div class="card pad sect"><h2 style="margin-bottom:12px">Receive payment</h2>
 <form method="post" action="/receipts">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
@@ -2423,22 +2477,21 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <span class="small muted" style="margin-left:10px">Outstanding {money.fmt(out)}</span>
 </form></div>"""
 
-        cn_lines = []
-        for l in lines:
-            credited = conn.execute(
-                "SELECT COALESCE(SUM(cnl.qty_milli),0) q FROM credit_note_line cnl"
-                " JOIN credit_note cn ON cn.id=cnl.credit_note_id"
-                " WHERE cn.tenant_id=? AND cn.invoice_id=? AND cnl.invoice_line_id=?",
-                (tenant["id"], invoice_id, l["id"])).fetchone()["q"]
-            remaining = l["qty_milli"] - credited
-            if remaining > 0:
-                cn_lines.append((l, remaining))
-        cn_opts = "".join(
-            f'<option value="{l["id"]}">{esc(l["description"])} — {rem/1000:.3f} returnable</option>'
-            for l, rem in cn_lines)
-        credit_form = ""
-        if cn_opts:
-            credit_form = f"""
+            cn_lines = []
+            for l in lines:
+                credited = conn.execute(
+                    "SELECT COALESCE(SUM(cnl.qty_milli),0) q FROM credit_note_line cnl"
+                    " JOIN credit_note cn ON cn.id=cnl.credit_note_id"
+                    " WHERE cn.tenant_id=? AND cn.invoice_id=? AND cnl.invoice_line_id=?",
+                    (tenant["id"], invoice_id, l["id"])).fetchone()["q"]
+                remaining = l["qty_milli"] - credited
+                if remaining > 0:
+                    cn_lines.append((l, remaining))
+            cn_opts = "".join(
+                f'<option value="{l["id"]}">{esc(l["description"])} — {rem/1000:.3f} returnable</option>'
+                for l, rem in cn_lines)
+            if cn_opts:
+                credit_form = f"""
 <div class="card pad sect"><h2 style="margin-bottom:12px">Credit note / sales return</h2>
 <form method="post" action="/credit-notes">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
@@ -2452,11 +2505,24 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <button class="btn ghost" type="submit">Post credit note</button>
 </form></div>"""
 
+        if is_draft:
+            footer = ('<div class="card pad small muted">Draft only. No journal entry, no stock movement '
+                      'and no tax-invoice number exist yet. Posting assigns the next INV number and '
+                      'rechecks stock. Voiding keeps the draft number in the audit trail.</div>')
+        elif is_void:
+            footer = ('<div class="card pad small muted">Voided draft. It has no journal entry, '
+                      'no stock movement and no tax-invoice number. Voided drafts are retained for audit.</div>')
+        else:
+            footer = (f'<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> '
+                      f'posted on {esc(je["posted_at"][:10])}. Posted entries are immutable; '
+                      f'corrections use a credit note or reversal.</div>')
+
+        print_link = ("" if is_draft or is_void else
+                      f'<a class="btn" href="/invoices/{esc(invoice_id)}/print" style="margin-left:8px">Print / PDF</a>')
         body = f"""
 <div class="sect-head"><div><h2>{esc(inv["invoice_no"])}</h2>
 <div class="small muted">{esc(inv["invoice_date"])} · {esc(inv["name"])} · place of supply {esc(inv["place_of_supply_state"])}</div></div>
-<div><span class="badge {badge}">Outstanding {money.fmt(out)}</span>
-<a class="btn" href="/invoices/{esc(invoice_id)}/print" style="margin-left:8px">Print / PDF</a>
+<div>{badge_html}{print_link}
 <a class="btn ghost" href="/invoices" style="margin-left:8px">Back</a></div></div>
 <div class="card sect"><table>
 <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Disc</th><th class="num">Taxable</th><th class="num">Rate</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
@@ -2467,19 +2533,27 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <tr><td colspan="6">Round off</td><td colspan="2" class="num">{money.fmt(inv["round_off_paise"])}</td></tr>
 <tr><td colspan="6">Invoice total</td><td colspan="2" class="num">{money.fmt(inv["total_paise"])}</td></tr>
 </tfoot></table></div>
+{draft_actions}
 {receipt_form}
 {credit_form}
-<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted on {esc(je["posted_at"][:10])}. Posted entries are immutable; corrections use a credit note or reversal.</div>"""
+{footer}"""
         return layout(f'Invoice {inv["invoice_no"]}', body, "invoices", user, tenant)
 
-    def page_invoice_print(self, conn, user, tenant, invoice_id: str) -> str:
+    def page_invoice_print(self, conn, user, tenant, invoice_id: str) -> tuple[str, int]:
         theme = theme_for(user)
         try:
             br = acct.invoice_tax_breakup(conn, tenant["id"], invoice_id)
         except acct.AccountingError:
-            return self._send(layout("Not found", '<div class="card pad">Invoice not found.</div>',
-                                     "invoices", user, tenant), 404)
+            return layout("Not found", '<div class="card pad">Invoice not found.</div>',
+                          "invoices", user, tenant), 404
         inv, t, intra = br["invoice"], br["tenant"], br["intra"]
+        if inv["status"] != "posted":
+            return layout(
+                "Cannot print",
+                '<div class="card pad"><div class="err">Only a posted invoice can be printed '
+                'as a tax invoice. Post the draft first, or create a new invoice.</div>'
+                f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back to invoice</a></div>',
+                "invoices", user, tenant), 400
         hsn = {r["id"]: r["hsn"] for r in conn.execute(
             "SELECT id, hsn FROM item WHERE tenant_id=?", (tenant["id"],))}
 
@@ -2593,7 +2667,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
   </div>
   <div class="note">Computer-generated tax invoice. Posted entries are immutable; corrections are made by credit note.</div>
 </div>
-</body></html>"""
+</body></html>""", 200
 
     def page_receipts(self, conn, user, tenant, sess) -> str:
         rows = conn.execute(
@@ -6277,6 +6351,57 @@ Debit minus credit is the period movement. A ledger with no opening, movement or
 This report reads posted journal lines and never rewrites a balance.</p>"""
         return layout("Opening vs closing balances", body, "reports/opening-closing", user, tenant)
 
+    def page_draft_entries(self, conn, user, tenant, q) -> str:
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0] or date.today().isoformat()
+        try:
+            data = reports_mod.draft_entries(conn, tenant, as_of)
+        except reports_mod.ReportError:
+            as_of = date.today().isoformat()
+            data = reports_mod.draft_entries(conn, tenant, as_of)
+        rows = ""
+        for r in data["rows"]:
+            age_cls = "warn" if r["age_days"] > 30 else "neutral"
+            rows += (
+                f'<tr><td><a href="/invoices/{esc(r["id"])}">{esc(r["invoice_no"])}</a></td>'
+                f'<td>{esc(r["invoice_date"])}</td><td>{esc(r["customer"])}</td>'
+                f'<td class="num">{money.fmt(r["sub_total"])}</td>'
+                f'<td class="num">{money.fmt(r["tax"])}</td>'
+                f'<td class="num"><b>{money.fmt(r["total"])}</b></td>'
+                f'<td class="num">{r["age_days"]}</td>'
+                f'<td><span class="badge {age_cls}">{esc(r["bucket"])}</span></td>'
+                f'<td><a class="btn ghost small" href="/invoices/{esc(r["id"])}">Open</a></td></tr>'
+            )
+        rows = rows or ('<tr><td colspan="9" class="empty">No draft sales invoices. '
+                        'New drafts appear here until posted or voided.</td></tr>')
+        t = data["totals"]
+        buckets = t["buckets"]
+        body = f"""
+<form method="get" action="/reports/draft-entries" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-204 - unposted draft sales invoices</span>
+<a class="btn ghost small" href="/export/draft-entries.csv?as_of={esc(as_of)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Drafts", str(t["drafts"]), "not posted; no journal or stock effect")}
+  {kpi("Draft value", money.fmt(t["value"]), "invoice totals, not revenue")}
+  {kpi("Oldest", str(t["oldest_days"]) + " days", "age from invoice date")}
+  {kpi("Over 30 days", str(t["over_30"]), "review or void stale drafts")}
+</div>
+<div class="sect" style="display:flex;gap:8px;flex-wrap:wrap">
+  <span class="badge neutral">0-7 days: {buckets["0-7"]}</span>
+  <span class="badge neutral">8-30 days: {buckets["8-30"]}</span>
+  <span class="badge warn">31-60 days: {buckets["31-60"]}</span>
+  <span class="badge bad">60+ days: {buckets["60+"]}</span>
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Draft</th><th>Date</th><th>Customer</th><th class="num">Net</th>
+<th class="num">GST</th><th class="num">Total</th><th class="num">Age (days)</th>
+<th>Bucket</th><th></th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">{esc(data["method"])}</p>"""
+        return layout("Draft entries", body, "reports/draft-entries", user, tenant)
+
     def page_locked_periods(self, conn, user, tenant) -> str:
         data = reports_mod.locked_periods(conn, tenant)
         rows = "".join(
@@ -8824,14 +8949,38 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         if not lines:
             return self._send(self.page_invoice_new(conn, user, tenant, sess,
                                                     "Add at least one line with a quantity."), 400)
+        action = first(form, "action") or "post"
         try:
-            inv = acct.create_invoice(
-                conn, tenant["id"], first(form, "customer_id"), first(form, "invoice_date"),
-                (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
-                round_to_rupee=first(form, "rounding") == "1", created_by=user["id"])
+            if action == "draft":
+                inv = acct.save_invoice_draft(
+                    conn, tenant["id"], first(form, "customer_id"), first(form, "invoice_date"),
+                    (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                    round_to_rupee=first(form, "rounding") == "1", created_by=user["id"])
+            else:
+                inv = acct.create_invoice(
+                    conn, tenant["id"], first(form, "customer_id"), first(form, "invoice_date"),
+                    (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                    round_to_rupee=first(form, "rounding") == "1", created_by=user["id"])
         except acct.AccountingError as e:
             return self._send(self.page_invoice_new(conn, user, tenant, sess, e.message), 400)
         return self._redirect(f'/invoices/{inv["id"]}')
+
+    def _post_draft_invoice(self, conn, user, tenant, form, invoice_id: str):
+        security.require(conn, user["id"], tenant["id"], "invoice.create")
+        try:
+            acct.post_draft_invoice(conn, tenant["id"], invoice_id, created_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/invoices/{invoice_id}")
+        return self._redirect(f"/invoices/{invoice_id}")
+
+    def _void_draft_invoice(self, conn, user, tenant, form, invoice_id: str):
+        security.require(conn, user["id"], tenant["id"], "invoice.create")
+        try:
+            acct.void_draft_invoice(conn, tenant["id"], invoice_id, first(form, "reason"),
+                                    created_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/invoices/{invoice_id}")
+        return self._redirect(f"/invoices/{invoice_id}")
 
 
     # ---------------- actions: team, sharing, GSTR-2B ----------------
@@ -9024,6 +9173,10 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                                    (invoice_id, tenant["id"])).fetchone()
                 if not inv:
                     raise acct.AccountingError("DOC_NOT_FOUND", "Invoice not found")
+                if inv["status"] != "posted":
+                    raise acct.AccountingError(
+                        "INVOICE_NOT_POSTED",
+                        "Post the draft invoice before recording a receipt against it.")
                 outstanding = acct.invoice_outstanding(conn, tenant["id"], invoice_id)
                 if amount > outstanding:
                     raise acct.AccountingError(
@@ -9603,6 +9756,19 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                       money.to_str(r["opening"]), money.to_str(r["debit"]),
                       money.to_str(r["credit"]), money.to_str(r["closing"]),
                       "Yes" if r["reconciled"] else "No"] for r in data["rows"]]
+        elif key == "draft-entries":
+            as_of = (q.get("as_of") or [today])[0]
+            try:
+                data = reports_mod.draft_entries(conn, tenant, as_of)
+            except reports_mod.ReportError:
+                as_of = today
+                data = reports_mod.draft_entries(conn, tenant, as_of)
+            rows = [["Draft", "Date", "Customer", "Taxable", "GST", "Total",
+                     "Age days", "Bucket", "Created at"]]
+            rows += [[r["invoice_no"], r["invoice_date"], r["customer"],
+                      money.to_str(r["sub_total"]), money.to_str(r["tax"]),
+                      money.to_str(r["total"]), r["age_days"], r["bucket"],
+                      r["created_at"]] for r in data["rows"]]
         elif key == "locked-periods":
             data = reports_mod.locked_periods(conn, tenant)
             rows = [["Period start", "Period end", "Locked at", "Locked by"]]

@@ -985,3 +985,31 @@ synthetic opening data.
   no longer creates a setup path. The operator should still remove it after onboarding.
 - The paid deployment keeps SQLite on the Render disk at `/var/data/arthivio.db`; this decision does
   not add a database server, schema change or second ledger.
+
+## D-046 - Build 0.18 adds audit-safe draft sales invoices and R-204
+
+**Date:** 2026-11-06. **Status:** accepted for Build 0.18.
+
+The report catalogue described R-204 as "Unposted / Draft Entries" from `journal_entry.status=draft`,
+but the app only had posted and reversed journal entries. Rather than invent a second unposted ledger,
+Build 0.18 uses the existing `invoice.status='draft'` state and adds a controlled draft sales-invoice
+workflow.
+
+- A draft is a sales invoice with `status='draft'`. It has a separate `DRAFT-#####` number, no journal
+  entry, no stock movement, no receivable and no tax-invoice print. It does not enter sales, GST,
+  dashboard or posted-invoice totals.
+- `post_draft_invoice()` is the only step that creates accounting records. It re-reads the live item
+  master, aggregates stock requirements across duplicate lines, rejects insufficient stock, assigns
+  the next `INV-#####`, posts one balanced journal and reduces stock in the same transaction.
+- `void_draft_invoice()` requires a reason, writes an `invoice.void_draft` audit event and posts
+  nothing. Drafts are never deleted; voided drafts remain in history.
+- Draft creation is allowed while stock is short so a user can park a quote/order; posting is where
+  stock is enforced. This keeps the stock gate at the accounting boundary.
+- R-204 reads only `invoice.status='draft'`, reports age from the invoice date in 0-7 / 8-30 / 31-60 /
+  60+ buckets, and exports the same rows to CSV. The screen states that this build has no draft
+  journal-entry workflow and covers draft sales invoices only.
+- No schema migration is needed: the `invoice.status` CHECK already allowed `draft`. The only new
+  sequence is the additive `invoice_draft` number sequence used for `DRAFT-#####`.
+- Coverage becomes **58 of 66** working, with 0 partial and 8 planned. The full suite passes
+  **307 tests, OK**, 31.524 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
+  `RUN-2026-11-06-03`.

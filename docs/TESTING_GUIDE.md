@@ -174,7 +174,7 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 ### M. Report Library
 
 - [ ] Report Library opens
-- [ ] It shows 57 of 66 working
+- [ ] It shows 58 of 66 working
 - [ ] Planned reports are clearly marked and do not show fake data
 - [ ] Every working report opens without a 500 error
 - [ ] Sales summary, top customers, product sales, discounts and sales returns open
@@ -258,7 +258,7 @@ Screenshot:
 
 ## 5. Known limits in this trial
 
-- 57 of 66 catalogued reports are working; none is partial and 9 are planned.
+- 58 of 66 catalogued reports are working; none is partial and 8 are planned.
 - No generative AI provider is connected.
 - Power BI is an external reporting layer, not an embedded live model.
 - The public trial URL is temporary and has no uptime guarantee.

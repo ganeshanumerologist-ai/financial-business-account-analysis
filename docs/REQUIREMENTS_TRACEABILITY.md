@@ -10,7 +10,7 @@
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 25 (Build 0.17); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 26 (Build 0.18); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -459,3 +459,19 @@ accounting data.
 | Offline package 0.17 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.17.zip`; embedded runtime import and `/health` smoke-tested |
 | Historical cost / batch / job costing | **Not implemented** | stock adjustments and valuation use current moving weighted-average cost; FIFO, batch/expiry, job/project, WIP and cost-centre models remain future work |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.17 |
+
+## 26. Status after draft sales invoices and R-204 (Build 0.18, 2026-11-06)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Draft sales invoice | **Verified** | `/invoices/new` can save a draft with a `DRAFT-#####` number, no journal, no stock movement, no receivable and no tax-invoice print; `test_draft_invoice_has_no_journal_or_stock_effect`, `test_51_draft_invoice_save_post_void_and_report` |
+| Post draft | **Verified** | posting re-reads live items, aggregates duplicate-line stock, rejects short stock, assigns `INV-#####`, posts one balanced journal, reduces stock and audits `invoice.post`; `test_post_draft_assigns_invoice_number_and_posts`, `test_draft_can_wait_for_stock_but_post_revalidates` |
+| Void draft | **Verified** | requires a reason, sets `status='void'`, audits `invoice.void_draft`, posts nothing and keeps the draft in history; `test_void_draft_requires_reason_and_has_no_effect` |
+| Draft isolation | **Verified** | drafts are excluded from sales, receivables, GST, dashboard posted counts and recent posted invoices; receipts cannot allocate to a draft; drafts cannot print as tax invoices; `test_receipt_cannot_allocate_to_draft`, `test_51_draft_invoice_save_post_void_and_report` |
+| Idempotent posting | **Verified** | posting the same draft twice returns the same posted invoice with one journal and one stock movement; `test_post_draft_is_idempotent` |
+| R-204 unposted / draft entries | **Verified for draft sales invoices** | `/reports/draft-entries` lists drafts with age, value and 0-7 / 8-30 / 31-60 / 60+ buckets; `/export/draft-entries.csv` exports the same rows; `test_draft_entries_report_only_unposted_invoices_with_age` |
+| Report coverage | **58 of 66** | 57 prior working reports plus R-204; 0 partial and 8 planned remain |
+| Offline package 0.18 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.18.zip`; embedded runtime import and `/health` returned `ok` |
+| Draft bills / draft journals | **Not implemented** | `journal_entry.status` has no draft state and `bill.status` supports only posted and void; R-204 covers draft sales invoices only |
+| Draft line editing / approval | **Not implemented** | void and recreate a draft; there is no in-place line editor or second-person approval workflow |
+| Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.18 |

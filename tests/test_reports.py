@@ -34,15 +34,15 @@ class ReportsTest(unittest.TestCase):
         )
         return item_id
 
-    def test_catalog_has_66_rows_and_57_working(self):
+    def test_catalog_has_66_rows_and_58_working(self):
         cat = reports.catalog()
         self.assertEqual(cat["total"], 66)
-        self.assertEqual(cat["working"], 57)
+        self.assertEqual(cat["working"], 58)
         self.assertEqual(cat["partial"], 0)
-        self.assertEqual(cat["planned"], 9)
+        self.assertEqual(cat["planned"], 8)
         working = [r for g in cat["groups"] for r in g["reports"] if r["status"] == "working"]
         self.assertTrue(all(r["route"] for r in working))
-        for rid in ("R-104", "R-107", "R-108", "R-109", "R-110", "R-202", "R-203",
+        for rid in ("R-104", "R-107", "R-108", "R-109", "R-110", "R-202", "R-203", "R-204",
                     "R-205", "R-206", "R-301", "R-302", "R-303", "R-306", "R-307", "R-308",
                     "R-309", "R-401", "R-404", "R-405", "R-406", "R-501", "R-502",
                     "R-503", "R-504", "R-505", "R-506", "R-507", "R-704", "R-705", "R-706",
@@ -332,6 +332,40 @@ class ReportsTest(unittest.TestCase):
             self.assertEqual(row["opening"] + row["debit"] - row["credit"],
                              row["closing"])
         self.assertEqual(data["totals"]["debit"], data["totals"]["credit"])
+
+    def test_draft_entries_report_only_unposted_invoices_with_age(self):
+        tenant_id = self.tenant["id"]
+        customer_id = self.conn.execute(
+            "SELECT id FROM customer WHERE tenant_id=? LIMIT 1", (tenant_id,)
+        ).fetchone()["id"]
+        item_id = self._stock_item(stock_milli=0, track_stock=0)
+        self.conn.execute(
+            "UPDATE item SET sale_price_paise=10000, tax_rate_bp=1800 WHERE id=?",
+            (item_id,),
+        )
+        draft = acct.save_invoice_draft(
+            self.conn, tenant_id, customer_id, "2026-09-01", "27",
+            [{"item_id": item_id, "qty": 1000}],
+        )
+        voided = acct.save_invoice_draft(
+            self.conn, tenant_id, customer_id, "2026-10-01", "27",
+            [{"item_id": item_id, "qty": 1000}],
+        )
+        acct.void_draft_invoice(self.conn, tenant_id, voided["id"], "Duplicate")
+
+        data = reports.draft_entries(self.conn, self.tenant, "2026-10-31")
+        self.assertEqual(data["totals"]["drafts"], 1)
+        self.assertEqual(data["totals"]["value"], draft["total_paise"])
+        self.assertEqual(data["totals"]["oldest_days"], 60)
+        self.assertEqual(data["totals"]["over_30"], 1)
+        self.assertEqual(data["rows"][0]["invoice_no"], draft["invoice_no"])
+        self.assertEqual(data["rows"][0]["bucket"], "31-60")
+        self.assertIn("draft sales invoices only", data["method"])
+
+        acct.post_draft_invoice(self.conn, tenant_id, draft["id"])
+        after = reports.draft_entries(self.conn, self.tenant, "2026-10-31")
+        self.assertEqual(after["totals"]["drafts"], 0)
+        self.assertEqual(after["rows"], [])
 
     def test_locked_period_register_reads_lock_actor(self):
         tenant_id = self.tenant["id"]

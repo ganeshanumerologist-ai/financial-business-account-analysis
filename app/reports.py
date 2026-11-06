@@ -1163,6 +1163,53 @@ def opening_closing_balances(conn: sqlite3.Connection, tenant, date_from: str,
 # R-205 locked periods
 # ---------------------------------------------------------------------------
 
+def draft_entries(conn: sqlite3.Connection, tenant, as_of: str | None = None) -> dict:
+    """R-204: unposted draft sales invoices and their age."""
+    tenant_id = _tenant_id(tenant)
+    as_of_date = _parse_date(as_of or date.today().isoformat(), "As of")
+    rows = conn.execute(
+        """SELECT i.id, i.invoice_no, i.invoice_date, i.sub_total_paise, i.tax_paise,
+                  i.total_paise, i.created_at, c.name AS customer
+           FROM invoice i JOIN customer c ON c.id = i.customer_id
+           WHERE i.tenant_id = ? AND i.status = 'draft'
+           ORDER BY i.invoice_date, i.invoice_no""",
+        (tenant_id,),
+    ).fetchall()
+    out = []
+    buckets = {"0-7": 0, "8-30": 0, "31-60": 0, "60+": 0}
+    for row in rows:
+        age_days = max(0, (as_of_date - date.fromisoformat(row["invoice_date"])).days)
+        if age_days <= 7:
+            bucket = "0-7"
+        elif age_days <= 30:
+            bucket = "8-30"
+        elif age_days <= 60:
+            bucket = "31-60"
+        else:
+            bucket = "60+"
+        buckets[bucket] += 1
+        out.append({
+            "id": row["id"], "invoice_no": row["invoice_no"],
+            "invoice_date": row["invoice_date"], "customer": row["customer"],
+            "sub_total": int(row["sub_total_paise"]), "tax": int(row["tax_paise"]),
+            "total": int(row["total_paise"]), "created_at": row["created_at"],
+            "age_days": age_days, "bucket": bucket,
+        })
+    return {
+        "as_of": as_of_date.isoformat(), "rows": out,
+        "totals": {
+            "drafts": len(out),
+            "value": sum(r["total"] for r in out),
+            "oldest_days": max((r["age_days"] for r in out), default=0),
+            "over_30": sum(1 for r in out if r["age_days"] > 30),
+            "buckets": buckets,
+        },
+        "method": "Reads invoice rows with status='draft'. Drafts have no journal entry, "
+                  "no stock movement and no tax-invoice number until posted. This build has "
+                  "no draft journal-entry workflow, so the report covers draft sales invoices only.",
+    }
+
+
 def locked_periods(conn: sqlite3.Connection, tenant) -> dict:
     """R-205: periods whose postings are blocked, with the locking actor."""
     tenant_id = _tenant_id(tenant)
@@ -2419,7 +2466,7 @@ REPORT_CATALOG = [
     _r("R-201", "Accounting & audit", "Audit Trail", "working", "/audit", "Chronological actor, action and target"),
     _r("R-202", "Accounting & audit", "Reversal & Correction Register", "working", "/reports/reversals", "Original entry and its reversal, with reason"),
     _r("R-203", "Accounting & audit", "Account Activity Summary", "working", "/reports/account-activity", "Line count, debit, credit and net per account"),
-    _r("R-204", "Accounting & audit", "Unposted / Draft Entries", "planned", "", "Draft entries and their age"),
+    _r("R-204", "Accounting & audit", "Unposted / Draft Entries", "working", "/reports/draft-entries", "Draft sales invoices and their age; no journal or stock effect until posted"),
     _r("R-205", "Accounting & audit", "Locked Period Register", "working", "/reports/locked-periods", "Locked periods with locking actor and timestamp"),
     _r("R-206", "Accounting & audit", "Rule Version Usage", "working", "/reports/rule-versions", "Posted entries grouped by the rule version stored at posting time"),
     # Group 3 — sales

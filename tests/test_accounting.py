@@ -304,6 +304,107 @@ class TestInvoice(Base):
         stock = self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (it,)).fetchone()[0]
         self.assertEqual(stock, 9000)
 
+    def test_draft_invoice_has_no_journal_or_stock_effect(self):
+        it = self.item(price=10000, cost=6000, stock=2000)
+        draft = acc.save_invoice_draft(
+            self.conn, self.t, self.cust, "2026-10-24", "27",
+            [{"item_id": it, "qty": 1000}])
+        self.assertEqual(draft["status"], "draft")
+        self.assertTrue(draft["invoice_no"].startswith("DRAFT-"))
+        self.assertIsNone(draft["journal_entry_id"])
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM journal_entry").fetchone()["c"], 0)
+        self.assertEqual(
+            self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (it,)).fetchone()[0],
+            2000)
+        self.assertEqual(acc.invoice_outstanding(self.conn, self.t, draft["id"]), 0)
+
+    def test_post_draft_assigns_invoice_number_and_posts(self):
+        it = self.item(price=10000, cost=6000, stock=2000)
+        draft = acc.save_invoice_draft(
+            self.conn, self.t, self.cust, "2026-10-24", "27",
+            [{"item_id": it, "qty": 1000}])
+        posted = acc.post_draft_invoice(self.conn, self.t, draft["id"])
+        self.assertEqual(posted["status"], "posted")
+        self.assertEqual(posted["invoice_no"], "INV-00001")
+        self.assertIsNotNone(posted["journal_entry_id"])
+        self.assertEqual(
+            self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (it,)).fetchone()[0],
+            1000)
+        tb = {r["code"]: r for r in acc.trial_balance(
+            self.conn, self.t, "2026-10-25")["rows"]}
+        self.assertEqual(tb["1100"]["balance"], 11800)
+        self.assertEqual(tb["5000"]["balance"], 6000)
+        self.assertEqual(acc.invoice_outstanding(self.conn, self.t, draft["id"]), 11800)
+        # A later posted invoice continues the INV sequence after the draft was posted.
+        second = self.invoice([{"item_id": it, "qty": 1000}])
+        self.assertEqual(second["invoice_no"], "INV-00002")
+
+    def test_draft_can_wait_for_stock_but_post_revalidates(self):
+        it = self.item(stock=500)
+        draft = acc.save_invoice_draft(
+            self.conn, self.t, self.cust, "2026-10-24", "27",
+            [{"item_id": it, "qty": 1000}])
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.post_draft_invoice(self.conn, self.t, draft["id"])
+        self.assertEqual(ctx.exception.code, "INSUFFICIENT_STOCK")
+        row = self.conn.execute("SELECT status FROM invoice WHERE id=?", (draft["id"],)).fetchone()
+        self.assertEqual(row["status"], "draft")
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM journal_entry").fetchone()["c"], 0)
+        self.assertEqual(
+            self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (it,)).fetchone()[0],
+            500)
+
+    def test_void_draft_requires_reason_and_has_no_effect(self):
+        it = self.item(price=10000, cost=6000, stock=2000)
+        draft = acc.save_invoice_draft(
+            self.conn, self.t, self.cust, "2026-10-24", "27",
+            [{"item_id": it, "qty": 1000}])
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.void_draft_invoice(self.conn, self.t, draft["id"], "")
+        self.assertEqual(ctx.exception.code, "REASON_REQUIRED")
+        voided = acc.void_draft_invoice(self.conn, self.t, draft["id"], "Duplicate entry")
+        self.assertEqual(voided["status"], "void")
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM journal_entry").fetchone()["c"], 0)
+        self.assertEqual(
+            self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (it,)).fetchone()[0],
+            2000)
+        self.assertEqual(acc.invoice_outstanding(self.conn, self.t, draft["id"]), 0)
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.post_draft_invoice(self.conn, self.t, draft["id"])
+        self.assertEqual(ctx.exception.code, "INVOICE_NOT_DRAFT")
+
+    def test_post_draft_is_idempotent(self):
+        it = self.item(stock=2000)
+        draft = acc.save_invoice_draft(
+            self.conn, self.t, self.cust, "2026-10-24", "27",
+            [{"item_id": it, "qty": 1000}])
+        first = acc.post_draft_invoice(self.conn, self.t, draft["id"])
+        second = acc.post_draft_invoice(self.conn, self.t, draft["id"])
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM invoice").fetchone()["c"], 1)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM journal_entry").fetchone()["c"], 1)
+        self.assertEqual(
+            self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (it,)).fetchone()[0],
+            1000)
+
+    def test_receipt_cannot_allocate_to_draft(self):
+        it = self.item(price=10000, cost=6000, stock=2000)
+        draft = acc.save_invoice_draft(
+            self.conn, self.t, self.cust, "2026-10-24", "27",
+            [{"item_id": it, "qty": 1000}])
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.record_payment(
+                self.conn, self.t, "receipt", self.cust, "2026-10-25", 11800, "bank",
+                [{"doc_type": "invoice", "doc_id": draft["id"], "amount": 11800}])
+        self.assertEqual(ctx.exception.code, "INVOICE_NOT_POSTED")
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM payment").fetchone()["c"], 0)
+
 
 class TestReports(Base):
     def test_balance_sheet_equation(self):

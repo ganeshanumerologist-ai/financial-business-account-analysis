@@ -418,3 +418,25 @@ The frontend receives **no** secrets — only a public API base URL.
   forecast or infer a missing budget. These limits are printed on the pages.
 - **Residual risk:** the new pages have not had a penetration test or independent accounting review.
   There is no approval workflow for reorder levels or budgets, and no FIFO/historical cost layer.
+
+## 21. Build 0.18 addendum - draft sales invoices and R-204
+
+- **Permission reuse:** saving, posting and voiding a draft use the existing `invoice.create`
+  permission. R-204 uses `report.view`; its CSV uses `report.export`.
+- **Tenant scope:** draft save, post, void and report queries all filter by the session tenant id.
+  The routes do not accept a caller-supplied tenant id.
+- **No accounting effect before posting:** a draft writes only `invoice` and `invoice_line` rows. It
+  has no journal entry, no stock movement, no receivable and no tax-invoice print. Drafts are excluded
+  from posted invoice counts, sales, GST, dashboard recent invoices and receivables.
+- **Posting is the boundary:** `post_draft_invoice()` re-reads the live item master, aggregates stock
+  across duplicate lines, rejects short stock, assigns the next INV number, posts one balanced journal
+  and reduces stock in one transaction. A failed post leaves the draft untouched.
+- **Void requires a reason:** `void_draft_invoice()` refuses an empty reason, sets `status='void'`
+  and writes `invoice.void_draft`. Rows are never deleted.
+- **Audit:** draft creation, posting and voiding write `invoice.draft_create`, `invoice.post` and
+  `invoice.void_draft` with the actor and relevant amounts/numbers.
+- **Print boundary:** a draft cannot print as a tax invoice; the print route returns HTTP 400. This
+  prevents an unposted document from being shared as a GST tax invoice.
+- **Residual risk:** there is no draft approval workflow, no in-place draft-line editing and no
+  draft-bill or draft-journal workflow. The new paths have not had a penetration test or independent
+  accounting review.

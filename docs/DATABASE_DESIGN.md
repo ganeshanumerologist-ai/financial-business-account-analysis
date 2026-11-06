@@ -595,3 +595,18 @@ CREATE INDEX ix_stock_adjustment_item
 - `5950` is an expense ledger. A positive adjustment therefore credits an expense account and a
   negative adjustment debits it. The P&L shows the net stock-adjustment expense; it is not an
   other-income or revaluation reserve.
+
+## 25. Build 0.18 draft invoices: no new table or column (2026-11-06)
+
+Build 0.18 adds the R-204 draft sales-invoice workflow without a schema migration. The existing
+`invoice.status` CHECK already allowed `draft`, and `invoice_line` already stores the priced lines.
+
+- A draft stores `status='draft'`, `journal_entry_id=NULL` and a separate `DRAFT-#####` number from
+  the additive `invoice_draft` number sequence. `invoice.invoice_no` stays unique per tenant.
+- Posting updates the same invoice row to `status='posted'`, assigns the next `INV-#####`, sets
+  `journal_entry_id` and reduces `item.stock_milli` in one transaction. The draft number is retained
+  only in the `invoice.post` audit metadata.
+- Voiding sets `status='void'` and writes `invoice.void_draft`; no row is deleted.
+- There is no draft state in `journal_entry` and no draft state in `bill`. R-204 therefore reads only
+  `invoice.status='draft'` and is labelled as draft sales invoices only.
+- No table, column, index, cached total or destructive migration was removed or rewritten.

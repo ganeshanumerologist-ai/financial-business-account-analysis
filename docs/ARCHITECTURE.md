@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.17)
+## 11. Implementation status (current Build 0.18)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -594,7 +594,7 @@ floats and show `n/a` when the denominator is zero. The module provides:
 ### 18.2 Report Library
 
 `/reports/library` lists all 66 catalogued reports, filters by group and status, and shows
-**57 working, 0 partial and 9 planned**. Working rows link to a route. Planned rows have no route
+**58 working, 0 partial and 8 planned**. Working rows link to a route. Planned rows have no route
 and no sample data, so a delivery map cannot be mistaken for a finished report.
 
 ### 18.3 Export and security boundary
@@ -745,3 +745,27 @@ quantity and writes a `stock.adjust` audit event. The schema changes are additiv
 default, the `budget` table keyed by tenant, ledger and month, and the `stock_adjustment` table. No
 table, index, cached total or destructive migration was removed or rewritten. The catalogue now shows
 **57 working, 0 partial and 9 planned**.
+
+## 23. Build 0.18: draft sales invoices and R-204 (2026-11-06)
+
+The catalogue describes R-204 as unposted / draft entries from `journal_entry.status=draft`, but the
+journal table has no draft state. Build 0.18 uses the existing `invoice.status='draft'` state instead
+of creating a parallel unposted ledger.
+
+`save_invoice_draft()` prices and validates lines without checking live stock, assigns a separate
+`DRAFT-#####` number from the additive `invoice_draft` sequence, and writes only the invoice and line
+rows. A draft has no journal entry, no stock movement, no receivable and no tax-invoice print. It is
+excluded from posted invoice counts, dashboard recent invoices, sales and GST totals.
+
+`post_draft_invoice()` re-reads the live item master, aggregates required quantity across duplicate
+lines, rejects insufficient stock, builds the same balanced journal as a normal invoice, assigns the
+next `INV-#####`, updates the invoice to `posted`, reduces stock and writes an `invoice.post` audit
+event in one transaction. `void_draft_invoice()` requires a reason, sets `status='void'` and writes
+`invoice.void_draft`; it posts nothing. Posting is idempotent, and receipts cannot allocate to a
+draft. R-204 (`/reports/draft-entries`) reads only draft sales invoices, adds age and 0-7 / 8-30 /
+31-60 / 60+ buckets, and exports the same rows to CSV. The screen states the remaining limit: there
+is still no draft journal-entry or draft-bill workflow.
+
+The only schema-visible addition is the `invoice_draft` number sequence; `invoice.status` already
+allowed `draft`. No table, column, index, cached total or destructive migration was removed or
+rewritten. The catalogue now shows **58 working, 0 partial and 8 planned**.

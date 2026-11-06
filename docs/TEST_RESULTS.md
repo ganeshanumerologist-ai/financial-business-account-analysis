@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.17.** The latest application run is `RUN-2026-11-06-02` with
-> **299 tests, OK**, Python 3.14.6, Windows - see section 34. The table immediately below is the original
+> **Current status: Build 0.18.** The latest application run is `RUN-2026-11-06-03` with
+> **307 tests, OK**, Python 3.14.6, Windows - see section 35. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1639,3 +1639,49 @@ Run ID: `RUN-2026-11-06-02`.
   chart keeps actuals solid and the forecast dashed with dotted bounds.
 - `test_43_echarts_static_asset_and_interactive_view` asserts every chart marker and the local
   ECharts asset. The full suite still passes **299 tests, OK**, 26.435 s.
+
+## 35. Build 0.18 verification - draft sales invoices and R-204 (2026-11-06)
+
+Run ID: `RUN-2026-11-06-03`.
+
+### 35.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests -v` | **307 tests, OK**, 31.524 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_web.WebTest.test_51_draft_invoice_save_post_void_and_report -v` | 1 web test, OK |
+| Offline package | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.18.zip` rebuilt; uncompressed 30,948,547 bytes, ZIP 14,868,163 bytes |
+| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.18` |
+| Package health | Embedded runtime on port 8099 returned HTTP 200 and `ok` from `GET /health` |
+
+### 35.2 R-204 and draft-workflow checks
+
+| Check | Result |
+|---|---|
+| Save draft | Assigns a separate `DRAFT-#####` number, stores `status='draft'`, creates no journal entry, moves no stock and leaves outstanding at zero |
+| Draft visibility | The invoice list shows a Draft badge; the dashboard recent list and posted invoice counts exclude drafts |
+| Post draft | Assigns the next `INV-#####`, posts a balanced journal, reduces stock and makes the invoice collectible |
+| Stock recheck at posting | A draft saved while stock was short remains a draft and returns `INSUFFICIENT_STOCK`; no journal or stock change is left behind |
+| Void draft | Requires a reason, changes status to `void`, writes an audit event, posts nothing and does not appear in R-204 |
+| Idempotent post | Posting the same draft twice returns the same posted invoice, with one journal entry and one stock movement |
+| Receipt guard | A receipt cannot be allocated to a draft; `INVOICE_NOT_POSTED` is returned and no payment row is created |
+| Tax-invoice print | A draft cannot print as a tax invoice; the page returns HTTP 400 with a clear message |
+| R-204 report | `/reports/draft-entries` lists only draft sales invoices with age, value and 0-7 / 8-30 / 31-60 / 60+ buckets; posted and voided invoices are excluded |
+| R-204 CSV | `/export/draft-entries.csv` exports the same rows and an Age days column |
+| Report library | `/reports/library` shows **58 of 66 working**, 0 partial and 8 planned |
+| Print-page fix | The print route now passes the page status through instead of double-sending the response; the draft-print 400 path is covered by the web test |
+
+### 35.3 Honest limits
+
+- R-204 covers **draft sales invoices only**. `journal_entry.status` still has no draft state, and
+  `bill.status` supports only posted and void. Draft bills and draft journal entries are not built.
+- Draft lines cannot be edited in place. Void the draft with a reason and create a corrected draft;
+  this keeps the audit trail unambiguous.
+- There is no draft approval workflow. The audit log records the creator, poster and voider.
+- Eight catalogued reports still have no screen: R-508, R-601 to R-605, R-902 and R-1004. They need
+  batch/expiry, job/project/cost-centre, department/branch or intercompany-elimination data that does
+  not exist yet.
+- No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
+  accounting review was run for Build 0.18.
+- The trial URL remains a temporary Cloudflare quick tunnel with no uptime guarantee. The database is
+  synthetic and must not hold real financial data.

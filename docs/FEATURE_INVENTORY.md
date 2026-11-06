@@ -719,3 +719,26 @@ and documentation agree.
 - FIFO or historical cost layers; inventory valuation and stock adjustments use the current moving weighted-average cost.
 - Batch/expiry, job/project costing, WIP/production/yield, cost-centre and department/branch P&L data models.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.17.
+
+## 26. Status after draft sales invoices and R-204 (Build 0.18, 2026-11-06)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Save draft invoice | `/invoices/new` | `Save as draft` stores `status='draft'` with a `DRAFT-#####` number, no journal, no stock movement, no receivable and no tax-invoice print; `test_draft_invoice_has_no_journal_or_stock_effect`, `test_51_draft_invoice_save_post_void_and_report` |
+| Post draft invoice | `/invoices/<id>` | re-reads live items, aggregates stock across lines, rejects insufficient stock, assigns `INV-#####`, posts one balanced journal, reduces stock and records `invoice.post`; `test_post_draft_assigns_invoice_number_and_posts` |
+| Void draft invoice | `/invoices/<id>` | requires a reason, sets `status='void'`, writes `invoice.void_draft`, posts nothing and remains in history; `test_void_draft_requires_reason_and_has_no_effect` |
+| Draft guard rails | accounting | receipts cannot allocate to a draft; drafts cannot print as tax invoices; posting is idempotent; a short-stock draft stays a draft; `test_receipt_cannot_allocate_to_draft`, `test_post_draft_is_idempotent`, `test_draft_can_wait_for_stock_but_post_revalidates` |
+| R-204 report | `/reports/draft-entries` | draft sales invoices with age, value and 0-7 / 8-30 / 31-60 / 60+ buckets; posted and voided rows excluded; CSV at `/export/draft-entries.csv`; `test_draft_entries_report_only_unposted_invoices_with_age` |
+| Report coverage | Reports menu | 58 of 66 working; 0 partial; 8 planned |
+| Offline package 0.18 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.18.zip` | embedded Python 3.14.6, `openpyxl` 3.1.5, embedded `/health` returned `ok` |
+
+### Still not implemented
+
+- Draft **bills** and draft **journal entries**; R-204 covers draft sales invoices only.
+- In-place editing of draft lines; void and recreate keeps the audit trail unambiguous.
+- A draft approval workflow; the audit log records creator, poster and voider.
+- 8 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
+- Batch/expiry, job/project costing, WIP/production/yield, cost-centre and department/branch P&L data models.
+- Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.18.

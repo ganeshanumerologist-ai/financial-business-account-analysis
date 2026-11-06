@@ -1772,7 +1772,7 @@ class WebTest(unittest.TestCase):
         status, page = self.get("/reports/library")
         self.assertEqual(status, 200)
         self.assertIn("Report library", page)
-        self.assertIn("57 of 66 working", page)
+        self.assertIn("58 of 66 working", page)
         self.assertIn("R-104", page)
         self.assertIn("R-905", page)
         self.assertIn("Planned reports are deliberately not filled with sample data", page)
@@ -1798,6 +1798,7 @@ class WebTest(unittest.TestCase):
             "/reports/stock-summary": "Stock summary",
             "/reports/credit-limits": "Credit limit utilisation",
             "/reports/opening-closing": "Opening vs closing balances",
+            "/reports/draft-entries": "Draft entries",
             "/reports/locked-periods": "Locked period register",
             "/reports/rule-versions": "Rule version usage",
             "/reports/budget": "Budget vs actual",
@@ -1839,6 +1840,7 @@ class WebTest(unittest.TestCase):
             "/export/credit-limits.csv?as_of=2026-10-31": "Customer",
             "/export/tb-exceptions.csv?from=2026-04-01&to=2026-10-31": "Voucher",
             "/export/opening-closing.csv?from=2026-04-01&to=2026-10-31": "Reconciled",
+            "/export/draft-entries.csv?as_of=2026-10-31": "Age days",
             "/export/locked-periods.csv": "Period start",
             "/export/rule-versions.csv?from=2026-04-01&to=2026-10-31": "Rule version",
             "/export/budget.csv?from=2026-04-01&to=2026-10-31": "Budget",
@@ -2112,6 +2114,101 @@ class WebTest(unittest.TestCase):
         self.assertEqual(conn.execute(
             "SELECT COUNT(*) c FROM audit_log WHERE tenant_id=? AND action='stock.adjust'",
             (tenant_id,)).fetchone()["c"], 1)
+        conn.close()
+
+
+    def test_51_draft_invoice_save_post_void_and_report(self):
+        self.login()
+        status, page = self.get("/invoices/new")
+        self.assertEqual(status, 200)
+        self.assertIn("Save as draft", page)
+        token = self.csrf(page)
+
+        conn = db.connect(self.db_path)
+        tenant_id = conn.execute(
+            "SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()["id"]
+        item_id = db.new_id()
+        conn.execute(
+            "INSERT INTO item (id, tenant_id, sku, name, sale_price_paise, cost_paise,"
+            " tax_rate_bp, stock_milli, track_stock) VALUES (?,?,?,?,?,?,?,?,0)",
+            (item_id, tenant_id, "WEB-DRAFT-1", "Web draft item", 10000, 0, 1800, 0))
+        conn.close()
+
+        status, body, final = self.post("/invoices", {
+            "_csrf": token, "customer_id": self.customer_id,
+            "invoice_date": "2026-10-22", "place_of_supply": "27",
+            "rounding": "", "item_id": [item_id], "qty": ["1"],
+            "price": [""], "discount": ["0"], "action": "draft"})
+        self.assertEqual(status, 200)
+        self.assertIn("Draft - not posted", body)
+        self.assertIn("Post draft", body)
+        self.assertIn("DRAFT-", body)
+        match = re.search(r"/invoices/([0-9a-f]{32})$", final)
+        self.assertIsNotNone(match)
+        draft_id = match.group(1)
+
+        status, report = self.get("/reports/draft-entries?as_of=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("Draft entries", report)
+        self.assertIn("R-204", report)
+        self.assertIn("DRAFT-", report)
+
+        status, csv_body = self.get("/export/draft-entries.csv?as_of=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("Age days", csv_body)
+        self.assertIn("DRAFT-", csv_body)
+
+        try:
+            self.get(f"/invoices/{draft_id}/print")
+            self.fail("a draft invoice must not print as a tax invoice")
+        except urllib.error.HTTPError as exc:
+            printed = exc.read().decode("utf-8")
+            self.assertEqual(exc.code, 400)
+            self.assertIn("Only a posted invoice", printed)
+            exc.close()
+
+        page = self.get(f"/invoices/{draft_id}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(f"/invoices/{draft_id}/post", {"_csrf": token})
+        self.assertEqual(status, 200)
+        self.assertIn("Invoice total", body)
+        self.assertIn("INV-", body)
+        self.assertNotIn("Draft - not posted", body)
+
+        status, report = self.get("/reports/draft-entries?as_of=2026-10-31")
+        self.assertNotIn("DRAFT-", report)
+
+        status, page = self.get("/invoices/new")
+        token = self.csrf(page)
+        status, body, final = self.post("/invoices", {
+            "_csrf": token, "customer_id": self.customer_id,
+            "invoice_date": "2026-10-22", "place_of_supply": "27",
+            "rounding": "", "item_id": [item_id], "qty": ["1"],
+            "price": [""], "discount": ["0"], "action": "draft"})
+        self.assertEqual(status, 200)
+        match = re.search(r"/invoices/([0-9a-f]{32})$", final)
+        self.assertIsNotNone(match)
+        void_id = match.group(1)
+        page = self.get(f"/invoices/{void_id}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(
+            f"/invoices/{void_id}/void",
+            {"_csrf": token, "reason": "Duplicate web test"})
+        self.assertEqual(status, 200)
+        self.assertIn("Void", body)
+        self.assertNotIn("Post draft", body)
+
+        status, report = self.get("/reports/draft-entries?as_of=2026-10-31")
+        self.assertNotIn("DRAFT-", report)
+
+        conn = db.connect(self.db_path)
+        posted = conn.execute(
+            "SELECT status, invoice_no FROM invoice WHERE id=?", (draft_id,)).fetchone()
+        self.assertEqual(posted["status"], "posted")
+        self.assertTrue(posted["invoice_no"].startswith("INV-"))
+        voided = conn.execute(
+            "SELECT status FROM invoice WHERE id=?", (void_id,)).fetchone()
+        self.assertEqual(voided["status"], "void")
         conn.close()
 
 

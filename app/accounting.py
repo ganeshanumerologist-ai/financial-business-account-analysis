@@ -1227,29 +1227,23 @@ def replace_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str,
 # invoicing
 # --------------------------------------------------------------------------
 
-def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, invoice_date: str,
-                   place_of_supply_state: str, items: list[dict],
-                   idempotency_key: str | None = None, round_to_rupee: bool = False,
-                   created_by: str | None = None) -> dict:
-    """Create + post an invoice. items: [{item_id, qty, unit_price, discount, tax_rate_bp}]"""
+def _prepare_invoice_lines(conn: sqlite3.Connection, tenant_id: str, items: list[dict],
+                           *, check_stock: bool = True,
+                           round_to_rupee: bool = False) -> dict:
+    """Validate and price invoice lines without writing anything.
+
+    Drafts use check_stock=False so a draft can be parked even when stock is
+    short; posting revalidates the live item master before anything is written.
+    """
     if not items:
         raise AccountingError("NO_ITEMS", "An invoice needs at least one line")
-
-    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
-    if not tenant:
-        raise AccountingError("TENANT_NOT_FOUND", "Tenant not found")
-    customer = conn.execute(
-        "SELECT * FROM customer WHERE id=? AND tenant_id=?", (customer_id, tenant_id)
-    ).fetchone()
-    if not customer:
-        raise AccountingError("CUSTOMER_NOT_FOUND", "Customer not in this tenant")
-    _assert_period_open(conn, tenant_id, invoice_date)
-
-    intra = place_of_supply_state == tenant["state_code"]
 
     computed = []
     sub_total = tax_total = cogs_total = 0
     revenue_by_account: dict[str, int] = {}
+    required_stock: dict[str, int] = {}
+    item_names: dict[str, str] = {}
+
     for ln in items:
         item = conn.execute(
             "SELECT * FROM item WHERE id=? AND tenant_id=?", (ln["item_id"], tenant_id)
@@ -1274,11 +1268,8 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
         line_total = taxable + tax
 
         if item["track_stock"]:
-            if item["stock_milli"] < qty_milli:
-                raise AccountingError(
-                    "INSUFFICIENT_STOCK",
-                    f"Not enough stock for {item['name']}: have {item['stock_milli']/1000:.3f}, need {qty_milli/1000:.3f}",
-                )
+            required_stock[item["id"]] = required_stock.get(item["id"], 0) + qty_milli
+            item_names[item["id"]] = item["name"]
             cogs_total += (item["cost_paise"] * qty_milli + 500) // 1000
 
         sub_total += taxable
@@ -1292,13 +1283,34 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
             "track_stock": bool(item["track_stock"]),
         })
 
+    if check_stock:
+        for item_id, qty_milli in required_stock.items():
+            row = conn.execute(
+                "SELECT stock_milli FROM item WHERE id=?", (item_id,)
+            ).fetchone()
+            if row["stock_milli"] < qty_milli:
+                raise AccountingError(
+                    "INSUFFICIENT_STOCK",
+                    f"Not enough stock for {item_names[item_id]}: have "
+                    f"{row['stock_milli']/1000:.3f}, need {qty_milli/1000:.3f}",
+                )
+
     base_total = sub_total + tax_total
     if round_to_rupee:
         total = ((base_total + 50) // 100) * 100
     else:
         total = base_total
-    round_off = total - base_total
+    return {
+        "computed": computed, "sub_total": sub_total, "tax_total": tax_total,
+        "cogs_total": cogs_total, "revenue_by_account": revenue_by_account,
+        "total": total, "round_off": total - base_total,
+    }
 
+
+def _invoice_journal_lines(conn: sqlite3.Connection, tenant_id: str, customer,
+                           tax_total: int, total: int, round_off: int, cogs_total: int,
+                           revenue_by_account: dict[str, int], intra: bool) -> list[dict]:
+    """Build the balanced journal lines shared by posted and draft-posted invoices."""
     acct = db.account_id
     # A customer may have its own Sundry Debtors sub-ledger. In that case the
     # invoice must post to it so the customer statement and ledger agree.
@@ -1313,7 +1325,7 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
     else:
         tax_lines = [(acct(conn, tenant_id, "2102"), tax_total)]
 
-    lines = [{"account_id": ar, "debit": total, "credit": 0, "party_id": customer_id,
+    lines = [{"account_id": ar, "debit": total, "credit": 0, "party_id": customer["id"],
               "memo": "Invoice receivable"}]
     for code, amount in revenue_by_account.items():
         if not amount:
@@ -1335,6 +1347,36 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
         lines.append({"account_id": round_acc, "debit": 0, "credit": round_off, "memo": "Round off"})
     elif round_off < 0:
         lines.append({"account_id": round_acc, "debit": -round_off, "credit": 0, "memo": "Round off"})
+    return lines
+
+
+def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, invoice_date: str,
+                   place_of_supply_state: str, items: list[dict],
+                   idempotency_key: str | None = None, round_to_rupee: bool = False,
+                   created_by: str | None = None) -> dict:
+    """Create + post an invoice. items: [{item_id, qty, unit_price, discount, tax_rate_bp}]"""
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    if not tenant:
+        raise AccountingError("TENANT_NOT_FOUND", "Tenant not found")
+    customer = conn.execute(
+        "SELECT * FROM customer WHERE id=? AND tenant_id=?", (customer_id, tenant_id)
+    ).fetchone()
+    if not customer:
+        raise AccountingError("CUSTOMER_NOT_FOUND", "Customer not in this tenant")
+    _assert_period_open(conn, tenant_id, invoice_date)
+
+    intra = place_of_supply_state == tenant["state_code"]
+    prep = _prepare_invoice_lines(conn, tenant_id, items, check_stock=True,
+                                  round_to_rupee=round_to_rupee)
+    computed = prep["computed"]
+    sub_total = prep["sub_total"]
+    tax_total = prep["tax_total"]
+    cogs_total = prep["cogs_total"]
+    revenue_by_account = prep["revenue_by_account"]
+    total = prep["total"]
+    round_off = prep["round_off"]
+    lines = _invoice_journal_lines(conn, tenant_id, customer, tax_total, total, round_off,
+                                   cogs_total, revenue_by_account, intra)
 
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -1385,6 +1427,216 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
         raise
 
 
+def save_invoice_draft(conn: sqlite3.Connection, tenant_id: str, customer_id: str,
+                       invoice_date: str, place_of_supply_state: str, items: list[dict],
+                       idempotency_key: str | None = None, round_to_rupee: bool = False,
+                       created_by: str | None = None) -> dict:
+    """Save an unposted sales invoice.
+
+    A draft has no journal entry, no stock movement and no tax-invoice number.
+    Posting later assigns the next INV number and revalidates stock.
+    """
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    if not tenant:
+        raise AccountingError("TENANT_NOT_FOUND", "Tenant not found")
+    customer = conn.execute(
+        "SELECT * FROM customer WHERE id=? AND tenant_id=?", (customer_id, tenant_id)
+    ).fetchone()
+    if not customer:
+        raise AccountingError("CUSTOMER_NOT_FOUND", "Customer not in this tenant")
+    _assert_period_open(conn, tenant_id, invoice_date)
+
+    prep = _prepare_invoice_lines(conn, tenant_id, items, check_stock=False,
+                                  round_to_rupee=round_to_rupee)
+    if prep["total"] <= 0:
+        raise AccountingError("BAD_AMOUNT", "Invoice total must be greater than zero")
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if idempotency_key:
+            existing = conn.execute(
+                "SELECT * FROM invoice WHERE tenant_id=? AND idempotency_key=?",
+                (tenant_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                conn.execute("COMMIT")
+                return dict(existing)
+
+        invoice_id = db.new_id()
+        invoice_no = db.next_number(conn, tenant_id, "invoice_draft", "DRAFT")
+        conn.execute(
+            "INSERT INTO invoice (id, tenant_id, invoice_no, invoice_date, customer_id,"
+            " place_of_supply_state, sub_total_paise, tax_paise, round_off_paise, total_paise,"
+            " status, idempotency_key, journal_entry_id, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?, 'draft', ?, NULL, ?)",
+            (invoice_id, tenant_id, invoice_no, invoice_date, customer_id,
+             place_of_supply_state, prep["sub_total"], prep["tax_total"], prep["round_off"],
+             prep["total"], idempotency_key, db.now()),
+        )
+        for c in prep["computed"]:
+            conn.execute(
+                "INSERT INTO invoice_line (id, tenant_id, invoice_id, item_id, description, qty_milli,"
+                " unit_price_paise, gross_paise, discount_paise, taxable_paise, tax_rate_bp,"
+                " tax_paise, line_total_paise) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (db.new_id(), tenant_id, invoice_id, c["item_id"], c["description"], c["qty_milli"],
+                 c["unit_price_paise"], c["gross_paise"], c["discount_paise"], c["taxable_paise"],
+                 c["tax_rate_bp"], c["tax_paise"], c["line_total_paise"]),
+            )
+        audit(conn, tenant_id, created_by, "invoice.draft_create", "invoice", invoice_id,
+              meta={"total": prep["total"], "invoice_no": invoice_no,
+                    "lines": len(prep["computed"])})
+        conn.execute("COMMIT")
+        return dict(conn.execute("SELECT * FROM invoice WHERE id=?", (invoice_id,)).fetchone())
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def post_draft_invoice(conn: sqlite3.Connection, tenant_id: str, invoice_id: str,
+                       created_by: str | None = None) -> dict:
+    """Post a draft invoice: assign INV number, post journal and reduce stock."""
+    invoice = _doc_or_raise(conn, tenant_id, "invoice", invoice_id, "Invoice")
+    if invoice["status"] == "posted":
+        return dict(invoice)
+    if invoice["status"] != "draft":
+        raise AccountingError("INVOICE_NOT_DRAFT", "Only a draft invoice can be posted")
+
+    tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (tenant_id,)).fetchone()
+    if not tenant:
+        raise AccountingError("TENANT_NOT_FOUND", "Tenant not found")
+    customer = conn.execute(
+        "SELECT * FROM customer WHERE id=? AND tenant_id=?", (invoice["customer_id"], tenant_id)
+    ).fetchone()
+    if not customer:
+        raise AccountingError("CUSTOMER_NOT_FOUND", "Customer not in this tenant")
+    _assert_period_open(conn, tenant_id, invoice["invoice_date"])
+
+    lines = conn.execute(
+        "SELECT * FROM invoice_line WHERE invoice_id=? AND tenant_id=? ORDER BY rowid",
+        (invoice_id, tenant_id),
+    ).fetchall()
+    if not lines:
+        raise AccountingError("NO_ITEMS", "A draft invoice needs at least one line")
+
+    required_stock: dict[str, int] = {}
+    item_names: dict[str, str] = {}
+    cogs_total = 0
+    revenue_by_account: dict[str, int] = {}
+    for line in lines:
+        item = conn.execute(
+            "SELECT * FROM item WHERE id=? AND tenant_id=?", (line["item_id"], tenant_id)
+        ).fetchone()
+        if not item:
+            raise AccountingError("ITEM_NOT_FOUND", f"Item {line['item_id']} not in this tenant")
+        qty_milli = int(line["qty_milli"])
+        if qty_milli <= 0:
+            raise AccountingError("BAD_QTY", "Quantity must be positive")
+        if item["track_stock"]:
+            required_stock[item["id"]] = required_stock.get(item["id"], 0) + qty_milli
+            item_names[item["id"]] = item["name"]
+            cogs_total += (item["cost_paise"] * qty_milli + 500) // 1000
+        revenue_by_account[item["revenue_code"]] = (
+            revenue_by_account.get(item["revenue_code"], 0) + int(line["taxable_paise"])
+        )
+
+    for item_id, qty_milli in required_stock.items():
+        row = conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)
+        ).fetchone()
+        if row["stock_milli"] < qty_milli:
+            raise AccountingError(
+                "INSUFFICIENT_STOCK",
+                f"Not enough stock for {item_names[item_id]}: have "
+                f"{row['stock_milli']/1000:.3f}, need {qty_milli/1000:.3f}",
+            )
+
+    if sum(revenue_by_account.values()) != int(invoice["sub_total_paise"]):
+        raise AccountingError(
+            "DRAFT_TOTAL_MISMATCH",
+            "The draft lines no longer match the invoice taxable total; void and recreate the draft",
+        )
+
+    intra = invoice["place_of_supply_state"] == tenant["state_code"]
+    journal_lines = _invoice_journal_lines(
+        conn, tenant_id, customer, int(invoice["tax_paise"]), int(invoice["total_paise"]),
+        int(invoice["round_off_paise"]), cogs_total, revenue_by_account, intra,
+    )
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        current = conn.execute(
+            "SELECT * FROM invoice WHERE id=? AND tenant_id=?", (invoice_id, tenant_id)
+        ).fetchone()
+        if not current:
+            raise AccountingError("DOC_NOT_FOUND", "Invoice not found in this business")
+        if current["status"] == "posted":
+            conn.execute("COMMIT")
+            return dict(current)
+        if current["status"] != "draft":
+            raise AccountingError("INVOICE_NOT_DRAFT", "Only a draft invoice can be posted")
+
+        invoice_no = db.next_number(conn, tenant_id, "invoice", "INV")
+        entry_id = post_journal(
+            conn, tenant_id, current["invoice_date"], f"Invoice for {customer['name']}",
+            journal_lines, source_type="invoice", source_id=invoice_id,
+            idempotency_key=f"invoice-post-{invoice_id}", created_by=created_by,
+        )
+        updated = conn.execute(
+            "UPDATE invoice SET invoice_no=?, status='posted', journal_entry_id=?"
+            " WHERE id=? AND tenant_id=? AND status='draft'",
+            (invoice_no, entry_id, invoice_id, tenant_id),
+        )
+        if updated.rowcount != 1:
+            raise AccountingError("INVOICE_NOT_DRAFT", "The draft was already posted or voided")
+        for item_id, qty_milli in required_stock.items():
+            conn.execute(
+                "UPDATE item SET stock_milli = stock_milli - ? WHERE id=? AND tenant_id=?",
+                (qty_milli, item_id, tenant_id),
+            )
+        audit(conn, tenant_id, created_by, "invoice.post", "invoice", invoice_id,
+              meta={"total": int(current["total_paise"]), "invoice_no": invoice_no,
+                    "draft_invoice_no": current["invoice_no"]})
+        conn.execute("COMMIT")
+        return dict(conn.execute("SELECT * FROM invoice WHERE id=?", (invoice_id,)).fetchone())
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def void_draft_invoice(conn: sqlite3.Connection, tenant_id: str, invoice_id: str,
+                       reason: str, created_by: str | None = None) -> dict:
+    """Void an unposted draft. No journal or stock effect exists to reverse."""
+    if not reason or not reason.strip():
+        raise AccountingError("REASON_REQUIRED", "A reason is required to void a draft invoice")
+    invoice = _doc_or_raise(conn, tenant_id, "invoice", invoice_id, "Invoice")
+    if invoice["status"] == "void":
+        return dict(invoice)
+    if invoice["status"] != "draft":
+        raise AccountingError("INVOICE_NOT_DRAFT", "Only a draft invoice can be voided")
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        updated = conn.execute(
+            "UPDATE invoice SET status='void' WHERE id=? AND tenant_id=? AND status='draft'",
+            (invoice_id, tenant_id),
+        )
+        if updated.rowcount != 1:
+            current = conn.execute(
+                "SELECT * FROM invoice WHERE id=? AND tenant_id=?", (invoice_id, tenant_id)
+            ).fetchone()
+            if current and current["status"] == "void":
+                conn.execute("COMMIT")
+                return dict(current)
+            raise AccountingError("INVOICE_NOT_DRAFT", "The draft was already posted or voided")
+        audit(conn, tenant_id, created_by, "invoice.void_draft", "invoice", invoice_id,
+              meta={"reason": reason.strip(), "invoice_no": invoice["invoice_no"]})
+        conn.execute("COMMIT")
+        return dict(conn.execute("SELECT * FROM invoice WHERE id=?", (invoice_id,)).fetchone())
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
 # --------------------------------------------------------------------------
 # receivables / payables: receipts, vendor payments, bills, credit notes
 # --------------------------------------------------------------------------
@@ -1407,6 +1659,8 @@ def _doc_or_raise(conn: sqlite3.Connection, tenant_id: str, table: str, doc_id: 
 
 def invoice_outstanding(conn: sqlite3.Connection, tenant_id: str, invoice_id: str) -> int:
     inv = _doc_or_raise(conn, tenant_id, "invoice", invoice_id, "Invoice")
+    if inv["status"] != "posted":
+        return 0
     allocated = conn.execute(
         "SELECT COALESCE(SUM(amount_paise),0) a FROM payment_allocation"
         " WHERE tenant_id=? AND doc_type='invoice' AND doc_id=?",
@@ -1470,6 +1724,12 @@ def record_payment(conn: sqlite3.Connection, tenant_id: str, direction: str, par
         if int(al["amount"]) <= 0:
             raise AccountingError("BAD_ALLOCATION", "Allocation amount must be positive")
         if doc_type == "invoice":
+            invoice = _doc_or_raise(conn, tenant_id, "invoice", al["doc_id"], "Invoice")
+            if invoice["status"] != "posted":
+                raise AccountingError(
+                    "INVOICE_NOT_POSTED",
+                    "Post the draft invoice before allocating a receipt to it",
+                )
             outstanding = invoice_outstanding(conn, tenant_id, al["doc_id"])
         else:
             outstanding = bill_outstanding(conn, tenant_id, al["doc_id"])
@@ -2795,7 +3055,8 @@ def dashboard(conn: sqlite3.Connection, tenant_id: str, date_from: str, date_to:
     inventory = group_total("inventory", "1200")
     payable = -group_total("payable", AP_ACCOUNT)
     inv_count = conn.execute(
-        "SELECT COUNT(*) c FROM invoice WHERE tenant_id=? AND invoice_date BETWEEN ? AND ?",
+        "SELECT COUNT(*) c FROM invoice WHERE tenant_id=? AND status='posted'"
+        " AND invoice_date BETWEEN ? AND ?",
         (tenant_id, date_from, date_to),
     ).fetchone()["c"]
     ar_age = receivable_ageing(conn, tenant_id, date_to)

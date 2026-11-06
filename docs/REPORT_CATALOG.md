@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.6 |
+| Version | 1.7 |
 | Date | 2026-11-06 |
-| Status | **57 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds nineteen more, including R-506) |
+| Status | **58 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 added nineteen more, including R-506; Build 0.18 adds R-204 draft entries) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -33,6 +33,15 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > explanation, R-1002 revenue forecast, R-1003 anomaly digest and R-901 budget vs actual. The library
 > now marks **57 working, 0 partial and 9 planned**; planned rows still have no route and are never
 > filled with sample data.
+>
+> **Build 0.18 report batch:** R-204 unposted / draft entries is now working at
+> `/reports/draft-entries` with `/export/draft-entries.csv`. It reads `invoice.status='draft'` and
+> reports draft sales invoices with age, value and ageing buckets. Build 0.18 also adds an
+> audit-safe draft invoice workflow: save draft, post draft and void draft. A draft has no journal
+> entry, no stock movement and no tax-invoice number; posting assigns the next INV number and
+> revalidates live stock. The library now marks **58 working, 0 partial and 8 planned**. There is
+> still no draft journal-entry workflow, so R-204 covers draft sales invoices only and says so on
+> the screen.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
 > trial balance, P&L, balance sheet, ageing, cash/bank, inventory and GST working sheets, and the
@@ -83,7 +92,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-201 | Audit Trail | audit_log | Chronological actor/action/target | 1 | Working (Build 0.1) |
 | R-202 | Reversal & Correction Register | journal_entry (reversal_of) | List with reasons and links | 2 | Working (Build 0.13) |
 | R-203 | Account Activity Summary | journal_line | Count + value per account per period | 2 | Working (Build 0.13) |
-| R-204 | Unposted / Draft Entries | journal_entry status=draft | List + age | 2 | Not implemented |
+| R-204 | Unposted / Draft Entries | `invoice.status='draft'` | Draft sales invoices with age, value and ageing buckets; no journal, stock or tax-invoice effect until posted | To invoice | 2 | Working (Build 0.18) |
 | R-205 | Locked Period Register | period_lock + user | Locked periods with locking actor and timestamp | To audit log | 2 | Working (Build 0.17) |
 | R-206 | Rule Version Usage | journal_entry | Posted entries grouped by the rule version stored at posting time | 2 | Working (Build 0.17) |
 
