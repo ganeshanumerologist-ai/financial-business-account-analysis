@@ -4,7 +4,7 @@
 |---|---|
 | Version | 1.5 |
 | Date | 2026-11-05 |
-| Status | **55 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds seventeen more) |
+| Status | **56 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds eighteen more) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -25,12 +25,12 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501
 > stock summary and R-706 credit-limit utilisation.
 >
-> **Build 0.17 report batch:** seventeen more working reports were added with CSV exports: R-107 opening
+> **Build 0.17 report batch:** eighteen more working reports were added with CSV exports: R-107 opening
 > vs closing balances, R-205 locked period register, R-206 rule version usage, R-308 salesperson performance, R-405 price
 > variance, R-502 stock movement history, R-503 inventory valuation, R-504 reorder/shortage, R-505
 > dead/slow stock, R-507 inventory-to-GL reconciliation, R-704 receivables risk, R-705 cash flow
 > forecast, R-807 tax ledger, R-904 KPI dashboard pack, R-1001 trend explanation, R-1002 revenue
-> forecast and R-1003 anomaly digest. The library now marks **55 working, 0 partial and 11 planned**;
+> forecast, R-1003 anomaly digest and R-901 budget vs actual. The library now marks **56 working, 0 partial and 10 planned**;
 > planned rows still have no route and are never filled with sample data.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
@@ -177,7 +177,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-901 | Budget vs Actual | budget + journal_line | Variance = actual − budget | 6 | Not implemented |
+| R-901 | Budget vs Actual | budget + journal_line | Variance = actual − budget | 6 | Working (Build 0.17) |
 | R-902 | Department / Branch P&L | journal_line + scoping | Contribution by scope | 6 | Not implemented |
 | R-903 | Expense Breakdown | journal_line (expense) | Σ by account + share % | 6 | Working (Build 0.13) |
 | R-904 | KPI Dashboard Pack | statements + ratios + cash + ageing + inventory | Actual-only KPI cards with formula and source | To source report | 6 | Working (Build 0.17) |
@@ -202,24 +202,27 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | Group | Catalogued | Implemented | Verified |
 |---|---|---|---|
-| 1 Financial statements | 10 | 5 | 5 |
-| 2 Accounting/audit | 6 | 1 | 1 |
-| 3 Sales | 9 | 2 | 2 |
-| 4 Purchase | 6 | 2 | 2 |
-| 5 Inventory | 8 | 0 | 0 |
-| 6 Costing/manufacturing | 5 | 0 | 0 |
-| 7 Cash/credit/risk | 6 | 3 | 3 |
-| 8 Tax/compliance | 7 | 6 | 6 |
-| 9 Strategy/process | 5 | 0 | 0 |
-| 10 AI/forecast | 4 | 0 | 0 |
-| **Total** | **66** | **19** | **19** |
+| Financial statements | 10 | 10 | 10 |
+| Accounting & audit | 6 | 5 | 5 |
+| Sales & customers | 9 | 9 | 9 |
+| Purchases & suppliers | 6 | 6 | 6 |
+| Inventory & warehouse | 8 | 6 | 6 |
+| Costing & operations | 5 | 0 | 0 |
+| Cash, credit & risk | 6 | 6 | 6 |
+| Tax & compliance | 7 | 7 | 7 |
+| Strategy & process | 4 | 3 | 3 |
+| Management & KPIs | 1 | 1 | 1 |
+| AI-assisted analysis | 3 | 3 | 3 |
+| AI & cross-business | 1 | 0 | 0 |
+| **Total** | **66** | **56** | **56** |
 
 Implemented counts include only reports with a route and a passing automated check; partial
 working papers (for example opening/closing statement balances) are noted in the group tables but
 not counted as complete. Build 0.6 adds GSTR-2B reconciliation (R-806) and statement sharing for
 R-305/R-403; Build 0.7 adds per-line ITC review and a GSTR-3B-vs-2B comparison inside R-806;
 Build 0.9 adds cash book (R-701) and bank book (R-702). Build 0.10 makes the bank book selectable
-for every linked bank account, but adds no new catalogue row or report count.
+for every linked bank account, but adds no new catalogue row or report count. Build 0.17 adds
+R-901 budget vs actual with stored monthly budgets.
 
 The spec's ≈150 target will be reached by extending groups 1–10; the 66 catalogued here are the ones with a defined formula and a clear user. Reports without a defined source and formula are not catalogued — they would be decoration, not information.
 

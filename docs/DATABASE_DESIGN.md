@@ -501,9 +501,10 @@ debit_note_line, item, customer, journal_entry and journal_line rows.
 - Report CSV exports are generated from the same functions and are not stored.
 - No report caches a total. Every screen recalculates from posted rows on each request.
 
-## 23. Build 0.17 report screens: two additive columns (2026-11-05)
+## 23. Build 0.17 report screens: two additive columns and one additive table (2026-11-06)
 
-Build 0.17 adds **two additive columns** and no table, index or cached total:
+Build 0.17 adds **two additive columns and one additive table**. No existing column, table or
+cached total is dropped or rewritten.
 
 - `item.reorder_level_milli INTEGER NOT NULL DEFAULT 0` stores the item's reorder threshold in the
   same thousandth-unit convention as `stock_milli`. Existing items receive zero, which means "no
@@ -512,14 +513,37 @@ Build 0.17 adds **two additive columns** and no table, index or cached total:
 - `journal_entry.rule_version TEXT NOT NULL DEFAULT 'posting-v1'` records the posting-rule
   version on every new entry. The additive migration labels existing rows `posting-v1` without
   rewriting journal amounts or dates.
+- `budget` stores one planning amount per tenant, income/expense ledger and month:
+
+```sql
+CREATE TABLE budget (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    account_id TEXT NOT NULL REFERENCES account(id),
+    period TEXT NOT NULL,                 -- YYYY-MM
+    amount_paise INTEGER NOT NULL DEFAULT 0 CHECK (amount_paise >= 0),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT REFERENCES user(id),
+    UNIQUE (tenant_id, account_id, period)
+);
+CREATE INDEX ix_budget_tenant_period ON budget (tenant_id, period);
+```
+
+- Budget rows are planning data, not journal entries. They never change a posted balance. The
+  `/budgets` screen creates, updates or removes one ledger-month and writes `budget.create`,
+  `budget.update` or `budget.delete` to `audit_log`. `budget.manage` is required to change a budget;
+  `report.view` is enough to read R-901.
 - The item master form accepts the reorder level and stores it with `money.parse_qty()`.
 - R-504 uses the column for below-level shortages and also surfaces zero/negative stock when no level
   is configured. It never changes stock.
-- The other fifteen reports read existing journal, document, item, customer, vendor, user and
-  `period_lock` rows. No new table is required for opening/closing, locked periods, salesperson
-  performance, price variance, stock movements, inventory valuation, dead/slow stock,
-  inventory-to-GL reconciliation, receivables risk, rule version usage, cash-flow forecast, tax ledger, KPI pack, trend
-  explanation, revenue forecast or anomaly digest.
+- The other reports read existing journal, document, item, customer, vendor, user and `period_lock`
+  rows. No new table is required for opening/closing, locked periods, salesperson performance,
+  price variance, stock movements, inventory valuation, dead/slow stock, inventory-to-GL
+  reconciliation, receivables risk, rule version usage, cash-flow forecast, tax ledger, KPI pack,
+  trend explanation, revenue forecast or anomaly digest.
 - Stock valuation uses the current moving weighted-average `item.cost_paise`; no historical cost
   layer table exists. FIFO and batch/expiry remain future schema work.
 - No report caches a total. Every screen recalculates from posted rows on each request.

@@ -888,3 +888,28 @@ item-master reorder threshold and a journal-entry posting-rule version. No sampl
   are deterministic and labelled; the anomaly digest is a review aid, not a fraud finding. Build 0.17 is verified
   by **291 tests, OK**, 31.185 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
   `RUN-2026-11-05-03`.
+
+## D-042 - Build 0.17 adds a budget table and R-901 budget vs actual
+
+**Date:** 2026-11-06. **Status:** accepted for Build 0.17.
+
+R-901 needs planning data that the existing schema does not hold. The build adds one additive
+`budget` table keyed by tenant, income/expense ledger and month, plus a small entry screen. No
+posted journal, account balance or existing table is rewritten.
+
+- `budget` stores `amount_paise`, note and creator/updater timestamps with a unique
+  `(tenant_id, account_id, period)` key. `amount_paise` is non-negative and uses the same integer
+  paise convention as the rest of the ledger.
+- `/budgets` creates, updates or removes one ledger-month and writes `budget.create`,
+  `budget.update` or `budget.delete` to `audit_log`. A new `budget.manage` permission gates the
+  writes; owner, admin, manager and accountant receive it. R-901 remains readable with
+  `report.view`.
+- R-901 compares stored monthly budgets with posted actual income (credit - debit) and expense
+  (debit - credit). Variance is actual - budget. Income above budget and expense below budget are
+  favourable. A ledger with no stored budget is marked "No budget" and is never given a variance
+  percentage. The report does not forecast, infer or invent a budget.
+- The report is a working paper, not a statutory statement. Budgets never change a posted balance.
+  There is no approval workflow or budget lock in this build.
+- Coverage becomes **56 of 66** working, with 0 partial and 10 planned. The full suite passes
+  **295 tests, OK**, 28.976 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
+  `RUN-2026-11-06-01`.

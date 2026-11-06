@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import accounting as acct
-from app import db, reports
+from app import budgeting, db, reports
 from app.demo import seed_demo
 
 
@@ -23,22 +23,83 @@ class ReportsTest(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_catalog_has_66_rows_and_55_working(self):
+    def test_catalog_has_66_rows_and_56_working(self):
         cat = reports.catalog()
         self.assertEqual(cat["total"], 66)
-        self.assertEqual(cat["working"], 55)
+        self.assertEqual(cat["working"], 56)
         self.assertEqual(cat["partial"], 0)
-        self.assertEqual(cat["planned"], 11)
+        self.assertEqual(cat["planned"], 10)
         working = [r for g in cat["groups"] for r in g["reports"] if r["status"] == "working"]
         self.assertTrue(all(r["route"] for r in working))
         for rid in ("R-104", "R-107", "R-108", "R-109", "R-110", "R-202", "R-203",
                     "R-205", "R-206", "R-301", "R-302", "R-303", "R-306", "R-307", "R-308",
                     "R-309", "R-401", "R-404", "R-405", "R-406", "R-501", "R-502",
                     "R-503", "R-504", "R-505", "R-507", "R-704", "R-705", "R-706",
-                    "R-807", "R-903", "R-904", "R-905", "R-1001", "R-1002", "R-1003"):
+                    "R-807", "R-901", "R-903", "R-904", "R-905", "R-1001", "R-1002", "R-1003"):
             row = next(r for r in reports.REPORT_CATALOG if r["id"] == rid)
             self.assertEqual(row["status"], "working", rid)
             self.assertTrue(row["route"], rid)
+
+    def test_budget_vs_actual_marks_favourable_and_unfavourable(self):
+        tenant_id = db.create_tenant(self.conn, "Budget Test Co", "budget-test-co")
+        rent = db.account_id(self.conn, tenant_id, "6000")
+        sales = db.account_id(self.conn, tenant_id, "4000")
+        cash = db.account_id(self.conn, tenant_id, "1000")
+        budgeting.set_budget(self.conn, tenant_id, rent, "2026-04", 200000)
+        budgeting.set_budget(self.conn, tenant_id, sales, "2026-04", 150000)
+        acct.post_journal(
+            self.conn, tenant_id, "2026-04-15", "Rent over budget",
+            [{"account_id": rent, "debit": 300000, "credit": 0},
+             {"account_id": cash, "debit": 0, "credit": 300000}], "manual")
+        acct.post_journal(
+            self.conn, tenant_id, "2026-04-20", "Sales under budget",
+            [{"account_id": cash, "debit": 100000, "credit": 0},
+             {"account_id": sales, "debit": 0, "credit": 100000}], "manual")
+        data = budgeting.budget_vs_actual(self.conn, tenant_id, "2026-04-01", "2026-04-30")
+        by_code = {r["code"]: r for r in data["rows"]}
+        self.assertEqual(by_code["6000"]["actual"], 300000)
+        self.assertEqual(by_code["6000"]["budget"], 200000)
+        self.assertEqual(by_code["6000"]["variance"], 100000)
+        self.assertFalse(by_code["6000"]["favourable"])
+        self.assertEqual(by_code["4000"]["actual"], 100000)
+        self.assertEqual(by_code["4000"]["variance"], -50000)
+        self.assertFalse(by_code["4000"]["favourable"])
+        self.assertEqual(data["totals"]["income_budget"], 150000)
+        self.assertEqual(data["totals"]["expense_actual"], 300000)
+        self.assertEqual(data["totals"]["net_variance"], -150000)
+        self.assertFalse(data["totals"]["net_favourable"])
+
+    def test_budget_set_update_delete_is_audited(self):
+        tenant_id = db.create_tenant(self.conn, "Budget Audit Co", "budget-audit-co")
+        rent = db.account_id(self.conn, tenant_id, "6000")
+        budget_id = budgeting.set_budget(
+            self.conn, tenant_id, rent, "2026-05", 100000, "first", None)
+        budgeting.set_budget(
+            self.conn, tenant_id, rent, "2026-05", 125000, "revised", None)
+        register = budgeting.register(self.conn, tenant_id, "2026-05-01", "2026-05-31")
+        self.assertEqual(register["totals"]["entries"], 1)
+        self.assertEqual(register["rows"][0]["amount"], 125000)
+        self.assertEqual(register["rows"][0]["note"], "revised")
+        actions = [r["action"] for r in self.conn.execute(
+            "SELECT action FROM audit_log WHERE tenant_id=? AND target_type='budget'"
+            " ORDER BY created_at", (tenant_id,)).fetchall()]
+        self.assertIn("budget.create", actions)
+        self.assertIn("budget.update", actions)
+        budgeting.delete_budget(self.conn, tenant_id, budget_id, None)
+        self.assertEqual(budgeting.register(
+            self.conn, tenant_id, "2026-05-01", "2026-05-31")["totals"]["entries"], 0)
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE tenant_id=? AND action='budget.delete'",
+            (tenant_id,)).fetchone()["c"], 1)
+
+    def test_budget_rejects_non_income_expense_and_negative_amount(self):
+        tenant_id = db.create_tenant(self.conn, "Budget Reject Co", "budget-reject-co")
+        cash = db.account_id(self.conn, tenant_id, "1000")
+        rent = db.account_id(self.conn, tenant_id, "6000")
+        with self.assertRaises(budgeting.BudgetError):
+            budgeting.set_budget(self.conn, tenant_id, cash, "2026-04", 100000)
+        with self.assertRaises(budgeting.BudgetError):
+            budgeting.set_budget(self.conn, tenant_id, rent, "2026-04", -1)
 
     def test_cash_flow_reconciles_to_cash_and_bank(self):
         data = reports.cash_flow(self.conn, self.tenant, "2026-04-01", "2026-10-31")

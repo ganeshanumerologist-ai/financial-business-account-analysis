@@ -171,7 +171,7 @@ A working, testable accounting core (Phases 1â€“3) is realistic in roughly **6â€
 
 ---
 
-## Current status - Build 0.17 (2026-11-05)
+## Current status - Build 0.17 (2026-11-06)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -193,10 +193,10 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.14 | First-run owner setup for an empty installation (local-only, CSRF-protected, permanently closed after the first owner); self-contained Windows offline package with official Python 3.14.6 embeddable runtime, `openpyxl`, local SQLite, verified external-drive backup, free-port launcher, duplicate-instance detection and optional desktop/login autostart; 263 tests | `RUN-2026-11-04-03` |
 | 0.15 | Editable manual cash, bank and journal entries: pre-filled edit form, required reason, atomic reverse + corrected repost, rollback on invalid replacement, `journal.edit` audit, Edit/Reverse actions in ledger, day book, cash book and bank book, recent-entry tables; owner-only **Start fresh books** creates a separate tenant with standard chart and zero entries; 268 tests; offline package rebuilt as 0.15 | `RUN-2026-11-05-01` |
 | 0.16 | Ten more working reports with CSV exports: R-110 trial balance exceptions, R-302 sales summary, R-303 top customers, R-306 sales returns, R-307 product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501 stock summary and R-706 credit-limit utilisation; 38 of 66 working; 274 tests; offline package rebuilt as 0.16 | `RUN-2026-11-05-02` |
-| 0.17 | Seventeen more working reports with CSV exports: R-107 opening vs closing, R-205 locked period register, R-206 rule version usage, R-308 salesperson performance, R-405 price variance, R-502 stock movement history, R-503 inventory valuation, R-504 reorder/shortage, R-505 dead/slow stock, R-507 inventory-to-GL reconciliation, R-704 receivables risk, R-705 cash flow forecast, R-807 tax ledger, R-904 KPI dashboard pack, R-1001 trend explanation, R-1002 revenue forecast and R-1003 anomaly digest; additive `item.reorder_level_milli` and `journal_entry.rule_version` columns with no destructive migration; 55 of 66 working; 291 tests; offline package rebuilt as 0.17 | `RUN-2026-11-05-03` |
+| 0.17 | Eighteen more working reports with CSV exports: R-107 opening vs closing, R-205 locked period register, R-206 rule version usage, R-308 salesperson performance, R-405 price variance, R-502 stock movement history, R-503 inventory valuation, R-504 reorder/shortage, R-505 dead/slow stock, R-507 inventory-to-GL reconciliation, R-704 receivables risk, R-705 cash flow forecast, R-807 tax ledger, R-901 budget vs actual, R-904 KPI dashboard pack, R-1001 trend explanation, R-1002 revenue forecast and R-1003 anomaly digest; additive `item.reorder_level_milli` and `journal_entry.rule_version` columns plus additive `budget` table with no destructive migration; 56 of 66 working; 295 tests; offline package rebuilt as 0.17 | `RUN-2026-11-06-01` |
 
 **Next:** run the single-user trial against the offline package, then finish analytics Phase B
-(remaining 11 catalogued report screens, saved dashboards, full drill-down, filters, EN/HI labels
+(remaining 10 catalogued report screens, saved dashboards, full drill-down, filters, EN/HI labels
 and the ~150-template library). Permanent online hosting and offline-to-online sync remain separate
 decisions. The static Power BI pack can become an optional
 Service model only after an explicit Desktop-vs-Service scope and licensing decision; a generative

@@ -14,8 +14,8 @@ Priority: **P0** = release-gate / must exist before any financial feature · **P
 
 > **Status note (2026-10-28):** This is the original full-scope requirements list. The `Status`
 > column has not been maintained row-by-row and must not be read as the current build state. See
-> `docs/REQUIREMENTS_TRACEABILITY.md` section 24 for the evidence-backed status through Build 0.17
-> and `docs/FEATURE_INVENTORY.md` section 24 for the honest implemented/partial/missing inventory.
+> `docs/REQUIREMENTS_TRACEABILITY.md` section 25 for the evidence-backed status through Build 0.17
+> and `docs/FEATURE_INVENTORY.md` section 25 for the honest implemented/partial/missing inventory.
 
 ## 1. Product requirements
 

@@ -543,6 +543,21 @@ CREATE TABLE IF NOT EXISTS gstr2b_review (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS budget (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    account_id TEXT NOT NULL REFERENCES account(id),
+    period TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL DEFAULT 0 CHECK (amount_paise >= 0),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT REFERENCES user(id),
+    UNIQUE (tenant_id, account_id, period)
+);
+
+CREATE INDEX IF NOT EXISTS ix_budget_tenant_period ON budget (tenant_id, period);
 CREATE INDEX IF NOT EXISTS ix_jl_tenant_account ON journal_line (tenant_id, account_id);
 CREATE INDEX IF NOT EXISTS ix_jl_party ON journal_line (tenant_id, party_id);
 CREATE INDEX IF NOT EXISTS ix_je_tenant_date ON journal_entry (tenant_id, entry_date);

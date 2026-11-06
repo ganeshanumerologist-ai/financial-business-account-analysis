@@ -1740,7 +1740,7 @@ class WebTest(unittest.TestCase):
         status, page = self.get("/reports/library")
         self.assertEqual(status, 200)
         self.assertIn("Report library", page)
-        self.assertIn("55 of 66 working", page)
+        self.assertIn("56 of 66 working", page)
         self.assertIn("R-104", page)
         self.assertIn("R-905", page)
         self.assertIn("Planned reports are deliberately not filled with sample data", page)
@@ -1768,6 +1768,7 @@ class WebTest(unittest.TestCase):
             "/reports/opening-closing": "Opening vs closing balances",
             "/reports/locked-periods": "Locked period register",
             "/reports/rule-versions": "Rule version usage",
+            "/reports/budget": "Budget vs actual",
             "/reports/salesperson": "Salesperson performance",
             "/reports/price-variance": "Price variance",
             "/reports/stock-movements": "Stock movement history",
@@ -1807,6 +1808,7 @@ class WebTest(unittest.TestCase):
             "/export/opening-closing.csv?from=2026-04-01&to=2026-10-31": "Reconciled",
             "/export/locked-periods.csv": "Period start",
             "/export/rule-versions.csv?from=2026-04-01&to=2026-10-31": "Rule version",
+            "/export/budget.csv?from=2026-04-01&to=2026-10-31": "Budget",
             "/export/salesperson.csv?from=2026-04-01&to=2026-10-31": "Collection %",
             "/export/price-variance.csv?from=2026-04-01&to=2026-10-31": "Latest price",
             "/export/stock-movements.csv?from=2026-04-01&to=2026-10-31": "Source",
@@ -1965,6 +1967,63 @@ class WebTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("Fresh test entry corrected", daybook)
         self.assertIn("Edit", daybook)
+
+
+    def test_49_budget_entry_report_and_delete(self):
+        self.login()
+        status, page = self.get("/budgets")
+        self.assertEqual(status, 200)
+        self.assertIn("Budgets", page)
+        self.assertIn("Set a monthly budget", page)
+        token = self.csrf(page)
+
+        conn = db.connect(self.db_path)
+        tenant_id = conn.execute(
+            "SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()["id"]
+        rent = db.account_id(conn, tenant_id, "6000")
+        conn.close()
+
+        status, page, final = self.post("/budgets", {
+            "_csrf": token, "period": "2026-04", "account_id": rent,
+            "amount": "1000.00", "note": "Test budget"})
+        self.assertEqual(status, 200)
+        self.assertIn("Budget saved", page)
+        self.assertIn("Rent", page)
+        self.assertIn("1,000.00", page)
+
+        status, report = self.get("/reports/budget?from=2026-04-01&to=2026-04-30")
+        self.assertEqual(status, 200)
+        self.assertIn("Budget vs actual", report)
+        self.assertIn("R-901", report)
+        self.assertIn("Rent", report)
+        self.assertIn("1,000.00", report)
+
+        status, csv_body = self.get("/export/budget.csv?from=2026-04-01&to=2026-04-30")
+        self.assertEqual(status, 200)
+        self.assertIn("Budget", csv_body)
+        self.assertIn("Rent", csv_body)
+
+        conn = db.connect(self.db_path)
+        budget = conn.execute(
+            "SELECT id FROM budget WHERE tenant_id=? AND account_id=? AND period='2026-04'",
+            (tenant_id, rent)).fetchone()
+        self.assertIsNotNone(budget)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE tenant_id=? AND action='budget.create'",
+            (tenant_id,)).fetchone()["c"], 1)
+        conn.close()
+
+        status, page = self.get("/budgets")
+        token = self.csrf(page)
+        status, page, final = self.post("/budgets/delete", {
+            "_csrf": token, "budget_id": budget["id"]})
+        self.assertEqual(status, 200)
+        self.assertIn("Budget removed", page)
+        conn = db.connect(self.db_path)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE tenant_id=? AND action='budget.delete'",
+            (tenant_id,)).fetchone()["c"], 1)
+        conn.close()
 
 
 if __name__ == "__main__":

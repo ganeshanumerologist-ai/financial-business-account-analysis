@@ -10,7 +10,7 @@
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 24 (Build 0.16); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 25 (Build 0.17); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -431,7 +431,7 @@ accounting data.
 | Manual stock adjustment / historical cost | **Not implemented** | stock report uses document movements and current item cost; product margin is labelled as an estimate |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.16 |
 
-## 25. Status after seventeen more report screens (Build 0.17, 2026-11-05)
+## 25. Status after eighteen more report screens (Build 0.17, 2026-11-06)
 
 | Requirement area | Status | Evidence |
 |---|---|---|
@@ -446,13 +446,15 @@ accounting data.
 | Dead / slow stock | **Verified as a review prompt** | R-505 finds stocked items with no posted movement for N days, including never-moved stock; not an automatic write-off; `test_dead_stock_uses_last_posted_movement` |
 | Inventory-to-GL reconciliation | **Verified** | R-507 compares item-master stock value with the posted inventory account balance and shows the difference; never posts a correction; `test_inventory_gl_reconciliation_shows_difference` |
 | Receivables risk | **Verified as advisory** | R-704 combines open receivable ageing, credit days, limits and prior-period overdue; never blocks a sale; `test_receivables_risk_reconciles_to_ageing` |
+| Budget vs actual | **Verified as planning data** | R-901 compares stored monthly income/expense budgets with posted actuals, shows variance and favourable/unfavourable states, and never changes a posted balance; `test_budget_vs_actual_marks_favourable_and_unfavourable` |
+| Budget entry and audit | **Verified** | `/budgets` upserts one ledger-month, removes rows and writes `budget.create`/`budget.update`/`budget.delete`; protected by `budget.manage`; `test_budget_set_update_delete_is_audited` |
 | Cash-flow forecast | **Verified as a labelled forecast** | R-705 places open collections and payments by due date, puts overdue items in the first bucket and reconciles opening cash to closing cash; `test_cash_flow_forecast_reconciles_opening_to_closing` |
 | Tax ledger | **Verified as a working aid** | R-807 shows output-tax and input-credit ledgers with opening, debit, credit, closing and net payable; not a filed return; `test_tax_ledger_reconciles_output_and_input` |
 | KPI dashboard pack | **Verified as actual-only** | R-904 assembles revenue, profit, cash, receivables, payables, inventory, margins, ratios, DSO/DIO/DPO and CCC from existing reports; `test_kpi_pack_is_actual_only_and_checks_balance` |
 | Trend explanation | **Verified as deterministic** | R-1001 explains monthly actual revenue and expenses with the largest moves; no generative AI; `test_trend_explanation_matches_monthly_sales` |
 | Revenue forecast | **Verified as a labelled forecast** | R-1002 fits a least-squares line to monthly actual net revenue and keeps forecast rows separate from actual rows; `test_revenue_forecast_separates_actuals_and_forecast` |
 | Anomaly digest | **Verified as a review aid** | R-1003 lists deterministic review prompts for journal structure, large entries, duplicates, backdating, negative stock and 90+ day receivables; not a fraud finding; `test_anomaly_digest_returns_review_prompts` |
-| Report coverage | **55 of 66** | 38 prior working reports plus seventeen Build 0.17 reports; 0 partial and 11 planned remain |
+| Report coverage | **56 of 66** | 38 prior working reports plus eighteen Build 0.17 reports; 0 partial and 10 planned remain |
 | Offline package 0.17 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.17.zip`; embedded runtime import and `/health` smoke-tested |
-| Manual stock adjustment / historical cost / batch / job costing | **Not implemented** | stock reports use document movements and current item cost; FIFO, batch/expiry, job/project, WIP, cost-centre and budget models remain future work |
+| Manual stock adjustment / historical cost / batch / job costing | **Not implemented** | stock reports use document movements and current item cost; FIFO, batch/expiry, job/project, WIP and cost-centre models remain future work |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.17 |

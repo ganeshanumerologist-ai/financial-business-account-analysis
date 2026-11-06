@@ -174,7 +174,7 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 ### M. Report Library
 
 - [ ] Report Library opens
-- [ ] It shows 55 of 66 working
+- [ ] It shows 56 of 66 working
 - [ ] Planned reports are clearly marked and do not show fake data
 - [ ] Every working report opens without a 500 error
 - [ ] Sales summary, top customers, product sales, discounts and sales returns open
@@ -182,6 +182,11 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 - [ ] Stock summary shows opening + in - out = closing for each item
 - [ ] Credit-limit utilisation flags over-limit or no-limit customers
 - [ ] Trial balance exceptions shows a clean result on the demo and a review badge when a bad entry exists
+- [ ] Budget vs Actual opens from the Reports menu
+- [ ] A budget can be set for an income/expense ledger and month
+- [ ] Setting the same month and ledger updates the existing amount
+- [ ] A budget can be removed and the removal appears in the Audit Log
+- [ ] Budget vs Actual shows `No budget` when no budget is stored
 - [ ] Each new report's CSV downloads and opens
 
 ### N. Backup and restore
@@ -251,7 +256,7 @@ Screenshot:
 
 ## 5. Known limits in this trial
 
-- 55 of 66 catalogued reports are working; none is partial and 11 are planned.
+- 56 of 66 catalogued reports are working; none is partial and 10 are planned.
 - No generative AI provider is connected.
 - Power BI is an external reporting layer, not an embedded live model.
 - The public trial URL is temporary and has no uptime guarantee.

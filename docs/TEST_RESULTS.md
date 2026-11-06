@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.17.** The latest application run is `RUN-2026-11-05-03` with
-> **291 tests, OK**, Python 3.14.6, Windows - see section 32. The table immediately below is the original
+> **Current status: Build 0.17.** The latest application run is `RUN-2026-11-06-01` with
+> **295 tests, OK**, Python 3.14.6, Windows - see section 33. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1522,6 +1522,44 @@ Run ID: `RUN-2026-11-05-03`.
   R-902 and R-1004. They need draft-document, stock-adjustment, batch/expiry,
   job/project/cost-centre, budget, department/branch or intercompany-elimination data that does not
   exist yet.
+- No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
+  accounting review was run for Build 0.17.
+- The trial URL is a temporary Cloudflare quick tunnel with no uptime guarantee. The database is
+  synthetic and must not hold real financial data.
+
+## 33. Build 0.17 verification - budget vs actual and budget entry (2026-11-06)
+
+Run ID: `RUN-2026-11-06-01`.
+
+### 33.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **295 tests, OK**, 28.976 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_reports -v` | 36 report tests, OK |
+| `python -m unittest tests.test_web.WebTest.test_46_report_library_and_management_reports tests.test_web.WebTest.test_49_budget_entry_report_and_delete -v` | HTTP report library plus budget entry/report/delete, 37 report pages and 32 CSV exports, OK |
+| Live report library | `/reports/library` shows **56 working, 0 partial and 10 planned** of 66 |
+| Budget formula | Stored monthly budget vs posted income (credit - debit) and expense (debit - credit); variance = actual - budget |
+| Favourable/unfavourable | Income above budget and expense below budget are favourable; the inverse is unfavourable; exact equality is on budget |
+| No-budget state | A ledger with actuals but no stored budget shows `No budget` and no variance percentage |
+| Budget entry | `/budgets` creates a ledger-month, updates the same key, lists it and removes it with a CSRF-protected form |
+| Budget audit | `budget.create`, `budget.update` and `budget.delete` rows are written to `audit_log`; no journal is posted |
+| Permission boundary | `budget.manage` gates writes; `report.view` can read R-901; `report.export` gates the CSV |
+| CSV | `/export/budget.csv` returns budget, actual, variance, variance %, status and budget months |
+| Offline package build | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.17.zip` rebuilt after this change |
+| Package health | `GET /health` returned `ok`; `Server: ARTHIVIO/0.17 Python/3.14.6` |
+| Trial server | `127.0.0.1:8010`, `data/arthivio-trial.db`, `/health` returned `ok` and `ARTHIVIO/0.17` |
+| Trial login | `ganesha4558@gmail.com` signed in; `/reports/library` shows **56 of 66 working** |
+
+### 33.2 Honest limits
+
+- Budgets are planning records, not journal entries. They never change a posted balance and there is
+  no approval workflow or budget lock.
+- R-901 only compares stored budgets with posted actuals. It does not forecast or infer a missing
+  budget. A ledger with no budget is shown as `No budget`, never as zero budget.
+- Ten catalogued reports still have no screen: R-204, R-506, R-508, R-601 to R-605, R-902 and
+  R-1004. They need draft-document, stock-adjustment, batch/expiry, job/project/cost-centre,
+  department/branch or intercompany-elimination data that does not exist yet.
 - No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
   accounting review was run for Build 0.17.
 - The trial URL is a temporary Cloudflare quick tunnel with no uptime guarantee. The database is

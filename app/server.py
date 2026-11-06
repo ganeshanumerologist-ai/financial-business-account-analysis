@@ -21,6 +21,7 @@ from . import analytics as analytics_mod
 from . import backup as backup_mod
 from . import bank as bank_mod
 from . import bi as bi_mod
+from . import budgeting as budget_mod
 from . import db, diagnostics, money, security
 from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
@@ -503,6 +504,10 @@ NAV = [
                 ("reports/trend-explanation", "rep", "Trend Explanation"),
                 ("reports/revenue-forecast", "rep", "Revenue Forecast"),
                 ("reports/anomaly-digest", "rep", "Anomaly Digest"),
+            ]),
+            ("Budgeting", [
+                ("budgets", "rep", "Budgets"),
+                ("reports/budget", "rep", "Budget vs Actual"),
             ]),
             ("GST &amp; tax working papers", [
                 ("reports/gst", "gst", "GST Summary &amp; GSTR-1"),
@@ -1827,6 +1832,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_locked_periods(conn, user, tenant))
             if path == "/reports/rule-versions":
                 return self._send(self.page_rule_versions(conn, user, tenant, q))
+            if path == "/reports/budget":
+                return self._send(self.page_budget_report(conn, user, tenant, q))
             if path == "/reports/salesperson":
                 return self._send(self.page_salesperson(conn, user, tenant, q))
             if path == "/reports/price-variance":
@@ -1905,6 +1912,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.export_gstr1_json(conn, user, tenant, q)
             if path.startswith("/export/"):
                 return self.export_csv(conn, user, tenant, path, q)
+            if path == "/budgets":
+                return self._send(self.page_budgets(conn, user, tenant, sess, q))
             if path == "/items":
                 return self._send(self.page_items(conn, user, tenant, sess))
             if path == "/audit":
@@ -2056,6 +2065,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._edit_journal(conn, user, tenant, sess, form)
             if path == "/journal/reverse":
                 return self._reverse_journal(conn, user, tenant, form)
+            if path == "/budgets":
+                return self._set_budget(conn, user, tenant, form)
+            if path == "/budgets/delete":
+                return self._delete_budget(conn, user, tenant, form)
             if path == "/accounts":
                 return self._create_account(conn, user, tenant, form, sess)
             if path == "/accounts/update":
@@ -5896,6 +5909,169 @@ screen, so rows appear only when an administrator or migration inserts them.</p>
 current version label; this is a usage register, not a re-posting or a rule-change history.</p>"""
         return layout("Rule version usage", body, "reports/rule-versions", user, tenant)
 
+    def page_budget_report(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = budget_mod.budget_vs_actual(conn, tenant, dfrom, dto)
+
+        def pct(value):
+            return f"{value * 100:.2f}%" if value is not None else "n/a"
+
+        def badge(row):
+            if not row["has_budget"]:
+                return '<span class="badge neutral">No budget</span>'
+            if row["status"] == "On budget":
+                return '<span class="badge ok">On budget</span>'
+            if row["favourable"]:
+                return '<span class="badge ok">Favourable</span>'
+            return '<span class="badge bad">Unfavourable</span>'
+
+        rows = "".join(
+            f'<tr><td>{esc(r["type"].title())}</td>'
+            f'<td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{money.fmt(r["budget"]) if r["has_budget"] else "No budget"}</td>'
+            f'<td class="num">{money.fmt(r["actual"])}</td>'
+            f'<td class="num">{money.fmt(r["variance"]) if r["has_budget"] else "n/a"}</td>'
+            f'<td class="num">{pct(r["variance_pct"])}</td>'
+            f'<td>{badge(r)}</td>'
+            f'<td class="num">{r["budget_months"]}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No budget or actual income/expense in this period</td></tr>'
+        t = data["totals"]
+        net_label = "Favourable" if t["net_favourable"] else "Unfavourable"
+        body = f"""
+<form method="get" action="/reports/budget" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-901 - stored budget vs posted actual</span>
+<a class="btn ghost small" href="/budgets">Set budgets</a>
+<a class="btn ghost small" href="/export/budget.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Income budget", money.fmt(t["income_budget"]), "stored monthly budgets")}
+  {kpi("Income actual", money.fmt(t["income_actual"]), "posted income")}
+  {kpi("Expense budget", money.fmt(t["expense_budget"]), "stored monthly budgets")}
+  {kpi("Expense actual", money.fmt(t["expense_actual"]), "posted expenses")}
+  {kpi("Net variance", money.fmt(t["net_variance"]), net_label + " versus budget")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Type</th><th>Code</th><th>Ledger</th><th class="num">Budget</th>
+<th class="num">Actual</th><th class="num">Variance</th><th class="num">Variance %</th>
+<th>Status</th><th class="num">Budget months</th></tr></thead>
+<tbody>{rows}</tbody>
+<tfoot>
+<tr><td colspan="3">Income total</td><td class="num">{money.fmt(t["income_budget"])}</td>
+<td class="num">{money.fmt(t["income_actual"])}</td>
+<td class="num">{money.fmt(t["income_variance"])}</td><td colspan="3"></td></tr>
+<tr><td colspan="3">Expense total</td><td class="num">{money.fmt(t["expense_budget"])}</td>
+<td class="num">{money.fmt(t["expense_actual"])}</td>
+<td class="num">{money.fmt(t["expense_variance"])}</td><td colspan="3"></td></tr>
+<tr><td colspan="3"><b>Net (income - expense)</b></td><td class="num"><b>{money.fmt(t["net_budget"])}</b></td>
+<td class="num"><b>{money.fmt(t["net_actual"])}</b></td>
+<td class="num"><b>{money.fmt(t["net_variance"])}</b></td><td colspan="3"></td></tr>
+</tfoot></table></div></div>
+<p class="small muted" style="margin-top:10px">{esc(data["method"])} An income variance above budget is
+favourable; an expense variance above budget is unfavourable. Rows with no stored budget show "No budget"
+and are never given a variance percentage. Budgets are planning records and do not change posted balances.</p>"""
+        return layout("Budget vs actual", body, "reports/budget", user, tenant)
+
+    def page_budgets(self, conn, user, tenant, sess, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = budget_mod.register(conn, tenant, dfrom, dto)
+        try:
+            security.require(conn, user["id"], tenant["id"], "budget.manage")
+            can_manage = True
+        except security.AuthError:
+            can_manage = False
+
+        accounts = conn.execute(
+            """SELECT id, code, name, type FROM account
+               WHERE tenant_id=? AND status='active' AND type IN ('income','expense')
+               ORDER BY CASE type WHEN 'income' THEN 0 ELSE 1 END, code""",
+            (tenant["id"],),
+        ).fetchall()
+        options = "".join(
+            f'<option value="{esc(a["id"])}">{esc(a["code"])} {esc(a["name"])}</option>'
+            for a in accounts)
+        error = (q.get("error") or [""])[0]
+        saved = (q.get("saved") or [""])[0]
+        deleted = (q.get("deleted") or [""])[0]
+        if error:
+            notice = (f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
+                      f'<b>Budget not saved.</b> {esc(error)}</div>')
+        elif saved:
+            notice = ('<div class="card pad" style="border-color:var(--success);margin-bottom:14px">'
+                      '<b>Budget saved.</b> The planning amount is stored; no journal was posted.</div>')
+        elif deleted:
+            notice = ('<div class="card pad" style="margin-bottom:14px">'
+                      '<b>Budget removed.</b> The deletion is in the audit trail.</div>')
+        else:
+            notice = ""
+
+        def action(row):
+            if not can_manage:
+                return ""
+            return (f'<form method="post" action="/budgets/delete" style="margin:0" '
+                    f'onsubmit="return confirm(\'Remove this budget?\')">'
+                    f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                    f'<input type="hidden" name="budget_id" value="{esc(row["id"])}">'
+                    f'<button class="btn ghost small" type="submit">Remove</button></form>')
+
+        rows = "".join(
+            f'<tr><td>{esc(r["period"])}</td>'
+            f'<td>{esc(r["code"])} {esc(r["name"])}</td>'
+            f'<td>{esc(r["type"].title())}</td>'
+            f'<td class="num">{money.fmt(r["amount"])}</td>'
+            f'<td>{esc(r["note"])}</td>'
+            f'<td>{esc((r["updated_at"] or "")[:10])}</td>'
+            f'<td>{esc(r["updated_by_name"])}</td>'
+            f'<td>{action(r)}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No budgets in this period</td></tr>'
+        t = data["totals"]
+        form = ""
+        if can_manage:
+            form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Set a monthly budget</h2>
+<form method="post" action="/budgets">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="row c4">
+  <div class="field"><label>Month</label><input type="month" name="period" value="{date.today().strftime('%Y-%m')}" required></div>
+  <div class="field"><label>Income or expense ledger</label><select name="account_id" required>{options}</select></div>
+  <div class="field"><label>Budget amount</label><input name="amount" inputmode="decimal" placeholder="0.00" required></div>
+  <div class="field"><label>Note</label><input name="note" maxlength="200" placeholder="Optional"></div>
+</div>
+<button class="btn" type="submit">Save budget</button>
+<span class="small muted" style="margin-left:10px">Saving the same month and ledger updates the existing amount.</span>
+</form></div>"""
+        else:
+            form = ('<div class="card pad sect"><b>Read-only budget view.</b> '
+                    'Your role can see budgets but not change them.</div>')
+
+        body = f"""
+<form method="get" action="/budgets" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">Monthly planning amounts</span>
+<a class="btn ghost small" href="/reports/budget?from={esc(dfrom)}&amp;to={esc(dto)}">Budget vs Actual</a></form>
+{notice}
+<div class="kpis">
+  {kpi("Budget rows", str(t["entries"]), "ledger-months in this period")}
+  {kpi("Ledgers", str(t["accounts"]), "with a stored budget")}
+  {kpi("Planned amount", money.fmt(t["amount"]), "sum of stored monthly budgets")}
+</div>
+{form}
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Month</th><th>Ledger</th><th>Type</th><th class="num">Budget</th>
+<th>Note</th><th>Updated</th><th>By</th><th></th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">Budgets are stored per ledger per month. They are planning
+records, not journal entries, and never change a posted balance. Updating or removing a budget is audited.
+Only income and expense ledgers are available.</p>"""
+        return layout("Budgets", body, "budgets", user, tenant)
+
     def page_salesperson(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.salesperson_performance(conn, tenant, dfrom, dto)
@@ -7819,6 +7995,28 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         acct.audit(conn, tenant["id"], user["id"], "customer.create", "customer", cid)
         return self._redirect("/customers")
 
+    def _set_budget(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "budget.manage")
+        account_id = first(form, "account_id").strip()
+        period = first(form, "period").strip()
+        note = first(form, "note").strip()
+        try:
+            amount = money.parse_amount(first(form, "amount") or "0")
+            budget_mod.set_budget(
+                conn, tenant["id"], account_id, period, amount, note, user["id"])
+        except (budget_mod.BudgetError, money.MoneyError) as exc:
+            return self._redirect("/budgets?error=" + urllib.parse.quote(str(exc)))
+        return self._redirect("/budgets?saved=1")
+
+    def _delete_budget(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "budget.manage")
+        budget_id = first(form, "budget_id").strip()
+        try:
+            budget_mod.delete_budget(conn, tenant["id"], budget_id, user["id"])
+        except budget_mod.BudgetError as exc:
+            return self._redirect("/budgets?error=" + urllib.parse.quote(str(exc)))
+        return self._redirect("/budgets?deleted=1")
+
     def _create_item(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "item.manage")
         sku = first(form, "sku").strip()
@@ -8864,6 +9062,33 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                      for r in data["rows"]]
             rows.append([])
             rows.append(["Current rule", data["current_version"]])
+            rows.append(["Note", data["method"]])
+        elif key == "budget":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = budget_mod.budget_vs_actual(conn, tenant, dfrom, dto)
+            rows = [["Type", "Code", "Ledger", "Budget", "Actual", "Variance",
+                     "Variance %", "Status", "Budget months"]]
+            for r in data["rows"]:
+                pct = f"{r['variance_pct'] * 100:.2f}%" if r["variance_pct"] is not None else ""
+                rows.append([
+                    r["type"].title(), r["code"], r["name"],
+                    money.to_str(r["budget"]) if r["has_budget"] else "",
+                    money.to_str(r["actual"]),
+                    money.to_str(r["variance"]) if r["has_budget"] else "",
+                    pct, r["status"], r["budget_months"],
+                ])
+            t = data["totals"]
+            rows.append([])
+            rows.append(["Income total", "", "", money.to_str(t["income_budget"]),
+                         money.to_str(t["income_actual"]), money.to_str(t["income_variance"]),
+                         "", "", ""])
+            rows.append(["Expense total", "", "", money.to_str(t["expense_budget"]),
+                         money.to_str(t["expense_actual"]), money.to_str(t["expense_variance"]),
+                         "", "", ""])
+            rows.append(["Net", "", "", money.to_str(t["net_budget"]),
+                         money.to_str(t["net_actual"]), money.to_str(t["net_variance"]),
+                         "", "Favourable" if t["net_favourable"] else "Unfavourable", ""])
             rows.append(["Note", data["method"]])
         elif key == "invoices":
             data = conn.execute(

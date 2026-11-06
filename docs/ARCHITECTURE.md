@@ -202,6 +202,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 | `app/bi.py` | static Power BI import ZIP, facts/dimensions, manifest, Power Query starter | Implemented, tested |
 | `app/insights.py` | deterministic grounded observations with basis, metric keys and drill-down | Implemented, tested |
 | `app/reports.py` | Report Library catalogue and deterministic management reports (cash flow, ratios, comparison, registers, activity, working capital, sales/customer, supplier/return, stock and credit-limit reports) | Implemented, tested |
+| `app/budgeting.py` | monthly budget planning, audit-safe upsert/delete and R-901 budget vs actual | Implemented, tested |
 | `app/security.py` | scrypt hashing, sessions, CSRF token, RBAC, tenant authorisation, lockout | Implemented, tested |
 | `app/server.py` | HTTP routing, server-rendered UI, cookie/CSRF handling | Implemented, HTTP-tested |
 | `app/demo.py`, `scripts/seed_demo.py` | synthetic demo books | Implemented |
@@ -593,13 +594,13 @@ floats and show `n/a` when the denominator is zero. The module provides:
 ### 18.2 Report Library
 
 `/reports/library` lists all 66 catalogued reports, filters by group and status, and shows
-**55 working, 0 partial and 11 planned**. Working rows link to a route. Planned rows have no route
+**56 working, 0 partial and 10 planned**. Working rows link to a route. Planned rows have no route
 and no sample data, so a delivery map cannot be mistaken for a finished report.
 
 ### 18.3 Export and security boundary
 
 `/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`,
-`/export/expense-breakdown.csv`, the ten Build 0.16 report exports and the seventeen Build 0.17 report exports require `report.export`, are
+`/export/expense-breakdown.csv`, the ten Build 0.16 report exports and the eighteen Build 0.17 report exports require `report.export`, are
 tenant-scoped and send `no-store`. Amounts are exported as exact decimal strings from integer paise.
 Quantities in the stock report are exported as three-decimal strings.
 
@@ -607,7 +608,7 @@ Quantities in the stock report are exported as three-decimal strings.
 
 - Cash flow and ratios are management working papers, not statutory statements, forecasts or
   lender/investor opinions.
-- The remaining 11 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
+- The remaining 10 catalogued reports, saved dashboards, full drill-down, EN/HI labels and the
   ~150-template library are not delivered.
 - No mobile viewport, screen-reader, contrast, cross-browser or 4K matrix was run for the new pages.
 
@@ -692,9 +693,9 @@ tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.
 catalogue now shows **38 working, 1 partial and 27 planned**. No new table, column, index or cached
 total was added.
 
-## 22. Build 0.17: seventeen more report screens (2026-11-05)
+## 22. Build 0.17: eighteen more report screens (2026-11-06)
 
-`app/reports.py` gains seventeen deterministic functions that read posted records only. Opening vs closing
+`app/reports.py` gains seventeen deterministic report functions, and `app/budgeting.py` adds R-901 budget vs actual. Opening vs closing
 uses signed account balances on the day before the period and on the end date, then reconciles
 opening + debit ? credit to closing for every ledger. Locked periods read `period_lock` and the
 locking user. Rule version usage groups posted entries by the stored `journal_entry.rule_version`. Salesperson performance groups posted invoices and receipts by the creator of their
@@ -713,6 +714,12 @@ posted inventory account balance and shows the difference without posting a corr
 risk combines open receivable ageing with customer credit days and limits, compares overdue value
 with a prior date and labels High/Medium/Low risk.
 
+R-901 budget vs actual stores monthly planning amounts per income/expense ledger in the additive
+`budget` table and compares them with posted actuals. Variance is actual minus budget; income
+above budget and expense below budget are favourable. Rows without a stored budget are marked
+"No budget" and never receive a variance percentage. The `/budgets` screen upserts or removes
+one ledger-month and writes an audit record; it never posts a journal.
+
 The same batch adds R-705 cash-flow forecast (weekly opening cash plus scheduled collections minus
 scheduled payments, explicitly labelled forecast), R-807 tax ledger (output-tax and input-credit
 ledgers with net payable), R-904 KPI dashboard pack (actual-only cards from statements, ratios, cash,
@@ -720,9 +727,9 @@ ageing and inventory), R-1001 trend explanation (deterministic narrative over mo
 R-1002 revenue forecast (least-squares line with an indicative band and actual/forecast separation)
 and R-1003 anomaly digest (rule-based review prompts, never fraud findings).
 
-All seventeen reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
-tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.test_46`. The only
-schema changes are the additive `item.reorder_level_milli` column with a zero default and the
-additive `journal_entry.rule_version` column with a `posting-v1` default; no table, index, cached
-total or destructive migration was added. The catalogue now shows **55 working,
-0 partial and 11 planned**.
+All eighteen reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
+tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.test_46`. The schema
+changes are additive: `item.reorder_level_milli` with a zero default, `journal_entry.rule_version`
+with a `posting-v1` default, and the `budget` table keyed by tenant, ledger and month. No table,
+index, cached total or destructive migration was removed or rewritten. The catalogue now shows
+**56 working, 0 partial and 10 planned**.

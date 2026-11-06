@@ -169,9 +169,9 @@ deserves a verified backup and a restore drill.
 
 | Check | Result |
 |---|---|
-| Full test suite | **291 tests, OK**, 31.185 s, Python 3.14.6, Windows |
-| Report tests | 33 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, credit-limit detection, malformed journal detection and tenant isolation |
-| Report HTTP tests | 36 report pages and 31 CSV exports, OK |
+| Full test suite | **295 tests, OK**, 28.976 s, Python 3.14.6, Windows |
+| Report tests | 36 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, credit-limit detection, malformed journal detection and tenant isolation |
+| Report HTTP tests | 37 report pages and 32 CSV exports, OK |
 | Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.17` |
 | Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.17 Python/3.14.6` |
 | Package first run | Setup page rendered from the embedded runtime; owner creation covered by `test_first_run` |

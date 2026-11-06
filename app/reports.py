@@ -2387,7 +2387,7 @@ REPORT_CATALOG = [
     _r("R-806", "Tax & compliance", "ITC Reconciliation (2B)", "working", "/gstr2b", "Matched, mismatched and missing ITC"),
     _r("R-807", "Tax & compliance", "Tax Ledger", "working", "/reports/tax-ledger", "Opening + output tax - input credit = closing per tax ledger"),
     # Group 9 — strategy and process
-    _r("R-901", "Strategy & process", "Budget vs Actual", "planned", "", "Variance = actual − budget"),
+    _r("R-901", "Strategy & process", "Budget vs Actual", "working", "/reports/budget", "Variance = actual - budget for stored monthly income and expense budgets"),
     _r("R-902", "Strategy & process", "Department / Branch P&L", "planned", "", "Contribution by scope"),
     _r("R-903", "Strategy & process", "Expense Breakdown", "working", "/reports/expense-breakdown", "Expense by account with share of total"),
     _r("R-904", "Management & KPIs", "KPI Dashboard Pack", "working", "/reports/kpi-pack", "Actual-only KPI cards from statements, ratios, cash, ageing and inventory"),

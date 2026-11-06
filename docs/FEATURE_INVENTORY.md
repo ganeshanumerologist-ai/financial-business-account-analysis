@@ -682,7 +682,7 @@ and documentation agree.
 - Historical cost layers; product margin uses the current item cost and is labelled as an estimate.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.16.
 
-## 25. Status after seventeen more report screens (Build 0.17, 2026-11-05)
+## 25. Status after eighteen more report screens (Build 0.17, 2026-11-06)
 
 ### Implemented and verified
 
@@ -699,20 +699,22 @@ and documentation agree.
 | Dead / Slow Stock | `/reports/dead-stock` | stocked items whose latest posted movement is older than N days, including never-moved stock; `test_dead_stock_uses_last_posted_movement` |
 | Inventory to GL Reconciliation | `/reports/inventory-gl` | item-master stock value vs posted inventory account balance with difference; never posts a correction; `test_inventory_gl_reconciliation_shows_difference` |
 | Receivables Risk | `/reports/receivables-risk` | overdue exposure against customer credit days, limit utilisation, prior-period overdue trend and High/Medium/Low risk; `test_receivables_risk_reconciles_to_ageing` |
+| Budget vs Actual | `/reports/budget` | stored monthly income/expense budgets against posted actuals, with variance, variance %, favourable/unfavourable and no-budget states; `test_budget_vs_actual_marks_favourable_and_unfavourable` |
+| Budget entry | `/budgets` | month + income/expense ledger + amount + note; upsert, remove, audit and `budget.manage`; `test_budget_set_update_delete_is_audited` |
 | Cash Flow Forecast | `/reports/cash-flow-forecast` | weekly opening cash plus scheduled collections minus scheduled payments; overdue items in the first bucket; explicitly labelled forecast; `test_cash_flow_forecast_reconciles_opening_to_closing` |
 | Tax Ledger | `/reports/tax-ledger` | output-tax and input-credit ledgers with opening, debit, credit, closing and net payable; working aid only; `test_tax_ledger_reconciles_output_and_input` |
 | KPI Dashboard Pack | `/reports/kpi-pack` | actual-only revenue, profit, cash, receivables, payables, inventory, margins, ratios, DSO/DIO/DPO and CCC cards with formula and source; `test_kpi_pack_is_actual_only_and_checks_balance` |
 | Trend Explanation | `/reports/trend-explanation` | deterministic narrative over monthly actual revenue and expenses, with the largest moves called out; no generative AI; `test_trend_explanation_matches_monthly_sales` |
 | Revenue Forecast | `/reports/revenue-forecast` | least-squares forecast from monthly actual net revenue, with an indicative band, confidence and actual/forecast separation; `test_revenue_forecast_separates_actuals_and_forecast` |
 | Anomaly Digest | `/reports/anomaly-digest` | deterministic review prompts for journal structure, large entries, possible duplicates, backdating, negative stock and 90+ day receivables; `test_anomaly_digest_returns_review_prompts` |
-| Additive fields | schema | `item.reorder_level_milli` and `journal_entry.rule_version` added through the additive migration path; no destructive migration; existing rows default to zero and `posting-v1` |
-| Report coverage | Reports menu | 55 of 66 working; 0 partial; 11 planned |
+| Additive schema | schema | `item.reorder_level_milli` and `journal_entry.rule_version` columns plus the `budget` table added through the additive migration path; no destructive migration; existing rows default to zero and `posting-v1` |
+| Report coverage | Reports menu | 56 of 66 working; 0 partial; 10 planned |
 | Offline package 0.17 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.17.zip` | embedded Python 3.14.6, `openpyxl` 3.1.5, health smoke test passed |
 
 ### Still not implemented
 
-- 11 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
+- 10 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
 - Manual stock-adjustment table; stock reports reconstruct from posted documents and current item stock.
 - FIFO or historical cost layers; inventory valuation uses the current moving weighted-average cost.
-- Batch/expiry, job/project costing, WIP/production/yield, cost-centre, budget and department/branch P&L data models.
+- Batch/expiry, job/project costing, WIP/production/yield, cost-centre and department/branch P&L data models.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.17.

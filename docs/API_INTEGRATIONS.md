@@ -124,10 +124,12 @@
 | `/reports/stock-movements`, `/reports/inventory-valuation`, `/reports/reorder`, `/reports/dead-stock`, `/reports/inventory-gl`, `/reports/receivables-risk` | Build 0.17 stock history/valuation/reorder/dead-stock/GL reconciliation and receivables-risk reports |
 | `/reports/cash-flow-forecast`, `/reports/tax-ledger`, `/reports/kpi-pack` | Build 0.17 labelled cash forecast, tax ledger and actual-only KPI pack |
 | `/reports/trend-explanation`, `/reports/revenue-forecast`, `/reports/anomaly-digest` | Build 0.17 deterministic narrative, labelled revenue forecast and rule-based review prompts |
+| `/budgets`, `/reports/budget` | Build 0.17 budget entry (`budget.manage`) and R-901 budget vs actual (`report.view`); budget rows are planning data, not journal entries |
 | `/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`, `/export/expense-breakdown.csv` | Session + `report.export`; exact decimal strings; no external service |
 | `/export/sales-summary.csv`, `/export/top-customers.csv`, `/export/product-sales.csv`, `/export/discounts.csv`, `/export/sales-returns.csv`, `/export/top-suppliers.csv`, `/export/purchase-returns.csv`, `/export/stock-summary.csv`, `/export/credit-limits.csv`, `/export/tb-exceptions.csv` | Build 0.16 CSV exports; session + `report.export`; exact decimal strings and three-decimal quantities; no external service |
 | `/export/opening-closing.csv`, `/export/locked-periods.csv`, `/export/rule-versions.csv`, `/export/salesperson.csv`, `/export/price-variance.csv`, `/export/stock-movements.csv`, `/export/inventory-valuation.csv`, `/export/reorder.csv`, `/export/dead-stock.csv`, `/export/inventory-gl.csv`, `/export/receivables-risk.csv` | Build 0.17 CSV exports; session + `report.export`; exact decimal strings and three-decimal quantities; no external service |
 | `/export/cash-flow-forecast.csv`, `/export/tax-ledger.csv`, `/export/kpi-pack.csv`, `/export/trend-explanation.csv`, `/export/revenue-forecast.csv`, `/export/anomaly-digest.csv` | Build 0.17 CSV exports; session + `report.export`; exact decimal strings; forecasts and actuals are separated; no external service |
+| `/export/budget.csv` | Build 0.17 CSV export; session + `report.export`; budget, actual, variance, variance %, status and budget months; no external service |
 
 There is still no external BI token API. The session-authenticated JSON analytics API remains the
 only machine-readable external surface, and it exposes actuals only.
