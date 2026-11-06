@@ -87,6 +87,8 @@ option. The application itself does not need a schema change.
 
 ### Paid onboarding (first run)
 
+When creating the Blueprint, set the Blueprint file path to `render.paid.yaml`
+(Render defaults to `render.yaml`, which is the free demo blueprint). Then
 `render.paid.yaml` starts with an empty database and no demo books. Open the
 Render URL after the first deploy; it redirects to `/setup`. Create the owner
 there with the real owner email and a strong password. Setup creates the first
