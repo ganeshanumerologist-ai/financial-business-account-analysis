@@ -82,6 +82,20 @@ option. The application itself does not need a schema change.
 | Database | `/var/data/arthivio.db` |
 | Backups | `/var/data/backups` |
 | Public demo autologin | disabled |
+| Demo seed | disabled (`ARTHIVIO_SEED_DEMO=0`) |
+| Remote first-run setup | enabled for the first owner (`ARTHIVIO_ALLOW_REMOTE_SETUP=1`) |
+
+### Paid onboarding (first run)
+
+`render.paid.yaml` starts with an empty database and no demo books. Open the
+Render URL after the first deploy; it redirects to `/setup`. Create the owner
+there with the real owner email and a strong password. Setup creates the first
+business and signs you in.
+
+Once the owner exists, `/setup` redirects to `/login`; the setup flag has no
+further effect. For hygiene, set `ARTHIVIO_ALLOW_REMOTE_SETUP=0` (or remove it)
+and redeploy after setup. Do **not** set `ARTHIVIO_SEED_DEMO=1` on a real
+deployment: it would insert synthetic demo books into the persistent database.
 
 This keeps the existing SQLite application and avoids a database migration. The
 Firebase Hosting URL can redirect to the Render URL once it is live. The disk is
@@ -109,6 +123,8 @@ Then open `http://127.0.0.1:8000/login`.
 | `ARTHIVIO_HOST` | `127.0.0.1` | Use `0.0.0.0` inside a container or on a trusted LAN |
 | `ARTHIVIO_DB` | `data/arthivio.db` | SQLite path; `/app/data/arthivio.db` in the image |
 | `ARTHIVIO_DEMO_AUTOLOGIN` | unset | Keep unset/`0` on any public host |
+| `ARTHIVIO_SEED_DEMO` | `1` in the container | Set `0` on a real deployment so `/setup` creates the owner instead of synthetic demo books |
+| `ARTHIVIO_ALLOW_REMOTE_SETUP` | unset | Set `1` only for the first paid owner creation; remove it after setup |
 
 ## 4. What the demo does and does not prove
 

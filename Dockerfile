@@ -22,4 +22,6 @@ EXPOSE 8000
 
 # Seed only when the database is empty. On an ephemeral host this recreates the
 # synthetic demo books after a restart; on a persistent disk it is a no-op.
-CMD ["sh", "-c", "python scripts/seed_demo.py && exec python -m app.server"]
+# Set ARTHIVIO_SEED_DEMO=0 on a real deployment so the first-run /setup page
+# creates the owner and the first real business instead of demo books.
+CMD ["sh", "-c", "if [ \"${ARTHIVIO_SEED_DEMO:-1}\" != \"0\" ]; then python scripts/seed_demo.py; fi; exec python -m app.server"]

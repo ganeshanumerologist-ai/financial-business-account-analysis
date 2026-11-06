@@ -968,3 +968,20 @@ the same actuals are already displayed.
 - The ECharts asset remains locally vendored. There is no CDN call and no chart library network
   dependency. The full suite still passes **299 tests, OK**, 26.435 s, Python 3.14.6, Windows,
   recorded in `docs/TEST_RESULTS.md` `RUN-2026-11-06-02`.
+
+## D-045 - Paid Render onboarding uses first-run setup, not demo seed
+
+**Date:** 2026-11-06. **Status:** accepted for the first stable online deployment.
+
+The free Render blueprint is a synthetic demo. The paid blueprint must not put demo books into the
+persistent production database, because the owner would then have to distinguish real entries from
+synthetic opening data.
+
+- The container now seeds demo books only when `ARTHIVIO_SEED_DEMO` is not `0`. The free blueprint
+  leaves it at the default (`1`); `render.paid.yaml` sets it to `0`.
+- `render.paid.yaml` sets `ARTHIVIO_ALLOW_REMOTE_SETUP=1` for the first boot. With an empty database,
+  the public URL redirects to `/setup`, where the real owner creates the first business and password.
+- Once an owner exists, `security.first_run()` is false and `/setup` redirects to `/login`; the flag
+  no longer creates a setup path. The operator should still remove it after onboarding.
+- The paid deployment keeps SQLite on the Render disk at `/var/data/arthivio.db`; this decision does
+  not add a database server, schema change or second ledger.

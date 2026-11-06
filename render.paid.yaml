@@ -18,3 +18,10 @@ services:
         value: /var/data/backups
       - key: ARTHIVIO_DEMO_AUTOLOGIN
         value: "0"
+      # Real deployment: no synthetic demo books. The first visit shows /setup.
+      - key: ARTHIVIO_SEED_DEMO
+        value: "0"
+      # Allow the first owner to be created over the public URL. Once the owner
+      # exists, /setup redirects to /login and this flag has no further effect.
+      - key: ARTHIVIO_ALLOW_REMOTE_SETUP
+        value: "1"
