@@ -4,7 +4,7 @@
 |---|---|
 | Version | 1.5 |
 | Date | 2026-11-05 |
-| Status | **54 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds sixteen more) |
+| Status | **55 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds seventeen more) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -20,17 +20,17 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > formula/source and honest delivery state. Build 0.13 added nine working reports: R-104, R-108,
 > R-109, R-202, R-203, R-301, R-401, R-903 and R-905.
 >
-> **Build 0.16 report batch:** sixteen more working reports were added with CSV exports: R-110 trial
+> **Build 0.16 report batch:** ten more working reports were added with CSV exports: R-110 trial
 > balance exceptions, R-302 sales summary, R-303 top customers, R-306 sales returns, R-307
 > product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501
 > stock summary and R-706 credit-limit utilisation.
 >
-> **Build 0.17 report batch:** sixteen more working reports were added with CSV exports: R-107 opening
-> vs closing balances, R-205 locked period register, R-308 salesperson performance, R-405 price
+> **Build 0.17 report batch:** seventeen more working reports were added with CSV exports: R-107 opening
+> vs closing balances, R-205 locked period register, R-206 rule version usage, R-308 salesperson performance, R-405 price
 > variance, R-502 stock movement history, R-503 inventory valuation, R-504 reorder/shortage, R-505
 > dead/slow stock, R-507 inventory-to-GL reconciliation, R-704 receivables risk, R-705 cash flow
 > forecast, R-807 tax ledger, R-904 KPI dashboard pack, R-1001 trend explanation, R-1002 revenue
-> forecast and R-1003 anomaly digest. The library now marks **54 working, 0 partial and 12 planned**;
+> forecast and R-1003 anomaly digest. The library now marks **55 working, 0 partial and 11 planned**;
 > planned rows still have no route and are never filled with sample data.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
@@ -84,7 +84,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-203 | Account Activity Summary | journal_line | Count + value per account per period | 2 | Working (Build 0.13) |
 | R-204 | Unposted / Draft Entries | journal_entry status=draft | List + age | 2 | Not implemented |
 | R-205 | Locked Period Register | period_lock + user | Locked periods with locking actor and timestamp | To audit log | 2 | Working (Build 0.17) |
-| R-206 | Rule Version Usage | journal_entry | Entries grouped by applied rule version | 2 | Not implemented |
+| R-206 | Rule Version Usage | journal_entry | Posted entries grouped by the rule version stored at posting time | 2 | Working (Build 0.17) |
 
 ---
 

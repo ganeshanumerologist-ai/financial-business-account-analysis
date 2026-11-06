@@ -53,14 +53,14 @@ entries and test new ledgers without touching the demo. Build 0.16 adds ten more
 **R-110 Trial Balance Exceptions**, **R-302 Sales Summary**, **R-303 Top Customers**, **R-306 Sales
 Returns**, **R-307 Product-wise Sales**, **R-309 Discount Analysis**, **R-404 Top Suppliers**,
 **R-406 Purchase Returns**, **R-501 Stock Summary** and **R-706 Credit Limit Utilisation**, with
-CSV exports. Build 0.17 adds sixteen more working reports: **R-107 Opening vs Closing**, **R-205
-Locked Period Register**, **R-308 Salesperson Performance**, **R-405 Price Variance**, **R-502
+CSV exports. Build 0.17 adds seventeen more working reports: **R-107 Opening vs Closing**, **R-205
+Locked Period Register**, **R-206 Rule Version Usage**, **R-308 Salesperson Performance**, **R-405 Price Variance**, **R-502
 Stock Movement History**, **R-503 Inventory Valuation**, **R-504 Reorder / Shortage**, **R-505
 Dead / Slow Stock**, **R-507 Inventory to GL Reconciliation**, **R-704 Receivables Risk**, **R-705
 Cash Flow Forecast**, **R-807 Tax Ledger**, **R-904 KPI Dashboard Pack**, **R-1001 Trend
 Explanation**, **R-1002 Revenue Forecast** and **R-1003 Anomaly Digest**, with CSV exports.
-Coverage is now **54 of 66** working reports. Saved dashboards, EN/HI labels, Power BI Service
-refresh/RLS and a generative AI provider remain planned. Covered by **290 automated tests that pass
+Coverage is now **55 of 66** working reports. Saved dashboards, EN/HI labels, Power BI Service
+refresh/RLS and a generative AI provider remain planned. Covered by **291 automated tests that pass
 on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-11-05-03`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
@@ -85,7 +85,7 @@ Or step by step:
 
 ```powershell
 python -m pip install -r requirements.txt  # approved openpyxl dependency
-python -m unittest discover -s tests       # 290 tests
+python -m unittest discover -s tests       # 291 tests
 python -m app.server                       # http://127.0.0.1:8000
 ```
 
@@ -186,7 +186,7 @@ paid disk or a VPS; see `docs/DEPLOYMENT.md`.
 | Inventory | Perpetual stock, weighted-average cost, COGS at cost, negative-stock block, service items never touch stock | `test_cogs_and_stock`, `test_purchase_at_current_cost_keeps_average`, `test_service_invoice_does_not_touch_stock` |
 | Receivables / payables | Customer and vendor balances + statements, open-invoice and open-bill ageing (current / 31-60 / 61-90 / 90+), reconciled to control accounts | `TestReceipts`, `TestAgeingAndGST`, `test_customer_statement_matches_receivable_control` |
 | Reports | One Reports menu with trial balance, P&L, balance sheet (A = L + E), receivable/payable ageing and GST working papers; general ledger with running balance, cash book, bank book and day book are derived views with **Edit/Reverse** actions for manual entries; nothing is overwritten | `test_04`, `test_balance_sheet_equation`, `TestAgeingAndGST`, `test_14_new_pages_render`, `test_27_grouped_dropdown_navigation`, `test_web.test_48` |
-| Report Library and management reports | `/reports/library` lists all 66 catalogued reports with source/formula and honest working/partial/planned state; thirty-five deterministic management reports: cash flow with indirect bridge, financial ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle, trial balance exceptions, sales summary, top customers, product-wise sales, discount analysis, sales returns, top suppliers, purchase returns, stock summary and credit-limit utilisation, opening vs closing, locked periods, salesperson performance, price variance, stock movements, inventory valuation, reorder/shortage, dead/slow stock, inventory-to-GL reconciliation, receivables risk, cash flow forecast, tax ledger, KPI dashboard pack, trend explanation, revenue forecast and anomaly digest; 54 of 66 working; CSV exports for every new report | `tests/test_reports.py` (32), `test_web.test_46`, `RUN-2026-11-04-01`, `RUN-2026-11-05-02`, `RUN-2026-11-05-03` |
+| Report Library and management reports | `/reports/library` lists all 66 catalogued reports with source/formula and honest working/partial/planned state; thirty-six deterministic management reports: cash flow with indirect bridge, financial ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle, trial balance exceptions, sales summary, top customers, product-wise sales, discount analysis, sales returns, top suppliers, purchase returns, stock summary and credit-limit utilisation, opening vs closing, locked periods, rule version usage, salesperson performance, price variance, stock movements, inventory valuation, reorder/shortage, dead/slow stock, inventory-to-GL reconciliation, receivables risk, cash flow forecast, tax ledger, KPI dashboard pack, trend explanation, revenue forecast and anomaly digest; 55 of 66 working; CSV exports for every new report | `tests/test_reports.py` (33), `test_web.test_46`, `RUN-2026-11-04-01`, `RUN-2026-11-05-02`, `RUN-2026-11-05-03` |
 | Analytics foundation | Read-only `v_analytics_journal` / `v_analytics_monthly` views; 19-metric actual-only registry; `/api/v1/analytics/catalog`, `/api/v1/analytics/overview` and `/api/v1/analytics/insights` (session + `report.view`, tenant-scoped, `no-store`); `/reports/analytics` shows KPI cards, monthly bars, expense composition, top customers/vendors, checks/freshness and a locally vendored ECharts interactive view; no forecast or authoritative total is invented | `tests/test_analytics.py` (6), `tests/test_insights.py` (3), `test_web.test_40`, `test_web.test_43`, `test_web.test_44`, `RUN-2026-10-28-01` |
 | Excel workbook export | Real `.xlsx` via approved `openpyxl`: `/export/workbook.xlsx` builds 20 sheets (cover, read-me, data dictionary, KPIs, monthly, P&L, balance sheet, trial balance, expense, top parties, AR/AP ageing, cash/bank, inventory, GST working/sales/purchases, journal, AI Insights) with native Excel charts; amounts show INR while the exact integer-paise source stays beside each KPI; permission `report.export`, `no-store` | `tests/test_excel.py` (6), `test_web.test_41`, `RUN-2026-10-28-01` |
 | Excel import | Real `.xlsx` upload for bulk opening balances, bank statements and GSTR-2B; server-side `openpyxl` reads the first worksheet (or named sheet), converts dates/numbers to neutral CSV, then the existing validators still preview and post atomically; 8 MB/50,000-row guard, formula cells use cached values only, malformed files fail visibly | `tests/test_xlsx_import.py` (5), `test_web.test_45`, `RUN-2026-10-28-01` |
@@ -263,7 +263,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **290 tests, OK, 29.028 s**, Python 3.14.6, Windows.
+Last verified: **291 tests, OK, 31.185 s**, Python 3.14.6, Windows.
 
 Backup drill:
 

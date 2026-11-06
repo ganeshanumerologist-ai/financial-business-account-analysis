@@ -23,16 +23,16 @@ class ReportsTest(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_catalog_has_66_rows_and_54_working(self):
+    def test_catalog_has_66_rows_and_55_working(self):
         cat = reports.catalog()
         self.assertEqual(cat["total"], 66)
-        self.assertEqual(cat["working"], 54)
+        self.assertEqual(cat["working"], 55)
         self.assertEqual(cat["partial"], 0)
-        self.assertEqual(cat["planned"], 12)
+        self.assertEqual(cat["planned"], 11)
         working = [r for g in cat["groups"] for r in g["reports"] if r["status"] == "working"]
         self.assertTrue(all(r["route"] for r in working))
         for rid in ("R-104", "R-107", "R-108", "R-109", "R-110", "R-202", "R-203",
-                    "R-205", "R-301", "R-302", "R-303", "R-306", "R-307", "R-308",
+                    "R-205", "R-206", "R-301", "R-302", "R-303", "R-306", "R-307", "R-308",
                     "R-309", "R-401", "R-404", "R-405", "R-406", "R-501", "R-502",
                     "R-503", "R-504", "R-505", "R-507", "R-704", "R-705", "R-706",
                     "R-807", "R-903", "R-904", "R-905", "R-1001", "R-1002", "R-1003"):
@@ -361,6 +361,30 @@ class ReportsTest(unittest.TestCase):
         for row in data["rows"]:
             self.assertLessEqual(row["overdue"], row["outstanding"])
             self.assertIn(row["risk"], ("High", "Medium", "Low"))
+
+    def test_rule_version_usage_groups_posted_entries(self):
+        data = reports.rule_version_usage(
+            self.conn, self.tenant, "2026-04-01", "2026-10-31")
+        self.assertEqual(data["current_version"], "posting-v1")
+        self.assertEqual(data["totals"]["versions"], 1)
+        self.assertEqual(data["totals"]["difference"], 0)
+        self.assertEqual(data["rows"][0]["rule_version"], "posting-v1")
+        entry_id = self.conn.execute(
+            "SELECT id FROM journal_entry WHERE tenant_id=? LIMIT 1",
+            (self.tenant["id"],)).fetchone()["id"]
+        self.conn.execute(
+            "UPDATE journal_entry SET rule_version='test-v2' WHERE id=?", (entry_id,))
+        try:
+            changed = reports.rule_version_usage(
+                self.conn, self.tenant, "2026-04-01", "2026-10-31")
+            self.assertEqual(changed["totals"]["versions"], 2)
+            self.assertEqual(changed["totals"]["difference"], 0)
+            versions = {r["rule_version"] for r in changed["rows"]}
+            self.assertEqual(versions, {"posting-v1", "test-v2"})
+        finally:
+            self.conn.execute(
+                "UPDATE journal_entry SET rule_version='posting-v1' WHERE id=?",
+                (entry_id,))
 
     def test_cash_flow_forecast_reconciles_opening_to_closing(self):
         data = reports.cash_flow_forecast(

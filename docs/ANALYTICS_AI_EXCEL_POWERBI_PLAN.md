@@ -26,11 +26,12 @@
 > **Update 2026-11-05:** Build 0.16 adds ten more working reports (trial balance exceptions, sales
 > summary, top customers, product-wise sales, discount analysis, sales returns, top suppliers,
 > purchase returns, stock summary and credit-limit utilisation) with CSV exports. Build 0.17 adds
-> sixteen more (opening vs closing, locked periods, salesperson performance, price variance, stock
+> seventeen more (opening vs closing, locked periods, rule version usage, salesperson performance, price variance, stock
 > movements, inventory valuation, reorder/shortage, dead/slow stock, inventory-to-GL reconciliation,
 > receivables risk, cash-flow forecast, tax ledger, KPI dashboard pack, trend explanation, revenue
-> forecast and anomaly digest), plus an additive item reorder level. Coverage is now **54 of 66**.
-> The remaining 12 reports, saved dashboards, EN/HI and the ~150-template library are still Phase B.
+> forecast and anomaly digest), plus two additive fields (item reorder level and journal rule version).
+> Coverage is now **55 of 66**.
+> The remaining 11 reports, saved dashboards, EN/HI and the ~150-template library are still Phase B.
 
 ---
 
@@ -40,7 +41,7 @@
 |---|---|---|
 | Double-entry accounting core | Working: invoices, bills, receipts, payments, journals, GST working papers, bank reconciliation, opening balances, audit | **Yes, foundation** |
 | Financial statements | Trial balance, P&L, balance sheet, ledger, day book, cash book, bank book, ageing, GST summaries | **Partial** |
-| Report library | 54 of 66 catalogued reports have a working screen or export, plus a Report Library page and an uncounted Analytics Overview pilot; target is ~150 templates | **Partial** |
+| Report library | 55 of 66 catalogued reports have a working screen or export, plus a Report Library page and an uncounted Analytics Overview pilot; target is ~150 templates | **Partial** |
 | Charts and visual analytics | Analytics Overview pilot: actual monthly revenue/expense bars, expense composition, top-party tables and checks; dashboard bars and landing SVG remain; no full chart engine or custom dashboards | **Partial / early** |
 | Excel import | Real `.xlsx` upload for opening balances, bank statements and GSTR-2B; not a general workbook importer | **Partial / real slice** |
 | Excel export | Real 20-sheet `.xlsx` actuals workbook with native charts and exact paise source; no formula-driven AI workbook or pivot model | **Partial / real slice** |

@@ -1740,7 +1740,7 @@ class WebTest(unittest.TestCase):
         status, page = self.get("/reports/library")
         self.assertEqual(status, 200)
         self.assertIn("Report library", page)
-        self.assertIn("54 of 66 working", page)
+        self.assertIn("55 of 66 working", page)
         self.assertIn("R-104", page)
         self.assertIn("R-905", page)
         self.assertIn("Planned reports are deliberately not filled with sample data", page)
@@ -1767,6 +1767,7 @@ class WebTest(unittest.TestCase):
             "/reports/credit-limits": "Credit limit utilisation",
             "/reports/opening-closing": "Opening vs closing balances",
             "/reports/locked-periods": "Locked period register",
+            "/reports/rule-versions": "Rule version usage",
             "/reports/salesperson": "Salesperson performance",
             "/reports/price-variance": "Price variance",
             "/reports/stock-movements": "Stock movement history",
@@ -1805,6 +1806,7 @@ class WebTest(unittest.TestCase):
             "/export/tb-exceptions.csv?from=2026-04-01&to=2026-10-31": "Voucher",
             "/export/opening-closing.csv?from=2026-04-01&to=2026-10-31": "Reconciled",
             "/export/locked-periods.csv": "Period start",
+            "/export/rule-versions.csv?from=2026-04-01&to=2026-10-31": "Rule version",
             "/export/salesperson.csv?from=2026-04-01&to=2026-10-31": "Collection %",
             "/export/price-variance.csv?from=2026-04-01&to=2026-10-31": "Latest price",
             "/export/stock-movements.csv?from=2026-04-01&to=2026-10-31": "Source",

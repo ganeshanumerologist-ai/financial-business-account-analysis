@@ -110,7 +110,7 @@ Executed against application code: **0**.
 | docs/BACKUP_AND_RECOVERY.md | ✅ | RPO/RTO, restore drill, honest status |
 | docs/ACCOUNTING_RULES.md | ✅ | Money, rounding, posting, reports |
 | docs/COMPLIANCE_MATRIX.md | ✅ | 31 rows, 0 implemented |
-| docs/API_INTEGRATIONS.md | ✅ | 12 planned, 0 connected |
+| docs/API_INTEGRATIONS.md | ✅ | 11 planned, 0 connected |
 | docs/REPORT_CATALOG.md | ✅ | 66 reports, 0 implemented |
 | docs/TEST_PLAN.md | ✅ | 90 cases |
 | docs/DEVELOPMENT_ROADMAP.md | ✅ | Phases + gates |
@@ -431,12 +431,13 @@ accounting data.
 | Manual stock adjustment / historical cost | **Not implemented** | stock report uses document movements and current item cost; product margin is labelled as an estimate |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.16 |
 
-## 25. Status after sixteen more report screens (Build 0.17, 2026-11-05)
+## 25. Status after seventeen more report screens (Build 0.17, 2026-11-05)
 
 | Requirement area | Status | Evidence |
 |---|---|---|
 | Ledger reconciliation | **Verified** | R-107 shows opening + period debit ? period credit = closing for every ledger and flags any mismatch; `test_opening_closing_balances_reconcile` |
 | Locked periods | **Verified as a read-only register** | R-205 reads `period_lock` with actor and timestamp; posting guard already rejects locked dates; `test_locked_period_register_reads_lock_actor` |
+| Rule version usage | **Verified with a source limit** | R-206 groups posted entries by `journal_entry.rule_version`; existing rows default to `posting-v1`; it is a usage register, not a rule-change history; `test_rule_version_usage_groups_posted_entries` |
 | Salesperson performance | **Verified with a source limit** | R-308 groups posted invoices and receipts by journal creator, not a separate salesperson master; collection rate can exceed 100%; `test_salesperson_revenue_and_collections_reconcile` |
 | Purchase price variance | **Verified with a source limit** | R-405 compares latest bill price with previous bill and current moving weighted-average cost; higher price is not automatically an error; `test_price_variance_uses_latest_and_current_cost` |
 | Stock movement history | **Verified as a document history** | R-502 lists posted purchase, sale, credit-note and debit-note lines with source and party; opening stock is excluded; `test_stock_movements_match_stock_summary_quantities` |
@@ -451,7 +452,7 @@ accounting data.
 | Trend explanation | **Verified as deterministic** | R-1001 explains monthly actual revenue and expenses with the largest moves; no generative AI; `test_trend_explanation_matches_monthly_sales` |
 | Revenue forecast | **Verified as a labelled forecast** | R-1002 fits a least-squares line to monthly actual net revenue and keeps forecast rows separate from actual rows; `test_revenue_forecast_separates_actuals_and_forecast` |
 | Anomaly digest | **Verified as a review aid** | R-1003 lists deterministic review prompts for journal structure, large entries, duplicates, backdating, negative stock and 90+ day receivables; not a fraud finding; `test_anomaly_digest_returns_review_prompts` |
-| Report coverage | **54 of 66** | 38 prior working reports plus sixteen Build 0.17 reports; 0 partial and 12 planned remain |
+| Report coverage | **55 of 66** | 38 prior working reports plus seventeen Build 0.17 reports; 0 partial and 11 planned remain |
 | Offline package 0.17 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.17.zip`; embedded runtime import and `/health` smoke-tested |
 | Manual stock adjustment / historical cost / batch / job costing | **Not implemented** | stock reports use document movements and current item cost; FIFO, batch/expiry, job/project, WIP, cost-centre and budget models remain future work |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.17 |

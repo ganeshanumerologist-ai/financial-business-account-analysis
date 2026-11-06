@@ -66,6 +66,7 @@ def audit(conn: sqlite3.Connection, tenant_id: str | None, actor: str | None, ac
     )
 
 
+RULE_VERSION = "posting-v1"
 ACCOUNT_TYPES = ("asset", "liability", "equity", "income", "expense")
 
 # The five accounting types are not enough on their own: an SME thinks in
@@ -1086,10 +1087,10 @@ def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narr
         entry_no = db.next_number(conn, tenant_id, "journal", "JV")
         conn.execute(
             "INSERT INTO journal_entry (id, tenant_id, entry_no, entry_date, narration, source_type,"
-            " source_id, idempotency_key, status, posted_at, created_by)"
-            " VALUES (?,?,?,?,?,?,?,?, 'posted', ?, ?)",
+            " source_id, rule_version, idempotency_key, status, posted_at, created_by)"
+            " VALUES (?,?,?,?,?,?,?,?,?, 'posted', ?, ?)",
             (entry_id, tenant_id, entry_no, entry_date, narration, source_type,
-             source_id, idempotency_key, db.now(), created_by),
+             source_id, RULE_VERSION, idempotency_key, db.now(), created_by),
         )
         for i, (aid, d, c, memo, party) in enumerate(clean, start=1):
             conn.execute(

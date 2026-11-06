@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
 > **Current status: Build 0.17.** The latest application run is `RUN-2026-11-05-03` with
-> **290 tests, OK**, Python 3.14.6, Windows - see section 32. The table immediately below is the original
+> **291 tests, OK**, Python 3.14.6, Windows - see section 32. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1477,7 +1477,7 @@ The live server was restarted on `127.0.0.1:8000`. The earlier `localhost.run` 5
   `dist\ARTHIVIO-Offline-0.16.zip`; the embedded runtime returned `Server: ARTHIVIO/0.16`
   from `/health`.
 
-## 32. Build 0.17 verification - sixteen report screens (2026-11-05)
+## 32. Build 0.17 verification - seventeen report screens (2026-11-05)
 
 Run ID: `RUN-2026-11-05-03`.
 
@@ -1485,12 +1485,13 @@ Run ID: `RUN-2026-11-05-03`.
 
 | Command / check | Result |
 |---|---|
-| `python -m unittest discover -s tests` | **290 tests, OK**, 29.028 s, Python 3.14.6, Windows |
-| `python -m unittest tests.test_reports -v` | 32 report tests, OK |
-| `python -m unittest tests.test_web.WebTest.test_46_report_library_and_management_reports -v` | HTTP report library, 35 report pages and 30 CSV exports, OK |
-| Live report library | `/reports/library` shows **54 working, 0 partial and 12 planned** of 66 |
+| `python -m unittest discover -s tests` | **291 tests, OK**, 31.185 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_reports -v` | 33 report tests, OK |
+| `python -m unittest tests.test_web.WebTest.test_46_report_library_and_management_reports -v` | HTTP report library, 36 report pages and 31 CSV exports, OK |
+| Live report library | `/reports/library` shows **55 working, 0 partial and 11 planned** of 66 |
 | Opening vs closing | Opening + period debit - period credit = closing for every ledger; mismatch flag present |
 | Locked periods | Reads `period_lock` with actor and timestamp; no lock is changed by the report |
+| Rule version usage | Posted entries group by `journal_entry.rule_version`; debit equals credit; a test row with a second version creates a second group |
 | Salesperson performance | Posted invoice revenue and receipt collections grouped by journal creator; collection rate may exceed 100% |
 | Price variance | Latest bill price compared with the previous bill and current moving weighted-average cost |
 | Stock movements and valuation | Movement history reconciles to stock-summary quantities; valuation uses closing quantity x current cost |
@@ -1505,8 +1506,8 @@ Run ID: `RUN-2026-11-05-03`.
 | Offline package build | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.17.zip` rebuilt; embedded runtime reports `arthivio 0.17` |
 | Package health | `GET /health` returned `ok`; `Server: ARTHIVIO/0.17 Python/3.14.6` |
 | Trial server | `127.0.0.1:8010`, `data/arthivio-trial.db`, `/health` returned `ok` and `ARTHIVIO/0.17` |
-| Trial login | `ganesha4558@gmail.com` signed in; `/reports/library` showed **54 of 66 working** |
-| Public quick tunnel | `https://coupled-karen-knee-arrow.trycloudflare.com/health` returned `ok` |
+| Trial login | `ganesha4558@gmail.com` signed in; `/reports/library` showed **55 of 66 working** |
+| Public quick tunnel | `https://earth-trail-motorcycles-area.trycloudflare.com/health` returned `ok` |
 
 ### 32.2 Honest limits
 
@@ -1517,8 +1518,8 @@ Run ID: `RUN-2026-11-05-03`.
   cost layers, and stock movements exclude opening stock because it is not a document line.
 - Salesperson performance uses the journal creator, not a separate salesperson master. Receivables
   risk is advisory and never blocks a sale.
-- Twelve catalogued reports still have no screen: R-204, R-206, R-506, R-508, R-601 to R-605, R-901,
-  R-902 and R-1004. They need draft-document, rule-version, stock-adjustment, batch/expiry,
+- Eleven catalogued reports still have no screen: R-204, R-506, R-508, R-601 to R-605, R-901,
+  R-902 and R-1004. They need draft-document, stock-adjustment, batch/expiry,
   job/project/cost-centre, budget, department/branch or intercompany-elimination data that does not
   exist yet.
 - No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent

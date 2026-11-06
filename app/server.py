@@ -466,6 +466,7 @@ NAV = [
                 ("reports/account-activity", "audit", "Account Activity"),
                 ("reports/tb-exceptions", "audit", "Trial Balance Exceptions"),
                 ("reports/locked-periods", "audit", "Locked Periods"),
+                ("reports/rule-versions", "audit", "Rule Version Usage"),
             ]),
             ("Sales &amp; purchases", [
                 ("reports/sales-register", "rep", "Sales Register"),
@@ -1824,6 +1825,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_opening_closing(conn, user, tenant, q))
             if path == "/reports/locked-periods":
                 return self._send(self.page_locked_periods(conn, user, tenant))
+            if path == "/reports/rule-versions":
+                return self._send(self.page_rule_versions(conn, user, tenant, q))
             if path == "/reports/salesperson":
                 return self._send(self.page_salesperson(conn, user, tenant, q))
             if path == "/reports/price-variance":
@@ -5856,6 +5859,43 @@ This register reads <code>period_lock</code>; it never changes a lock. The curre
 screen, so rows appear only when an administrator or migration inserts them.</p>"""
         return layout("Locked period register", body, "reports/locked-periods", user, tenant)
 
+    def page_rule_versions(self, conn, user, tenant, q) -> str:
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.rule_version_usage(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td><code>{esc(r["rule_version"])}</code></td>'
+            f'<td class="num">{r["entries"]}</td>'
+            f'<td class="num">{money.fmt(r["debit"])}</td>'
+            f'<td class="num">{money.fmt(r["credit"])}</td>'
+            f'<td class="num">{money.fmt(r["difference"])}</td>'
+            f'<td>{esc(r["first_date"] or "")}</td><td>{esc(r["last_date"] or "")}</td>'
+            f'<td class="num">{r["source_types"]}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="8" class="empty">No posted entries in this period</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/rule-versions" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">Current rule: {esc(data["current_version"])}</span>
+<a class="btn ghost small" href="/export/rule-versions.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Rule versions", str(t["versions"]), "versions found in posted entries")}
+  {kpi("Entries", str(t["entries"]), "posted journal entries")}
+  {kpi("Debit", money.fmt(t["debit"]), "total debit")}
+  {kpi("Difference", money.fmt(t["difference"]), "debit - credit")}
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Rule version</th><th class="num">Entries</th><th class="num">Debit</th>
+<th class="num">Credit</th><th class="num">Difference</th><th>First date</th><th>Last date</th>
+<th class="num">Source types</th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>
+<p class="small muted" style="margin-top:10px">{esc(data["method"])} Existing entries migrated to the
+current version label; this is a usage register, not a re-posting or a rule-change history.</p>"""
+        return layout("Rule version usage", body, "reports/rule-versions", user, tenant)
+
     def page_salesperson(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.salesperson_performance(conn, tenant, dfrom, dto)
@@ -8811,6 +8851,19 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             rows += [[r["severity"], r["kind"], r["date"], r["reference"],
                       r["description"], money.to_str(r["amount"])] for r in data["rows"]]
             rows.append([])
+            rows.append(["Note", data["method"]])
+        elif key == "rule-versions":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.rule_version_usage(conn, tenant, dfrom, dto)
+            rows = [["Rule version", "Entries", "Debit", "Credit", "Difference",
+                     "First date", "Last date", "Source types"]]
+            rows += [[r["rule_version"], r["entries"], money.to_str(r["debit"]),
+                      money.to_str(r["credit"]), money.to_str(r["difference"]),
+                      r["first_date"], r["last_date"], r["source_types"]]
+                     for r in data["rows"]]
+            rows.append([])
+            rows.append(["Current rule", data["current_version"]])
             rows.append(["Note", data["method"]])
         elif key == "invoices":
             data = conn.execute(

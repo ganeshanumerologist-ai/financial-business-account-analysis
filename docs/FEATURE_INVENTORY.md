@@ -682,7 +682,7 @@ and documentation agree.
 - Historical cost layers; product margin uses the current item cost and is labelled as an estimate.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.16.
 
-## 25. Status after sixteen more report screens (Build 0.17, 2026-11-05)
+## 25. Status after seventeen more report screens (Build 0.17, 2026-11-05)
 
 ### Implemented and verified
 
@@ -690,6 +690,7 @@ and documentation agree.
 |---|---|---|
 | Opening vs Closing Balances | `/reports/opening-closing` | opening signed balance + period debit ? credit = closing for every ledger; reconciliation flag; `test_opening_closing_balances_reconcile` |
 | Locked Period Register | `/reports/locked-periods` | reads `period_lock` with locking actor and timestamp; never changes a lock; `test_locked_period_register_reads_lock_actor` |
+| Rule Version Usage | `/reports/rule-versions` | groups posted entries by the stored `journal_entry.rule_version`, with entries, debit, credit, difference and source types; `test_rule_version_usage_groups_posted_entries` |
 | Salesperson Performance | `/reports/salesperson` | posted invoice revenue and receipt collections grouped by journal creator; collection rate can exceed 100% when receipts relate to older invoices; `test_salesperson_revenue_and_collections_reconcile` |
 | Price Variance | `/reports/price-variance` | latest bill price vs previous bill in the period and current moving weighted-average cost; `test_price_variance_uses_latest_and_current_cost` |
 | Stock Movement History | `/reports/stock-movements` | chronological posted purchase, sale, credit-note and debit-note lines with source document and party; excludes opening stock; `test_stock_movements_match_stock_summary_quantities` |
@@ -704,13 +705,13 @@ and documentation agree.
 | Trend Explanation | `/reports/trend-explanation` | deterministic narrative over monthly actual revenue and expenses, with the largest moves called out; no generative AI; `test_trend_explanation_matches_monthly_sales` |
 | Revenue Forecast | `/reports/revenue-forecast` | least-squares forecast from monthly actual net revenue, with an indicative band, confidence and actual/forecast separation; `test_revenue_forecast_separates_actuals_and_forecast` |
 | Anomaly Digest | `/reports/anomaly-digest` | deterministic review prompts for journal structure, large entries, possible duplicates, backdating, negative stock and 90+ day receivables; `test_anomaly_digest_returns_review_prompts` |
-| Item reorder level | `/items` | additive `item.reorder_level_milli` column and item-master input; no destructive migration; existing items default to zero |
-| Report coverage | Reports menu | 54 of 66 working; 0 partial; 12 planned |
+| Additive fields | schema | `item.reorder_level_milli` and `journal_entry.rule_version` added through the additive migration path; no destructive migration; existing rows default to zero and `posting-v1` |
+| Report coverage | Reports menu | 55 of 66 working; 0 partial; 11 planned |
 | Offline package 0.17 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.17.zip` | embedded Python 3.14.6, `openpyxl` 3.1.5, health smoke test passed |
 
 ### Still not implemented
 
-- 12 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
+- 11 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
 - Manual stock-adjustment table; stock reports reconstruct from posted documents and current item stock.
 - FIFO or historical cost layers; inventory valuation uses the current moving weighted-average cost.
 - Batch/expiry, job/project costing, WIP/production/yield, cost-centre, budget and department/branch P&L data models.

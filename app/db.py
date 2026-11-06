@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS journal_entry (
     narration TEXT NOT NULL,
     source_type TEXT NOT NULL,
     source_id TEXT,
+    rule_version TEXT NOT NULL DEFAULT 'posting-v1',
     idempotency_key TEXT,
     status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted','reversed')),
     reversal_of TEXT REFERENCES journal_entry(id),
@@ -676,6 +677,7 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "user": [("theme", "TEXT NOT NULL DEFAULT 'ocean'")],
+    "journal_entry": [("rule_version", "TEXT NOT NULL DEFAULT 'posting-v1'")],
     "tenant": [
         ("gstin", "TEXT NOT NULL DEFAULT ''"),
         ("address", "TEXT NOT NULL DEFAULT ''"),

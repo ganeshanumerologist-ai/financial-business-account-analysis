@@ -2259,6 +2259,59 @@ def anomaly_digest(conn: sqlite3.Connection, tenant, date_from: str,
 
 
 # ---------------------------------------------------------------------------
+# R-206 rule version usage
+# ---------------------------------------------------------------------------
+
+def rule_version_usage(conn: sqlite3.Connection, tenant, date_from: str,
+                       date_to: str) -> dict:
+    """R-206: which posting-rule version created the posted entries."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT e.rule_version,
+                  COUNT(DISTINCT e.id) AS entries,
+                  COALESCE(SUM(l.debit_paise), 0) AS debit,
+                  COALESCE(SUM(l.credit_paise), 0) AS credit,
+                  MIN(e.entry_date) AS first_date,
+                  MAX(e.entry_date) AS last_date,
+                  COUNT(DISTINCT e.source_type) AS source_types
+           FROM journal_entry e
+           LEFT JOIN journal_line l ON l.entry_id = e.id AND l.tenant_id = e.tenant_id
+           WHERE e.tenant_id = ? AND e.entry_date BETWEEN ? AND ?
+           GROUP BY e.rule_version
+           ORDER BY entries DESC, e.rule_version""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out = []
+    for row in rows:
+        debit = int(row["debit"] or 0)
+        credit = int(row["credit"] or 0)
+        out.append({
+            "rule_version": row["rule_version"],
+            "entries": int(row["entries"]),
+            "debit": debit,
+            "credit": credit,
+            "difference": debit - credit,
+            "first_date": row["first_date"],
+            "last_date": row["last_date"],
+            "source_types": int(row["source_types"]),
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "current_version": acct.RULE_VERSION,
+        "totals": {
+            "versions": len(out),
+            "entries": sum(r["entries"] for r in out),
+            "debit": sum(r["debit"] for r in out),
+            "credit": sum(r["credit"] for r in out),
+            "difference": sum(r["difference"] for r in out),
+        },
+        "method": "Groups posted journal entries by the rule_version stored at posting time. "
+                  "The current posting rule is reported separately; no historical rule engine exists.",
+    }
+
+
+# ---------------------------------------------------------------------------
 # report catalogue used by the in-app library
 # ---------------------------------------------------------------------------
 
@@ -2285,7 +2338,7 @@ REPORT_CATALOG = [
     _r("R-203", "Accounting & audit", "Account Activity Summary", "working", "/reports/account-activity", "Line count, debit, credit and net per account"),
     _r("R-204", "Accounting & audit", "Unposted / Draft Entries", "planned", "", "Draft entries and their age"),
     _r("R-205", "Accounting & audit", "Locked Period Register", "working", "/reports/locked-periods", "Locked periods with locking actor and timestamp"),
-    _r("R-206", "Accounting & audit", "Rule Version Usage", "planned", "", "Entries grouped by applied rule version"),
+    _r("R-206", "Accounting & audit", "Rule Version Usage", "working", "/reports/rule-versions", "Posted entries grouped by the rule version stored at posting time"),
     # Group 3 — sales
     _r("R-301", "Sales & customers", "Sales Register", "working", "/reports/sales-register", "Posted invoices with taxable, tax and total"),
     _r("R-302", "Sales & customers", "Sales Summary by Period", "working", "/reports/sales-summary", "Grouped posted-invoice totals and month-on-month growth"),

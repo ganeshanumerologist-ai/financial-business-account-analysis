@@ -852,26 +852,27 @@ posted documents already provide a deterministic source. No sample data or cache
   with exposure but no limit are shown as a warning; the report never blocks a sale.
 - Trial balance exceptions read journal rows and report structural failures without repairing them.
   The report is normally empty on clean books; a deliberately malformed test entry proves detection.
-- All sixteen reports have CSV exports and automated formula/reconciliation tests. Build 0.16 is
+- All ten reports have CSV exports and automated formula/reconciliation tests. Build 0.16 is
   verified by **274 tests, OK**, 24.077 s, Python 3.14.6, Windows, recorded in
   `docs/TEST_RESULTS.md` `RUN-2026-11-05-02`.
 
-## D-041 - Build 0.17 adds sixteen report screens and one additive item column
+## D-041 - Build 0.17 adds seventeen report screens and two additive columns
 
 **Date:** 2026-11-05. **Status:** accepted for Build 0.17.
 
-The second Phase B report batch uses existing posted documents, with one additive item-master field
-for reorder thresholds. No sample data, cached totals or destructive migration was added.
+The second Phase B report batch uses existing posted documents, with two additive fields: an
+item-master reorder threshold and a journal-entry posting-rule version. No sample data, cached totals or destructive migration was added.
 
-- New working reports: R-107 opening vs closing balances, R-205 locked period register, R-308
+- New working reports: R-107 opening vs closing balances, R-205 locked period register, R-206 rule version usage, R-308
   salesperson performance, R-405 price variance, R-502 stock movement history, R-503 inventory
   valuation, R-504 reorder/shortage, R-505 dead/slow stock, R-507 inventory-to-GL reconciliation,
   R-704 receivables risk, R-705 cash-flow forecast, R-807 tax ledger, R-904 KPI dashboard pack,
   R-1001 trend explanation, R-1002 revenue forecast and R-1003 anomaly digest. Coverage is
-  **54 of 66** working, with 0 partial and 12 planned.
+  **55 of 66** working, with 0 partial and 11 planned.
 - `item.reorder_level_milli` is additive with a zero default. Zero means "no level configured";
   existing rows are not rewritten. The item master accepts the value in the same thousandth-unit
-  convention as stock.
+  convention as stock. `journal_entry.rule_version` defaults to `posting-v1` and is set explicitly
+  by the posting function; the report is a usage register, not a rule-change history.
 - Salesperson performance uses the creator of the posted journal entry, not a separate salesperson
   master. Collections may relate to older invoices, so the collection rate can exceed 100%; the
   screen states this.
@@ -883,7 +884,7 @@ for reorder thresholds. No sample data, cached totals or destructive migration w
 - Reorder/shortage is advisory and never creates a purchase order. Dead/slow stock is a review
   prompt, not an automatic write-off. Inventory-to-GL reconciliation shows a difference and never
   posts a correction. Receivables risk is advisory and never blocks a sale.
-- All sixteen reports have CSV exports and automated formula/reconciliation tests. The forecasts
+- All seventeen reports have CSV exports and automated formula/reconciliation tests. The forecasts
   are deterministic and labelled; the anomaly digest is a review aid, not a fraud finding. Build 0.17 is verified
-  by **290 tests, OK**, 29.028 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
+  by **291 tests, OK**, 31.185 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
   `RUN-2026-11-05-03`.
