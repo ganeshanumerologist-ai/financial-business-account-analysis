@@ -926,8 +926,9 @@ def stock_summary(conn: sqlite3.Connection, tenant, date_from: str,
     """R-501: derive period in/out and closing quantity from posted documents.
 
     The item master holds current stock. Movements after the selected end date
-    are removed to reconstruct the closing quantity at that date. No manual
-    stock-adjustment table exists in this build, so the report states that limit.
+    are removed to reconstruct the closing quantity at that date. Manual stock
+    adjustments are included as a movement source; they are valued at the item's
+    current moving weighted-average cost.
     """
     _validate_period(date_from, date_to)
     tenant_id = _tenant_id(tenant)
@@ -952,6 +953,10 @@ def stock_summary(conn: sqlite3.Connection, tenant, date_from: str,
                FROM debit_note_line l
                JOIN debit_note n ON n.id = l.debit_note_id AND n.tenant_id = l.tenant_id
                WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT a.item_id, a.adjustment_date, a.qty_milli
+               FROM stock_adjustment a
+               WHERE a.tenant_id = ?
            )
            SELECT i.id, i.sku, i.name, i.unit, i.stock_milli AS current_stock,
                   i.cost_paise,
@@ -965,7 +970,7 @@ def stock_summary(conn: sqlite3.Connection, tenant, date_from: str,
            WHERE i.tenant_id = ? AND i.track_stock = 1
            GROUP BY i.id, i.sku, i.name, i.unit, i.stock_milli, i.cost_paise
            ORDER BY i.name""",
-        (tenant_id, tenant_id, tenant_id, tenant_id,
+        (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id,
          date_from, date_to, date_from, date_to, date_to, tenant_id),
     ).fetchall()
     out = []
@@ -1353,13 +1358,18 @@ WITH movements AS (
     JOIN debit_note n ON n.id = l.debit_note_id AND n.tenant_id = l.tenant_id
     JOIN vendor v ON v.id = n.vendor_id AND v.tenant_id = n.tenant_id
     WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+    UNION ALL
+    SELECT a.adjustment_date, 'Stock adjustment', a.adjustment_no, a.item_id,
+           a.qty_milli, a.unit_cost_paise, ABS(a.value_paise), 'Manual adjustment'
+    FROM stock_adjustment a
+    WHERE a.tenant_id = ?
 )
 """
 
 
 def stock_movements(conn: sqlite3.Connection, tenant, date_from: str,
                     date_to: str) -> dict:
-    """R-502: chronological posted stock movements with their source document."""
+    """R-502: chronological posted stock movements, including manual adjustments."""
     _validate_period(date_from, date_to)
     tenant_id = _tenant_id(tenant)
     rows = conn.execute(
@@ -1370,7 +1380,8 @@ def stock_movements(conn: sqlite3.Connection, tenant, date_from: str,
         JOIN item i ON i.id = m.item_id AND i.tenant_id = ?
         WHERE m.doc_date BETWEEN ? AND ? AND i.track_stock = 1
         ORDER BY m.doc_date, m.doc_type, m.doc_no, i.name""",
-        (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, date_from, date_to),
+        (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, tenant_id,
+         date_from, date_to),
     ).fetchall()
     out = []
     for row in rows:
@@ -1423,6 +1434,10 @@ def _closing_stock(conn: sqlite3.Connection, tenant_id: str, as_of: str) -> dict
                FROM debit_note_line l
                JOIN debit_note n ON n.id = l.debit_note_id AND n.tenant_id = l.tenant_id
                WHERE n.tenant_id = ? AND l.item_id IS NOT NULL
+               UNION ALL
+               SELECT a.item_id, a.adjustment_date, a.qty_milli
+               FROM stock_adjustment a
+               WHERE a.tenant_id = ?
            )
            SELECT i.id, i.stock_milli
                   - COALESCE(SUM(CASE WHEN m.doc_date > ? THEN m.qty ELSE 0 END), 0) AS closing
@@ -1430,7 +1445,7 @@ def _closing_stock(conn: sqlite3.Connection, tenant_id: str, as_of: str) -> dict
            LEFT JOIN movements m ON m.item_id = i.id
            WHERE i.tenant_id = ?
            GROUP BY i.id, i.stock_milli""",
-        (tenant_id, tenant_id, tenant_id, tenant_id, as_of, tenant_id),
+        (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, as_of, tenant_id),
     ).fetchall()
     return {row["id"]: int(row["closing"]) for row in rows}
 
@@ -1538,7 +1553,7 @@ def dead_stock(conn: sqlite3.Connection, tenant, days: int = 90,
         FROM movements m
         WHERE m.doc_date <= ?
         GROUP BY m.item_id""",
-        (tenant_id, tenant_id, tenant_id, tenant_id, as_of),
+        (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, as_of),
     ).fetchall()
     last = {row["item_id"]: row["last_date"] for row in last_rows}
     rows = conn.execute(
@@ -1571,6 +1586,74 @@ def dead_stock(conn: sqlite3.Connection, tenant, days: int = 90,
             "never_moved": sum(1 for r in out if r["never_moved"]),
             "value": sum(r["value"] for r in out),
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# R-506 stock adjustment register
+# ---------------------------------------------------------------------------
+
+def stock_adjustment_register(conn: sqlite3.Connection, tenant,
+                              date_from: str, date_to: str) -> dict:
+    """R-506: chronological manual stock adjustments with value and reason.
+
+    Each row is a posted adjustment. Quantity is signed (positive increases,
+    negative decreases). The unit cost is the item's current moving
+    weighted-average cost at the time of the adjustment; the register does not
+    recalculate historical cost layers.
+    """
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    rows = conn.execute(
+        """SELECT a.*, i.sku, i.name, i.unit,
+                  i.stock_milli AS current_stock, i.cost_paise AS current_cost,
+                  e.entry_no, u.full_name AS created_by_name
+           FROM stock_adjustment a
+           JOIN item i ON i.id = a.item_id AND i.tenant_id = a.tenant_id
+           LEFT JOIN journal_entry e ON e.id = a.journal_entry_id
+           LEFT JOIN user u ON u.id = a.created_by
+           WHERE a.tenant_id = ? AND a.adjustment_date BETWEEN ? AND ?
+           ORDER BY a.adjustment_date, a.adjustment_no""",
+        (tenant_id, date_from, date_to),
+    ).fetchall()
+    out = []
+    for row in rows:
+        qty = int(row["qty_milli"])
+        value = int(row["value_paise"])
+        out.append({
+            "id": row["id"], "item_id": row["item_id"],
+            "adjustment_no": row["adjustment_no"],
+            "date": row["adjustment_date"], "sku": row["sku"],
+            "name": row["name"], "unit": row["unit"],
+            "direction": "Increase" if qty > 0 else "Decrease",
+            "qty": abs(qty), "signed_qty": qty,
+            "unit_cost": int(row["unit_cost_paise"]),
+            "value": value, "abs_value": abs(value),
+            "reason": row["reason"], "note": row["note"],
+            "entry_no": row["entry_no"] or "",
+            "created_by_name": row["created_by_name"] or "",
+            "created_at": row["created_at"],
+            "current_stock": int(row["current_stock"]),
+            "current_cost": int(row["current_cost"]),
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "adjustments": len(out),
+            "items": len({r["item_id"] for r in out}),
+            "increase_qty": sum(r["qty"] for r in out if r["signed_qty"] > 0),
+            "decrease_qty": sum(r["qty"] for r in out if r["signed_qty"] < 0),
+            "increase_value": sum(r["value"] for r in out if r["value"] > 0),
+            "decrease_value": sum(-r["value"] for r in out if r["value"] < 0),
+            "net_qty": sum(r["signed_qty"] for r in out),
+            "net_value": sum(r["value"] for r in out),
+        },
+        "method": (
+            "Quantity increases are posted Dr Inventory / Cr Stock Adjustments; "
+            "decreases are posted Dr Stock Adjustments / Cr Inventory. Values use "
+            "the current moving weighted-average item cost and never rewrite a "
+            "historical cost layer."
+        ),
     }
 
 
@@ -2362,7 +2445,7 @@ REPORT_CATALOG = [
     _r("R-503", "Inventory & warehouse", "Inventory Valuation", "working", "/reports/inventory-valuation", "Closing quantity x current moving weighted-average cost"),
     _r("R-504", "Inventory & warehouse", "Reorder / Shortage", "working", "/reports/reorder", "Items at or below reorder level, or out of stock"),
     _r("R-505", "Inventory & warehouse", "Dead / Slow Stock", "working", "/reports/dead-stock", "Stocked items with no posted movement for N days"),
-    _r("R-506", "Inventory & warehouse", "Stock Adjustment Register", "planned", "", "Adjustments with reason and approver"),
+    _r("R-506", "Inventory & warehouse", "Stock Adjustment Register", "working", "/reports/stock-adjustments", "Chronological manual adjustments with signed quantity, current-cost value, reason and journal"),
     _r("R-507", "Inventory & warehouse", "Inventory to GL Reconciliation", "working", "/reports/inventory-gl", "Item-master stock value versus inventory ledger balance"),
     _r("R-508", "Inventory & warehouse", "Expiry / Batch Report", "planned", "", "Days to expiry buckets"),
     # Group 6 — costing

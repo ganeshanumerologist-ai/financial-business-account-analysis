@@ -22,6 +22,7 @@ from . import backup as backup_mod
 from . import bank as bank_mod
 from . import bi as bi_mod
 from . import budgeting as budget_mod
+from . import charting
 from . import db, diagnostics, money, security
 from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
@@ -29,6 +30,7 @@ from . import insights as insights_mod
 from . import opening_import as opening_mod
 from . import reports as reports_mod
 from . import sharing
+from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
 APP_VERSION = "0.17"
@@ -176,7 +178,7 @@ h1{font-size:26px} h2{font-size:19px} h3{font-size:15px}
 .menu>summary::-webkit-details-marker{display:none}
 .menu>summary .chev{width:12px;height:12px;margin-left:2px;transition:transform .15s;opacity:.7}
 .menu[open]>summary .chev{transform:rotate(180deg)}
-.menu-panel{position:absolute;top:calc(100% + 8px);left:0;z-index:70;min-width:250px;background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(33,37,41,.18);padding:10px;display:grid;gap:8px}
+.menu-panel{position:absolute;top:calc(100% + 8px);left:0;z-index:70;min-width:250px;max-height:calc(100vh - 88px);overflow-y:auto;overscroll-behavior:contain;background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(33,37,41,.18);padding:10px;display:grid;gap:8px}
 .menu-group{min-width:220px}
 .menu-title{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:6px 10px 3px}
 .menu-panel a{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--ink-soft);font-size:13.5px;font-weight:500;white-space:nowrap}
@@ -184,6 +186,16 @@ h1{font-size:26px} h2{font-size:19px} h3{font-size:15px}
 .menu-panel a.on{background:var(--primary-soft);color:var(--primary-strong);font-weight:700}
 .menu-panel a .ico{width:15px;height:15px;opacity:.85}
 .menu-group + .menu-group{border-top:1px solid var(--line);padding-top:6px}
+.menu-sub{border:1px solid transparent;border-radius:9px;margin:0}
+.menu-sub>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--ink-soft);font-size:13.5px;font-weight:600;cursor:pointer;list-style:none;white-space:nowrap}
+.menu-sub>summary::-webkit-details-marker{display:none}
+.menu-sub>summary:hover{background:var(--primary-pale);color:var(--primary-strong)}
+.menu-sub[open]{background:#fff;border-color:var(--line);box-shadow:0 6px 18px rgba(33,37,41,.08);margin:2px 0}
+.menu-sub[open]>summary{background:var(--primary-soft);color:var(--primary-strong);font-weight:700;border-radius:8px 8px 0 0}
+.menu-sub>summary .chev{width:12px;height:12px;margin-left:auto;transition:transform .15s;opacity:.7;flex:0 0 auto}
+.menu-sub[open]>summary .chev{transform:rotate(90deg)}
+.menu-sub-panel{display:grid;gap:2px;padding:5px 5px 7px 12px;border-left:2px solid var(--primary-soft);margin:0 8px 7px}
+.menu-sub-panel a{padding:7px 9px;font-size:13px}
 .userbox{display:flex;align-items:center;gap:8px;margin-left:auto;flex:0 0 auto}
 .usertext{font-size:12px;line-height:1.25;color:var(--muted);text-align:right}
 .usertext b{display:block;color:var(--ink);font-size:12.5px}
@@ -292,6 +304,8 @@ label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margi
 .legend .exp{background:#F59E0B}
 .mini-bar{height:8px;background:var(--line);border-radius:999px;overflow:hidden;min-width:70px}
 .mini-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--chart-a),var(--chart-b));border-radius:999px}
+.echart{width:100%;min-height:220px}
+.echart-empty{display:flex;align-items:center;justify-content:center;min-height:220px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:13px;text-align:center;padding:18px}
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
 .login{width:100%;max-width:410px}
 .brandline{display:flex;align-items:center;gap:11px;margin-bottom:18px}
@@ -493,6 +507,8 @@ NAV = [
             ("Inventory", [
                 ("reports/stock-summary", "item", "Stock Summary"),
                 ("reports/stock-movements", "item", "Stock Movements"),
+                ("stock-adjustments", "item", "Stock Adjustments"),
+                ("reports/stock-adjustments", "item", "Stock Adjustment Register"),
                 ("reports/inventory-valuation", "item", "Inventory Valuation"),
                 ("reports/reorder", "item", "Reorder / Shortage"),
                 ("reports/dead-stock", "item", "Dead / Slow Stock"),
@@ -643,7 +659,19 @@ def nav_html(active: str) -> str:
         out.append(f'<details class="{cls}"><summary>{icon(item["icon"])}'
                    f'<span>{item["label"]}</span>{chev}</summary>'
                    f'<div class="menu-panel">')
+        nested_groups = item["key"] == "reports" or len(links) > 12
         for group, group_links in item["groups"]:
+            group_active = any(path == active for path, _ico, _label in group_links)
+            if nested_groups:
+                group_open = " open" if group_active else ""
+                out.append(f'<details class="menu-sub"{group_open}><summary>'
+                           f'<span>{group}</span>{chev}</summary>'
+                           f'<div class="menu-sub-panel">')
+                for path, ico, label in group_links:
+                    link_cls = " on" if path == active else ""
+                    out.append(f'<a class="{link_cls.strip()}" href="/{path}">{icon(ico)}<span>{label}</span></a>')
+                out.append('</div></details>')
+                continue
             out.append(f'<div class="menu-group"><div class="menu-title">{group}</div>')
             for path, ico, label in group_links:
                 link_cls = " on" if path == active else ""
@@ -710,9 +738,23 @@ def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> s
 <script>
 (() => {{
   const menus = Array.from(document.querySelectorAll('.menu'));
+  const submenus = Array.from(document.querySelectorAll('.menu-sub'));
   const closeOthers = keep => menus.forEach(m => {{ if (m !== keep) m.open = false; }});
+  submenus.forEach(sub => {{
+    sub.addEventListener('toggle', () => {{
+      if (sub.open) submenus.forEach(other => {{ if (other !== sub) other.open = false; }});
+    }});
+  }});
   menus.forEach(menu => {{
-    menu.addEventListener('toggle', () => {{ if (menu.open) closeOthers(menu); }});
+    menu.addEventListener('toggle', () => {{
+      if (menu.open) {{
+        closeOthers(menu);
+        const active = menu.querySelector('.menu-sub a.on');
+        if (active) requestAnimationFrame(() => active.scrollIntoView({{block: 'nearest'}}));
+      }} else {{
+        menu.querySelectorAll('.menu-sub').forEach(sub => {{ sub.open = false; }});
+      }}
+    }});
   }});
   document.addEventListener('click', event => {{
     if (!event.target.closest('.menu')) closeOthers(null);
@@ -1840,6 +1882,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_price_variance(conn, user, tenant, q))
             if path == "/reports/stock-movements":
                 return self._send(self.page_stock_movements(conn, user, tenant, q))
+            if path == "/reports/stock-adjustments":
+                return self._send(self.page_stock_adjustment_report(conn, user, tenant, q))
             if path == "/reports/inventory-valuation":
                 return self._send(self.page_inventory_valuation(conn, user, tenant, q))
             if path == "/reports/reorder":
@@ -1914,6 +1958,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.export_csv(conn, user, tenant, path, q)
             if path == "/budgets":
                 return self._send(self.page_budgets(conn, user, tenant, sess, q))
+            if path == "/stock-adjustments":
+                return self._send(self.page_stock_adjustments(conn, user, tenant, sess, q))
             if path == "/items":
                 return self._send(self.page_items(conn, user, tenant, sess))
             if path == "/audit":
@@ -2069,6 +2115,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._set_budget(conn, user, tenant, form)
             if path == "/budgets/delete":
                 return self._delete_budget(conn, user, tenant, form)
+            if path == "/stock-adjustments":
+                return self._create_stock_adjustment(conn, user, tenant, form)
             if path == "/accounts":
                 return self._create_account(conn, user, tenant, form, sess)
             if path == "/accounts/update":
@@ -2159,23 +2207,57 @@ class Handler(BaseHTTPRequestHandler):
             f'<td>{esc(r["invoice_date"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["total_paise"])}</td></tr>'
             for r in recent) or '<tr><td colspan="4" class="empty">No invoices yet</td></tr>'
 
-        # last 6 months revenue bars from journal lines
-        bars = []
-        for i in range(5, -1, -1):
-            m = (today.month - i - 1) % 12 + 1
-            y = today.year - ((today.month - i - 1) // 12 if today.month - i - 1 < 0 else 0)
-            ym = f"{y:04d}-{m:02d}"
-            row = conn.execute(
-                "SELECT COALESCE(SUM(l.credit_paise - l.debit_paise),0) v FROM journal_line l"
-                " JOIN journal_entry e ON e.id=l.entry_id JOIN account a ON a.id=l.account_id"
-                " WHERE l.tenant_id=? AND a.type='income' AND substr(e.entry_date,1,7)=?",
-                (tenant["id"], ym)).fetchone()
-            bars.append((ym, row["v"] or 0))
-        peak = max([b[1] for b in bars] + [1])
-        chart = "".join(
-            f'<div class="bar" style="height:{max(3, int((v / peak) * 120))}px">'
-            f'<b>{money.fmt(v) if v else ""}</b><span>{ym[5:]}/{ym[2:4]}</span></div>'
-            for ym, v in bars)
+        # Actual monthly series for the fiscal year, limited to the last six months.
+        monthly = analytics_mod.monthly_series(
+            conn, tenant, start.isoformat(), today.isoformat())["months"][-6:]
+        expense = analytics_mod.expense_breakdown(
+            conn, tenant, start.isoformat(), today.isoformat(), limit=7)
+        monthly_labels = [m["month"] for m in monthly]
+        monthly_revenue = [round(int(m["revenue_paise"]) / 100, 2) for m in monthly]
+        monthly_expense = [round(int(m["expense_paise"]) / 100, 2) for m in monthly]
+        monthly_profit = [round(int(m["profit_paise"]) / 100, 2) for m in monthly]
+        monthly_has_data = any(monthly_revenue) or any(monthly_expense)
+        expense_rows = list(expense["rows"])
+        expense_other = int(expense["other_paise"])
+        expense_labels = [f'{r["code"]} {r["name"]}' for r in expense_rows]
+        expense_values = [round(int(r["amount_paise"]) / 100, 2) for r in expense_rows]
+        if expense_other:
+            expense_labels.append("Other expense ledgers")
+            expense_values.append(round(expense_other / 100, 2))
+        expense_has_data = bool(expense_labels) and any(expense_values)
+        dash_charts = []
+        if monthly_has_data:
+            dash_charts.append({"id": "dash-monthly", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Revenue", "Expenses", "Profit"]},
+                "grid": {"left": 64, "right": 24, "top": 42, "bottom": 34, "containLabel": True},
+                "xAxis": {"type": "category", "data": monthly_labels},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "Revenue", "type": "bar", "data": monthly_revenue,
+                     "barMaxWidth": 28},
+                    {"name": "Expenses", "type": "line", "smooth": True,
+                     "data": monthly_expense, "symbolSize": 6},
+                    {"name": "Profit", "type": "line", "smooth": True,
+                     "data": monthly_profit, "symbolSize": 6},
+                ],
+            }})
+        if expense_has_data:
+            dash_charts.append({"id": "dash-expense", "option": {
+                "tooltip": {"trigger": "item"},
+                "legend": {"type": "scroll", "bottom": 0},
+                "series": [{
+                    "name": "Expense actuals", "type": "pie",
+                    "radius": ["46%", "70%"], "center": ["50%", "44%"],
+                    "data": [{"name": name, "value": value}
+                             for name, value in zip(expense_labels, expense_values)],
+                }],
+            }})
+        monthly_html = (charting.container("dash-monthly", 320) if monthly_has_data
+                        else charting.empty("No posted revenue or expense actuals in this fiscal year yet."))
+        expense_html = (charting.container("dash-expense", 300) if expense_has_data
+                        else charting.empty("No posted expense actuals in this fiscal year yet."))
+        dash_chart_script = charting.render(dash_charts)
 
         body = f"""
 <div class="kpis">
@@ -2188,9 +2270,14 @@ class Handler(BaseHTTPRequestHandler):
 </div>
 <div class="grid2">
   <div class="card pad">
-    <div class="sect-head"><h2>Revenue, last 6 months</h2><span class="badge ok">from ledger</span></div>
-    <div class="chart">{chart}</div>
-    <div style="height:18px"></div>
+    <div class="sect-head"><h2>Revenue, expenses and profit</h2>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="badge ok">actuals only</span>
+        <a class="btn ghost small" href="/reports/analytics">Analytics</a>
+      </div></div>
+    {monthly_html}
+    <p class="small muted" style="margin:10px 0 0">Bars are posted revenue; lines are posted expenses and
+    profit. Missing months are zero actuals, never estimates or forecasts.</p>
   </div>
   <div class="card pad">
     <div class="sect-head"><h2>Checks</h2></div>
@@ -2205,11 +2292,19 @@ class Handler(BaseHTTPRequestHandler):
     <a class="btn ghost" href="/bills/new" style="margin-left:6px">Record bill</a>
   </div>
 </div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Expense mix (fiscal year)</h2>
+    <span class="badge neutral">{money.fmt(expense["total_paise"])}</span></div>
+  {expense_html}
+  <p class="small muted" style="margin:10px 0 0">Posted expense accounts only. Other expense ledgers is the
+  remainder after the top seven accounts. Hover a slice for the rupee actual.</p>
+</div>
 <div class="sect" style="margin-top:20px">
   <div class="sect-head"><h2>Recent invoices</h2><a class="btn ghost small" href="/invoices">View all</a></div>
   <div class="card"><table><thead><tr><th>No</th><th>Date</th><th>Customer</th><th class="num">Total</th></tr></thead>
   <tbody>{rows}</tbody></table></div>
-</div>"""
+</div>
+{dash_chart_script}"""
         return layout("Dashboard", body, "", user, tenant)
 
     def page_invoices(self, conn, user, tenant, sess) -> str:
@@ -3412,6 +3507,21 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
             f'<td class="num">{r["days"]}</td><td><span class="badge neutral">{esc(r["bucket"])}</span></td></tr>'
             for r in data["rows"]) or '<tr><td colspan="7" class="empty">Nothing outstanding</td></tr>'
         t = data["totals"]
+        ageing_chart = []
+        ageing_labels = ["Current (0-30)", "31-60 days", "61-90 days", "90+ days"]
+        ageing_values = [round(int(t[key]) / 100, 2)
+                         for key in ("current", "31-60", "61-90", "90+")]
+        if any(ageing_values):
+            ageing_chart.append({"id": "ageing-buckets", "option": {
+                "tooltip": {"trigger": "axis"},
+                "xAxis": {"type": "category", "data": ageing_labels},
+                "yAxis": {"type": "value"},
+                "series": [{"name": "Outstanding", "type": "bar", "colorBy": "data",
+                            "data": ageing_values, "barMaxWidth": 54}],
+            }})
+        ageing_chart_html = (charting.container("ageing-buckets", 300) if any(ageing_values)
+                             else charting.empty("Nothing outstanding at this date."))
+        ageing_chart_script = charting.render(ageing_chart)
         body = f"""
 <div class="kpis">
   {kpi("Current (0-30)", money.fmt(t["current"]), "not yet due")}
@@ -3429,6 +3539,15 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <tbody>{rows}</tbody>
 <tfoot><tr><td colspan="4">Total</td><td class="num">{money.fmt(data["grand_total"])}</td><td colspan="2"></td></tr></tfoot>
 </table></div>"""
+        body += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(title)} by bucket</h2>
+    <span class="badge neutral">as of {esc(as_of)}</span></div>
+  {ageing_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Bars are outstanding actuals in each ageing bucket. They
+  are not a provision or a forecast.</p>
+</div>
+{ageing_chart_script}"""
         return layout(title, body, f"reports/{kind}-ageing", user, tenant)
 
     def page_gst(self, conn, user, tenant, q) -> str:
@@ -3436,6 +3555,26 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
         dfrom = (q.get("from") or [fiscal_start(today, tenant["fiscal_year_start_month"])])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
         g = acct.gst_summary(conn, tenant["id"], dfrom, dto)
+        tax_heads = ["IGST", "CGST", "SGST"]
+        output_values = [round(int(g["output"].get(head, 0)) / 100, 2) for head in tax_heads]
+        input_values = [round(int(g["input"].get(head, 0)) / 100, 2) for head in tax_heads]
+        gst_chart = []
+        if any(output_values) or any(input_values):
+            gst_chart.append({"id": "gst-heads", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Output tax", "Input tax"]},
+                "xAxis": {"type": "category", "data": tax_heads},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "Output tax", "type": "bar", "data": output_values,
+                     "barMaxWidth": 34},
+                    {"name": "Input tax", "type": "bar", "data": input_values,
+                     "barMaxWidth": 34},
+                ],
+            }})
+        gst_chart_html = (charting.container("gst-heads", 300) if gst_chart
+                          else charting.empty("No GST actuals in this period."))
+        gst_chart_script = charting.render(gst_chart)
         sales = "".join(
             f'<tr><td>{esc(r["invoice_no"])}</td><td>{esc(r["invoice_date"])}</td><td>{esc(r["party"])}</td>'
             f'<td class="num">{money.fmt(r["sub_total_paise"])}</td><td class="num">{money.fmt(r["tax_paise"])}</td>'
@@ -3469,6 +3608,13 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <div class="card"><div class="pad"><h2>Input tax (purchases)</h2></div><table><tbody>{in_rows}</tbody>
 <tfoot><tr><td>Total input</td><td class="num">{money.fmt(g["input_total"])}</td></tr></tfoot></table></div>
 </div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Output and input tax by head</h2>
+    <span class="badge neutral">working aid, not a filed return</span></div>
+  {gst_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Posted invoice and bill tax only. Verify with your tax
+  professional before filing.</p>
+</div>
 <div class="card pad" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
 <div><div class="lbl small muted">NET GST {"PAYABLE" if g["net_payable"] >= 0 else "CREDIT"}</div>
 <div style="font-size:28px;font-weight:700">{money.fmt(abs(g["net_payable"]))}</div></div>
@@ -3478,6 +3624,8 @@ document.getElementById('csvfile').addEventListener('change', function (e) {{
 <div class="sect"><h2 style="margin-bottom:10px">Purchase register</h2>
 <div class="card"><table><thead><tr><th>Bill</th><th>Date</th><th>Vendor</th><th class="num">Taxable</th><th class="num">GST</th><th class="num">Total</th></tr></thead><tbody>{purchases}</tbody></table></div></div>
 <p class="small muted">Working summary, not a filed return. Input tax is net of debit notes; GSTR-1 export lists invoices (B2B + B2C small) and credit notes separately, while this page shows net GST after credit notes. Verify with your tax professional before filing.</p>"""
+        body += f"""
+{gst_chart_script}"""
         return layout("GST summary", body, "reports/gst", user, tenant)
 
     def page_gstr3b(self, conn, user, tenant, q) -> str:
@@ -4891,6 +5039,53 @@ correction path. Every correction stays in the audit trail.</p>
                       for r in p["income"]) or '<tr><td colspan="3" class="empty">No income</td></tr>'
         exp = "".join(f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["amount"])}</td></tr>'
                       for r in p["expense"]) or '<tr><td colspan="3" class="empty">No expenses</td></tr>'
+        income_rows = [r for r in p["income"] if int(r["amount"]) > 0]
+        expense_rows = [r for r in p["expense"] if int(r["amount"]) > 0]
+        pnl_charts = []
+        if p["total_income"] or p["total_expense"]:
+            pnl_charts.append({"id": "pnl-totals", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Actual"]},
+                "xAxis": {"type": "category", "data": ["Income", "Expenses", "Net profit"]},
+                "yAxis": {"type": "value"},
+                "series": [{
+                    "name": "Actual", "type": "bar", "colorBy": "data",
+                    "data": [round(int(p["total_income"]) / 100, 2),
+                             round(int(p["total_expense"]) / 100, 2),
+                             round(int(p["net_profit"]) / 100, 2)],
+                }],
+            }})
+        if income_rows:
+            pnl_charts.append({"id": "pnl-income", "option": {
+                "tooltip": {"trigger": "item"},
+                "legend": {"type": "scroll", "bottom": 0},
+                "series": [{
+                    "name": "Income actuals", "type": "pie",
+                    "radius": ["46%", "70%"], "center": ["50%", "44%"],
+                    "data": [{"name": f'{r["code"]} {r["name"]}',
+                              "value": round(int(r["amount"]) / 100, 2)}
+                             for r in income_rows],
+                }],
+            }})
+        if expense_rows:
+            pnl_charts.append({"id": "pnl-expense", "option": {
+                "tooltip": {"trigger": "item"},
+                "legend": {"type": "scroll", "bottom": 0},
+                "series": [{
+                    "name": "Expense actuals", "type": "pie",
+                    "radius": ["46%", "70%"], "center": ["50%", "44%"],
+                    "data": [{"name": f'{r["code"]} {r["name"]}',
+                              "value": round(int(r["amount"]) / 100, 2)}
+                             for r in expense_rows],
+                }],
+            }})
+        pnl_totals_html = (charting.container("pnl-totals", 300) if p["total_income"] or p["total_expense"]
+                           else charting.empty("No posted income or expense actuals in this period."))
+        pnl_income_html = (charting.container("pnl-income", 300) if income_rows
+                           else charting.empty("No posted income actuals in this period."))
+        pnl_expense_html = (charting.container("pnl-expense", 300) if expense_rows
+                            else charting.empty("No posted expense actuals in this period."))
+        pnl_chart_script = charting.render(pnl_charts)
         body = f"""
 <form method="get" class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
 <div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
@@ -4905,11 +5100,61 @@ correction path. Every correction stays in the audit trail.</p>
 <div class="card pad" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
 <div><div class="lbl small muted">NET PROFIT</div><div style="font-size:28px;font-weight:700">{money.fmt(p["net_profit"])}</div></div>
 <span class="badge neutral">{esc(dfrom)} → {esc(dto)}</span></div>"""
+        body += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>Income, expenses and net profit</h2>
+    <span class="badge neutral">actuals only</span></div>
+  {pnl_totals_html}
+  <p class="small muted" style="margin:10px 0 0">Bars are posted actuals for the selected period. Net profit
+  is income minus expenses; it is not a forecast.</p>
+</div>
+<div class="grid2" style="margin-top:16px">
+  <div class="card pad"><div class="sect-head"><h2>Income mix</h2></div>
+    {pnl_income_html}
+    <p class="small muted" style="margin:10px 0 0">Income accounts with a positive posted balance.</p></div>
+  <div class="card pad"><div class="sect-head"><h2>Expense mix</h2></div>
+    {pnl_expense_html}
+    <p class="small muted" style="margin:10px 0 0">Expense accounts with a positive posted balance.</p></div>
+</div>
+{pnl_chart_script}"""
         return layout("Profit & Loss", body, "reports/pnl", user, tenant)
 
     def page_bs(self, conn, user, tenant, q) -> str:
         as_of = (q.get("as_of") or [date.today().isoformat()])[0]
         bs = acct.balance_sheet(conn, tenant["id"], as_of)
+        asset_rows = [r for r in bs["assets"] if int(r["amount"]) > 0]
+        bs_charts = []
+        if bs["total_assets"] or bs["total_liabilities"] or bs["total_equity"]:
+            bs_charts.append({"id": "bs-balance", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Actual"]},
+                "xAxis": {"type": "category", "data": ["Assets", "Liabilities", "Equity"]},
+                "yAxis": {"type": "value"},
+                "series": [{
+                    "name": "Actual", "type": "bar", "colorBy": "data",
+                    "data": [round(int(bs["total_assets"]) / 100, 2),
+                             round(int(bs["total_liabilities"]) / 100, 2),
+                             round(int(bs["total_equity"]) / 100, 2)],
+                }],
+            }})
+        if asset_rows:
+            bs_charts.append({"id": "bs-assets", "option": {
+                "tooltip": {"trigger": "item"},
+                "legend": {"type": "scroll", "bottom": 0},
+                "series": [{
+                    "name": "Asset actuals", "type": "pie",
+                    "radius": ["46%", "70%"], "center": ["50%", "44%"],
+                    "data": [{"name": f'{r["code"]} {r["name"]}',
+                              "value": round(int(r["amount"]) / 100, 2)}
+                             for r in asset_rows],
+                }],
+            }})
+        bs_balance_html = (charting.container("bs-balance", 300)
+                           if bs["total_assets"] or bs["total_liabilities"] or bs["total_equity"]
+                           else charting.empty("No balance-sheet actuals at this date."))
+        bs_assets_html = (charting.container("bs-assets", 300) if asset_rows
+                          else charting.empty("No positive asset balances at this date."))
+        bs_chart_script = charting.render(bs_charts)
 
         def sect(title, rows, total):
             trs = "".join(f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["amount"])}</td></tr>'
@@ -4929,6 +5174,22 @@ correction path. Every correction stays in the audit trail.</p>
 <div style="height:14px"></div>
 {sect("Equity", bs["equity"] + [{"code":"3999","name":"Retained earnings (current period)","amount":bs["retained_earnings"]}], bs["total_equity"])}
 </div></div>"""
+        body += f"""
+<div class="grid2" style="margin-top:16px">
+  <div class="card pad">
+    <div class="sect-head"><h2>Assets vs liabilities + equity</h2>
+      <span class="badge neutral">as of {esc(as_of)}</span></div>
+    {bs_balance_html}
+    <p class="small muted" style="margin:10px 0 0">Actual posted balances only. A balanced sheet shows
+    assets equal to liabilities plus equity.</p>
+  </div>
+  <div class="card pad">
+    <div class="sect-head"><h2>Asset composition</h2></div>
+    {bs_assets_html}
+    <p class="small muted" style="margin:10px 0 0">Positive asset account balances at the selected date.</p>
+  </div>
+</div>
+{bs_chart_script}"""
         return layout("Balance Sheet", body, "reports/balance-sheet", user, tenant)
 
     def _report_period(self, tenant, q):
@@ -5004,6 +5265,25 @@ report declares its formula on its own screen. Planned reports are deliberately 
     def page_cash_flow(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.cash_flow(conn, tenant, dfrom, dto)
+        cash_cats = list(data["categories"])[:12]
+        cash_chart = []
+        if cash_cats:
+            ordered = list(reversed(cash_cats))
+            cash_chart.append({"id": "cash-categories", "option": {
+                "tooltip": {"trigger": "axis"},
+                "grid": {"left": 150, "right": 28, "top": 24, "bottom": 28, "containLabel": True},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": [c["category"] for c in ordered]},
+                "series": [{
+                    "name": "Cash movement", "type": "bar",
+                    "data": [{"value": round(int(c["amount"]) / 100, 2),
+                              "itemStyle": {"color": "#059669" if int(c["amount"]) >= 0 else "#DC2626"}}
+                             for c in ordered],
+                }],
+            }})
+        cash_chart_html = (charting.container("cash-categories", max(240, 34 * len(cash_cats) + 40))
+                           if cash_cats else charting.empty("No cash movements in this period."))
+        cash_chart_script = charting.render(cash_chart)
         rows = "".join(
             f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}</td>'
             f'<td>{esc(r["category"])}</td><td>{esc(r["narration"])}</td>'
@@ -5055,11 +5335,19 @@ report declares its formula on its own screen. Planned reports are deliberately 
     never hidden.</p>
   </div>
 </div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Cash movement by category</h2>
+    <span class="badge neutral">positive = inflow, negative = outflow</span></div>
+  {cash_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Each bar is the net posted cash effect of a category in the
+  selected period. Transfers between cash and bank net to zero and are omitted.</p>
+</div>
 <div class="card pad sect"><div class="sect-head"><h2>Movement detail</h2>
 <a class="btn ghost small" href="/export/cash-flow.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></div>
 <div class="table-wrap"><table><thead><tr><th>Date</th><th>Ref</th><th>Category</th><th>Narration</th><th class="num">Cash effect</th></tr></thead>
 <tbody>{rows}</tbody></table></div></div>
-<p class="small muted">This is a working report. It does not forecast cash and does not replace a bank statement.</p>"""
+<p class="small muted">This is a working report. It does not forecast cash and does not replace a bank statement.</p>
+{cash_chart_script}"""
         return layout("Cash flow", body, "reports/cash-flow", user, tenant)
 
     def _ratio_value(self, row) -> str:
@@ -5119,6 +5407,28 @@ Ratios are derived from posted journals and the chart of accounts.</p></div>
     def page_comparison(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.period_comparison(conn, tenant, dfrom, dto)
+        comparison_chart = []
+        comparison_metrics = data["metrics"]
+        if any(comparison_metrics[key][side]
+               for key in ("revenue", "expense", "net_profit")
+               for side in ("current", "previous")):
+            comparison_chart.append({"id": "comparison-chart", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Current period", "Previous period"]},
+                "xAxis": {"type": "category", "data": ["Revenue", "Expenses", "Net profit"]},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "Current period", "type": "bar", "barMaxWidth": 36,
+                     "data": [round(int(comparison_metrics[key]["current"]) / 100, 2)
+                              for key in ("revenue", "expense", "net_profit")]},
+                    {"name": "Previous period", "type": "bar", "barMaxWidth": 36,
+                     "data": [round(int(comparison_metrics[key]["previous"]) / 100, 2)
+                              for key in ("revenue", "expense", "net_profit")]},
+                ],
+            }})
+        comparison_chart_html = (charting.container("comparison-chart", 300) if comparison_chart
+                                 else charting.empty("No income or expense actuals in either period."))
+        comparison_chart_script = charting.render(comparison_chart)
 
         def metric_card(label, key):
             item = data["metrics"][key]
@@ -5153,6 +5463,15 @@ Ratios are derived from posted journals and the chart of accounts.</p></div>
 <tbody>{rows}</tbody></table></div>
 <p class="small muted" style="margin:10px 0 0">Delta % is n/a when the prior-period value is zero.
 The comparison never substitutes an estimate for a missing prior period.</p></div>"""
+        body += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>Current vs previous period</h2>
+    <span class="badge neutral">equal-length actual periods</span></div>
+  {comparison_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Current period {esc(dfrom)} to {esc(dto)} compared with
+  {esc(data["previous_from"])} to {esc(data["previous_to"])}. Missing prior values are never estimated.</p>
+</div>
+{comparison_chart_script}"""
         return layout("Period comparison", body, "reports/comparison", user, tenant)
 
     def page_reversals(self, conn, user, tenant, q) -> str:
@@ -5291,6 +5610,22 @@ does not by itself establish ITC eligibility.</p>"""
     def page_expense_breakdown(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.expense_breakdown(conn, tenant, dfrom, dto)
+        expense_chart = []
+        if data["rows"] and data["total"]:
+            expense_chart.append({"id": "expense-breakdown-chart", "option": {
+                "tooltip": {"trigger": "item"},
+                "legend": {"type": "scroll", "bottom": 0},
+                "series": [{
+                    "name": "Expense actuals", "type": "pie",
+                    "radius": ["46%", "70%"], "center": ["50%", "44%"],
+                    "data": [{"name": f'{r["code"]} {r["name"]}',
+                              "value": round(int(r["amount"]) / 100, 2)}
+                             for r in data["rows"]],
+                }],
+            }})
+        expense_chart_html = (charting.container("expense-breakdown-chart", 300)
+                              if expense_chart else charting.empty("No posted expenses in this period."))
+        expense_chart_script = charting.render(expense_chart)
         rows = "".join(
             f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td>{esc(r["group"])}</td>'
             f'<td class="num">{money.fmt(r["amount"])}</td>'
@@ -5317,8 +5652,17 @@ does not by itself establish ITC eligibility.</p>"""
 <tbody>{rows}</tbody>
 <tfoot><tr><td colspan="3">Total</td><td class="num">{money.fmt(data["total"])}</td><td></td><td class="num">{total_share}</td></tr></tfoot>
 </table></div></div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Expense composition</h2>
+    <span class="badge neutral">{money.fmt(data["total"])}</span></div>
+  {expense_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Posted expense accounts only. Hover a slice for the rupee
+  actual.</p>
+</div>
 <p class="small muted" style="margin-top:10px">Expense amounts are debit minus credit on expense accounts.
 A credit balance is shown as a negative amount, not silently removed.</p>"""
+        body += f"""
+{expense_chart_script}"""
         return layout("Expense breakdown", body, "reports/expense-breakdown", user, tenant)
 
     def page_working_capital(self, conn, user, tenant, q) -> str:
@@ -5365,6 +5709,25 @@ A credit balance is shown as a negative amount, not silently removed.</p>"""
     def page_sales_summary(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.sales_summary_by_period(conn, tenant, dfrom, dto)
+        sales_chart = []
+        if data["rows"]:
+            sales_chart.append({"id": "sales-summary-trend", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Invoice total", "Taxable value"]},
+                "xAxis": {"type": "category", "data": [r["period"] for r in data["rows"]]},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "Invoice total", "type": "bar",
+                     "data": [round(int(r["total"]) / 100, 2) for r in data["rows"]],
+                     "barMaxWidth": 30},
+                    {"name": "Taxable value", "type": "line", "smooth": True,
+                     "data": [round(int(r["taxable"]) / 100, 2) for r in data["rows"]],
+                     "symbolSize": 6},
+                ],
+            }})
+        sales_chart_html = (charting.container("sales-summary-trend", 300) if sales_chart
+                            else charting.empty("No posted invoices in this period."))
+        sales_chart_script = charting.render(sales_chart)
 
         def pct(value):
             return f"{value * 100:+.1f}%" if value is not None else "n/a"
@@ -5400,13 +5763,37 @@ A credit balance is shown as a negative amount, not silently removed.</p>"""
 <td class="num">{money.fmt(t["taxable"])}</td><td class="num">{money.fmt(t["tax"])}</td>
 <td class="num">{money.fmt(t["total"])}</td><td></td></tr></tfoot>
 </table></div></div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Monthly invoice trend</h2>
+    <span class="badge neutral">posted invoices only</span></div>
+  {sales_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Bars are gross invoice value; the line is taxable value.
+  This is not a forecast.</p>
+</div>
 <p class="small muted" style="margin-top:10px">Growth compares each month with the previous month
 in the selected range. This is gross posted invoice value, before credit notes. It is not a forecast.</p>"""
+        body += f"""
+{sales_chart_script}"""
         return layout("Sales summary", body, "reports/sales-summary", user, tenant)
 
     def page_top_customers(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.top_customers(conn, tenant, dfrom, dto)
+        customer_rows = list(reversed(data["rows"][:10]))
+        customer_chart = []
+        if customer_rows:
+            customer_chart.append({"id": "top-customers-chart", "option": {
+                "tooltip": {"trigger": "axis"},
+                "grid": {"left": 150, "right": 28, "top": 24, "bottom": 28, "containLabel": True},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": [r["name"] for r in customer_rows]},
+                "series": [{"name": "Invoice value", "type": "bar",
+                            "data": [round(int(r["total"]) / 100, 2) for r in customer_rows]}],
+            }})
+        customer_chart_html = (charting.container("top-customers-chart",
+                                                  max(240, 34 * len(customer_rows) + 40))
+                               if customer_rows else charting.empty("No posted invoices in this period."))
+        customer_chart_script = charting.render(customer_chart)
 
         def pct(value):
             return f"{value * 100:.1f}%" if value is not None else "n/a"
@@ -5446,13 +5833,43 @@ in the selected range. This is gross posted invoice value, before credit notes. 
 <td class="num">{money.fmt(t["taxable"])}</td><td class="num">{money.fmt(t["total"])}</td>
 <td class="num">{total_share}</td><td></td></tr></tfoot>
 </table></div></div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Top customers by invoice value</h2>
+    <span class="badge neutral">top 10 actuals</span></div>
+  {customer_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Posted invoice totals before credit notes. Customer links in
+  the table open the statement.</p>
+</div>
 <p class="small muted" style="margin-top:10px">Revenue is the posted invoice total, before credit notes.
 Share is calculated against all posted invoices in the period. Customer links open the statement.</p>"""
+        body += f"""
+{customer_chart_script}"""
         return layout("Top customers", body, "reports/top-customers", user, tenant)
 
     def page_product_sales(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.product_sales(conn, tenant, dfrom, dto)
+        product_rows = list(reversed(data["rows"][:10]))
+        product_chart = []
+        if product_rows:
+            product_chart.append({"id": "product-sales-chart", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Taxable revenue", "Estimated margin"]},
+                "grid": {"left": 160, "right": 28, "top": 42, "bottom": 28, "containLabel": True},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category",
+                          "data": [f'{r["sku"]} {r["name"]}' for r in product_rows]},
+                "series": [
+                    {"name": "Taxable revenue", "type": "bar",
+                     "data": [round(int(r["revenue"]) / 100, 2) for r in product_rows]},
+                    {"name": "Estimated margin", "type": "bar",
+                     "data": [round(int(r["margin"]) / 100, 2) for r in product_rows]},
+                ],
+            }})
+        product_chart_html = (charting.container("product-sales-chart",
+                                                 max(240, 40 * len(product_rows) + 50))
+                              if product_rows else charting.empty("No posted invoice lines in this period."))
+        product_chart_script = charting.render(product_chart)
 
         def pct(value):
             return f"{value * 100:.1f}%" if value is not None else "n/a"
@@ -5492,8 +5909,17 @@ Share is calculated against all posted invoices in the period. Customer links op
 <td class="num">{money.fmt(t["cost"])}</td><td class="num">{money.fmt(t["margin"])}</td>
 <td class="num">{pct(t["margin_pct"])}</td><td class="num">{total_share}</td></tr></tfoot>
 </table></div></div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Top products by revenue</h2>
+    <span class="badge neutral">top 10 actuals</span></div>
+  {product_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Taxable revenue and estimated margin use posted invoice
+  lines and the item master's current cost. This is not a historical cost-layer valuation.</p>
+</div>
 <p class="small muted" style="margin-top:10px">Quantity is the invoiced quantity. Cost and margin use the
 item master's current cost, not a historical cost layer. The report is a management aid, not a valuation.</p>"""
+        body += f"""
+{product_chart_script}"""
         return layout("Product-wise sales", body, "reports/product-sales", user, tenant)
 
     def page_discounts(self, conn, user, tenant, q) -> str:
@@ -5710,10 +6136,10 @@ a debit note for an older bill can make the rate exceed 100%.</p>"""
 <tfoot><tr><td colspan="7">Closing value</td>
 <td class="num">{money.fmt(t["closing_value"])}</td></tr></tfoot>
 </table></div></div>
-<p class="small muted" style="margin-top:10px">Opening + posted purchases and sales returns - posted sales
-and purchase returns = closing. Movements after the end date are removed from the current item stock to
-reconstruct the period-end quantity. This build has no manual stock-adjustment table, so an adjustment made
-outside documents would show as a difference.</p>"""
+<p class="small muted" style="margin-top:10px">Opening + posted purchases, sales returns and manual stock
+increases - posted sales, purchase returns and manual stock decreases = closing. Movements after the end
+date are removed from the current item stock to reconstruct the period-end quantity. Manual adjustments are
+valued at the current moving weighted-average cost.</p>"""
         return layout("Stock summary", body, "reports/stock-summary", user, tenant)
 
     def page_credit_limits(self, conn, user, tenant, q) -> str:
@@ -5912,6 +6338,29 @@ current version label; this is a usage register, not a re-posting or a rule-chan
     def page_budget_report(self, conn, user, tenant, q) -> str:
         dfrom, dto = self._report_period(tenant, q)
         data = budget_mod.budget_vs_actual(conn, tenant, dfrom, dto)
+        budget_t = data["totals"]
+        budget_chart = []
+        if (budget_t["income_budget"] or budget_t["expense_budget"]
+                or budget_t["income_actual"] or budget_t["expense_actual"]):
+            budget_chart.append({"id": "budget-vs-actual", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Budget", "Actual"]},
+                "xAxis": {"type": "category", "data": ["Income", "Expense"]},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "Budget", "type": "bar",
+                     "data": [round(int(budget_t["income_budget"]) / 100, 2),
+                              round(int(budget_t["expense_budget"]) / 100, 2)],
+                     "barMaxWidth": 38},
+                    {"name": "Actual", "type": "bar",
+                     "data": [round(int(budget_t["income_actual"]) / 100, 2),
+                              round(int(budget_t["expense_actual"]) / 100, 2)],
+                     "barMaxWidth": 38},
+                ],
+            }})
+        budget_chart_html = (charting.container("budget-vs-actual", 300) if budget_chart
+                             else charting.empty("No stored budget or actual income/expense in this period."))
+        budget_chart_script = charting.render(budget_chart)
 
         def pct(value):
             return f"{value * 100:.2f}%" if value is not None else "n/a"
@@ -5970,9 +6419,18 @@ current version label; this is a usage register, not a re-posting or a rule-chan
 <td class="num"><b>{money.fmt(t["net_actual"])}</b></td>
 <td class="num"><b>{money.fmt(t["net_variance"])}</b></td><td colspan="3"></td></tr>
 </tfoot></table></div></div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Budget vs actual</h2>
+    <span class="badge neutral">stored budget, posted actual</span></div>
+  {budget_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Budgets are planning records; they never change posted
+  balances. Variance colours and labels remain in the table above.</p>
+</div>
 <p class="small muted" style="margin-top:10px">{esc(data["method"])} An income variance above budget is
 favourable; an expense variance above budget is unfavourable. Rows with no stored budget show "No budget"
 and are never given a variance percentage. Budgets are planning records and do not change posted balances.</p>"""
+        body += f"""
+{budget_chart_script}"""
         return layout("Budget vs actual", body, "reports/budget", user, tenant)
 
     def page_budgets(self, conn, user, tenant, sess, q) -> str:
@@ -6202,8 +6660,154 @@ not automatically an error: it may be a genuine supplier increase. This report n
 <tbody>{rows}</tbody></table></div></div>
 <p class="small muted" style="margin-top:10px">This is a chronological posted-document history, not a running
 stock ledger. Opening stock is not a document line, so it is excluded. Sales and purchase returns appear with
-their source note. No manual stock adjustment exists in this build.</p>"""
+their source note. Manual stock adjustments appear as their own source at current moving weighted-average cost.</p>"""
         return layout("Stock movement history", body, "reports/stock-movements", user, tenant)
+
+    def _stock_adjustment_table(self, data) -> str:
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        rows = "".join(
+            f'<tr><td>{esc(r["date"])}</td><td>{esc(r["adjustment_no"])}</td>'
+            f'<td>{esc(r["sku"])}<div class="small muted">{esc(r["name"])}</div></td>'
+            f'<td><span class="badge {"ok" if r["direction"] == "Increase" else "warn"}">'
+            f'{esc(r["direction"])}</span></td>'
+            f'<td class="num">{qty(r["qty"])}</td>'
+            f'<td class="num">{money.fmt(r["unit_cost"])}</td>'
+            f'<td class="num">{money.fmt(r["value"])}</td>'
+            f'<td class="num">{qty(r["current_stock"])}</td>'
+            f'<td>{esc(r["reason"])}'
+            f'{"<div class=\"small muted\">" + esc(r["note"]) + "</div>" if r["note"] else ""}</td>'
+            f'<td>{esc(r["entry_no"])}</td><td>{esc(r["created_by_name"])}</td></tr>'
+            for r in data["rows"]) or \
+            '<tr><td colspan="11" class="empty">No stock adjustments in this period</td></tr>'
+        return (
+            '<div class="card"><div class="table-wrap"><table>'
+            '<thead><tr><th>Date</th><th>Document</th><th>Item</th><th>Direction</th>'
+            '<th class="num">Qty</th><th class="num">Unit cost</th><th class="num">Value</th>'
+            '<th class="num">Stock now</th><th>Reason</th><th>Journal</th><th>By</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div></div>'
+        )
+
+    def page_stock_adjustment_report(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Stock adjustment register",
+                          f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/stock-adjustments", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.stock_adjustment_register(conn, tenant, dfrom, dto)
+
+        def qty(value):
+            return f"{value / 1000:.3f}"
+
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/stock-adjustments" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-506 - posted manual adjustments</span>
+<a class="btn ghost small" href="/stock-adjustments">Record adjustment</a>
+<a class="btn ghost small" href="/export/stock-adjustments.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></form>
+<div class="kpis">
+  {kpi("Adjustments", str(t["adjustments"]), "posted in this period")}
+  {kpi("Quantity increase", qty(t["increase_qty"]), "positive adjustments")}
+  {kpi("Quantity decrease", qty(t["decrease_qty"]), "negative adjustments")}
+  {kpi("Net value", money.fmt(t["net_value"]), "increase value - decrease value")}
+</div>
+{self._stock_adjustment_table(data)}
+<p class="small muted" style="margin-top:10px">{esc(data["method"])} Stock now is the current item-master
+quantity, not a historical balance at the adjustment date. The report is a register, not an approval
+workflow: it records the user who posted each adjustment and the journal entry it created.</p>"""
+        return layout("Stock adjustment register", body,
+                      "reports/stock-adjustments", user, tenant)
+
+    def page_stock_adjustments(self, conn, user, tenant, sess, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Stock adjustments",
+                          f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "stock-adjustments", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.stock_adjustment_register(conn, tenant, dfrom, dto)
+        try:
+            security.require(conn, user["id"], tenant["id"], "stock.adjust")
+            can_adjust = True
+        except security.AuthError:
+            can_adjust = False
+
+        items = conn.execute(
+            """SELECT id, sku, name, unit, stock_milli, cost_paise
+               FROM item WHERE tenant_id=? AND track_stock=1 ORDER BY name""",
+            (tenant["id"],),
+        ).fetchall()
+        options = "".join(
+            f'<option value="{esc(i["id"])}">{esc(i["sku"])} - {esc(i["name"])} '
+            f'(stock {i["stock_milli"] / 1000:.3f} {esc(i["unit"])}, '
+            f'cost {money.fmt(i["cost_paise"])})</option>'
+            for i in items)
+        error = (q.get("error") or [""])[0]
+        saved = (q.get("saved") or [""])[0]
+        if error:
+            notice = (f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
+                      f'<b>Adjustment not posted.</b> {esc(error)}</div>')
+        elif saved:
+            notice = (f'<div class="card pad" style="border-color:var(--success);margin-bottom:14px">'
+                      f'<b>Stock adjustment {esc(saved)} posted.</b> The quantity, inventory ledger and '
+                      f'audit trail were updated together.</div>')
+        else:
+            notice = ""
+
+        if not can_adjust:
+            form = ('<div class="card pad sect"><b>Read-only stock adjustment view.</b> '
+                    'Your role can see the register but cannot post an adjustment.</div>')
+        elif not items:
+            form = ('<div class="card pad sect"><b>No stock-tracked items.</b> Add a stock-tracked '
+                    'item with a cost before recording an adjustment.</div>')
+        else:
+            form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Record a stock adjustment</h2>
+<form method="post" action="/stock-adjustments">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="row c4">
+  <div class="field"><label>Date</label><input type="date" name="adjustment_date" value="{date.today().isoformat()}" required></div>
+  <div class="field"><label>Item</label><select name="item_id" required>{options}</select></div>
+  <div class="field"><label>Direction</label><select name="direction"><option value="increase">Increase stock</option><option value="decrease">Decrease stock</option></select></div>
+  <div class="field"><label>Quantity</label><input name="qty" inputmode="decimal" placeholder="0.000" required></div>
+</div>
+<div class="row c2">
+  <div class="field"><label>Reason</label><input name="reason" maxlength="200" required placeholder="Physical count correction / damage / sample"></div>
+  <div class="field"><label>Note</label><input name="note" maxlength="200" placeholder="Optional detail"></div>
+</div>
+<button class="btn" type="submit">Post adjustment</button>
+<span class="small muted" style="margin-left:10px">The item's current moving weighted-average cost values the adjustment. The item cost itself is not changed.</span>
+</form></div>"""
+
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/stock-adjustments" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">Manual quantity correction</span>
+<a class="btn ghost small" href="/reports/stock-adjustments?from={esc(dfrom)}&amp;to={esc(dto)}">Register</a></form>
+{notice}
+<div class="kpis">
+  {kpi("Adjustments", str(t["adjustments"]), "posted in this period")}
+  {kpi("Net quantity", f"{t["net_qty"] / 1000:.3f}", "signed quantity change")}
+  {kpi("Net value", money.fmt(t["net_value"]), "inventory value change")}
+</div>
+{form}
+{self._stock_adjustment_table(data)}
+<p class="small muted" style="margin-top:10px">An increase posts Dr Inventory / Cr Stock Adjustments;
+a decrease posts Dr Stock Adjustments / Cr Inventory. A decrease cannot take stock below zero. The
+register never rewrites a posted journal; correct an error with an opposite adjustment and a clear reason.</p>"""
+        return layout("Stock adjustments", body, "stock-adjustments", user, tenant)
 
     def page_inventory_valuation(self, conn, user, tenant, q) -> str:
         as_of = (q.get("as_of") or [date.today().isoformat()])[0]
@@ -6219,6 +6823,23 @@ their source note. No manual stock adjustment exists in this build.</p>"""
         def pct(value):
             return f"{value * 100:.2f}%" if value is not None else "n/a"
 
+        inv_rows = sorted(data["rows"], key=lambda r: int(r["value"]), reverse=True)[:10]
+        inv_rows = [r for r in inv_rows if int(r["value"]) > 0]
+        inv_chart = []
+        if inv_rows:
+            ordered = list(reversed(inv_rows))
+            inv_chart.append({"id": "inventory-value", "option": {
+                "tooltip": {"trigger": "axis"},
+                "grid": {"left": 160, "right": 28, "top": 24, "bottom": 28, "containLabel": True},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category",
+                          "data": [f'{r["sku"]} {r["name"]}' for r in ordered]},
+                "series": [{"name": "Stock value", "type": "bar",
+                            "data": [round(int(r["value"]) / 100, 2) for r in ordered]}],
+            }})
+        inv_chart_html = (charting.container("inventory-value", max(240, 34 * len(inv_rows) + 40))
+                          if inv_rows else charting.empty("No positive stock value at this date."))
+        inv_chart_script = charting.render(inv_chart)
         rows = "".join(
             f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
             f'<td class="num">{qty(r["qty"])}</td><td>{esc(r["unit"])}</td>'
@@ -6250,9 +6871,19 @@ their source note. No manual stock adjustment exists in this build.</p>"""
 <tfoot><tr><td colspan="5">Total</td><td class="num">{money.fmt(t["value"])}</td>
 <td class="num">{share_total}</td><td></td></tr></tfoot>
 </table></div></div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Top items by stock value</h2>
+    <span class="badge neutral">top 10 actuals</span></div>
+  {inv_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Closing quantity multiplied by current moving weighted-average
+  cost. This is not a FIFO layer valuation.</p>
+</div>
 <p class="small muted" style="margin-top:10px">Quantity is reconstructed at the selected date from current item
-stock and later posted movements. Unit cost is the current moving weighted-average cost maintained by posted
-bills. This is not a FIFO layer valuation; no historical cost layers are stored.</p>"""
+stock and later posted movements, including manual stock adjustments. Unit cost is the current moving
+weighted-average cost maintained by posted bills. This is not a FIFO layer valuation; no historical cost layers
+are stored.</p>"""
+        body += f"""
+{inv_chart_script}"""
         return layout("Inventory valuation", body, "reports/inventory-valuation", user, tenant)
 
     def page_reorder(self, conn, user, tenant, q) -> str:
@@ -6344,8 +6975,8 @@ change stock.</p>"""
 <th class="num">Days</th><th class="num">Value</th><th>Status</th></tr></thead>
 <tbody>{rows}</tbody></table></div></div>
 <p class="small muted" style="margin-top:10px">Age is measured from the latest posted purchase, sale, credit
-note or debit note on or before the selected date. Opening stock is not a document movement. A high value here
-is a review prompt, not an automatic write-off.</p>"""
+note, debit note or stock adjustment on or before the selected date. Opening stock is not a document movement.
+A high value here is a review prompt, not an automatic write-off.</p>"""
         return layout("Dead and slow stock", body, "reports/dead-stock", user, tenant)
 
     def page_inventory_gl(self, conn, user, tenant, q) -> str:
@@ -6607,6 +7238,28 @@ statutory measures or lender opinions.</p>"""
             previous = row
         table_rows = "".join(rows) or '<tr><td colspan="6" class="empty">No monthly actuals</td></tr>'
         narrative = "".join(f"<li>{esc(line)}</li>" for line in data["narrative"])
+        trend_chart = []
+        if data["rows"]:
+            trend_chart.append({"id": "trend-chart", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0, "data": ["Revenue", "Expenses", "Net"]},
+                "xAxis": {"type": "category", "data": [r["period"] for r in data["rows"]]},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "Revenue", "type": "line", "smooth": True,
+                     "data": [round(int(r["revenue"]) / 100, 2) for r in data["rows"]],
+                     "symbolSize": 6},
+                    {"name": "Expenses", "type": "line", "smooth": True,
+                     "data": [round(int(r["expenses"]) / 100, 2) for r in data["rows"]],
+                     "symbolSize": 6},
+                    {"name": "Net", "type": "line", "smooth": True,
+                     "data": [round(int(r["net"]) / 100, 2) for r in data["rows"]],
+                     "symbolSize": 6},
+                ],
+            }})
+        trend_chart_html = (charting.container("trend-chart", 320) if trend_chart
+                            else charting.empty("No monthly actuals in this period."))
+        trend_chart_script = charting.render(trend_chart)
         body = f"""
 <form method="get" action="/reports/trend-explanation" class="sect"
  style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
@@ -6623,6 +7276,15 @@ statutory measures or lender opinions.</p>"""
 <tbody>{table_rows}</tbody></table></div></div>
 <p class="small muted" style="margin-top:10px">This is a deterministic explanation of actual posted
 records, not generative AI and not a forecast. Zero months are shown so the trend is not hidden.</p>"""
+        body += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>Monthly actual trend</h2>
+    <span class="badge ok">actuals only</span></div>
+  {trend_chart_html}
+  <p class="small muted" style="margin:10px 0 0">Posted revenue, expenses and net for each month. Zero
+  months are plotted so a gap is never hidden.</p>
+</div>
+{trend_chart_script}"""
         return layout("Trend explanation", body, "reports/trend-explanation", user, tenant)
 
     def page_revenue_forecast(self, conn, user, tenant, q) -> str:
@@ -6641,6 +7303,39 @@ records, not generative AI and not a forecast. Zero months are shown so the tren
         def pct(value):
             return f"{value * 100:.2f}%" if value is not None else "n/a"
 
+        forecast_chart = []
+        actual_count = len(data["actuals"])
+        forecast_count = len(data["forecast"])
+        if actual_count or forecast_count:
+            forecast_labels = ([r["period"] for r in data["actuals"]]
+                               + [r["period"] for r in data["forecast"]])
+            forecast_chart.append({"id": "forecast-chart", "option": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"top": 0,
+                           "data": ["Actual", "Forecast", "Lower bound", "Upper bound"]},
+                "xAxis": {"type": "category", "data": forecast_labels},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "Actual", "type": "line", "smooth": True, "symbolSize": 6,
+                     "data": [round(int(r["revenue"]) / 100, 2) for r in data["actuals"]]
+                             + [None] * forecast_count},
+                    {"name": "Forecast", "type": "line", "smooth": True, "symbolSize": 6,
+                     "lineStyle": {"type": "dashed", "width": 2},
+                     "data": [None] * actual_count
+                             + [round(int(r["revenue"]) / 100, 2) for r in data["forecast"]]},
+                    {"name": "Lower bound", "type": "line", "smooth": False,
+                     "lineStyle": {"type": "dotted", "width": 1}, "symbol": "none",
+                     "data": [None] * actual_count
+                             + [round(int(r["lower"]) / 100, 2) for r in data["forecast"]]},
+                    {"name": "Upper bound", "type": "line", "smooth": False,
+                     "lineStyle": {"type": "dotted", "width": 1}, "symbol": "none",
+                     "data": [None] * actual_count
+                             + [round(int(r["upper"]) / 100, 2) for r in data["forecast"]]},
+                ],
+            }})
+        forecast_chart_html = (charting.container("forecast-chart", 340) if forecast_chart
+                               else charting.empty("No actual or forecast months in this period."))
+        forecast_chart_script = charting.render(forecast_chart)
         actual_rows = "".join(
             f'<tr><td>{esc(r["period"])}</td><td class="num">{money.fmt(r["revenue"])}</td>'
             f'<td><span class="badge ok">Actual</span></td></tr>'
@@ -6676,6 +7371,15 @@ records, not generative AI and not a forecast. Zero months are shown so the tren
 </div>
 <p class="small muted" style="margin-top:10px">{esc(data["method"])} The forecast is a planning
 aid, not a promise. It is kept visually separate from actuals and is never mixed into actual totals.</p>"""
+        body += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>Actual vs forecast</h2>
+    <span class="badge warn">dashed line = forecast</span></div>
+  {forecast_chart_html}
+  <p class="small muted" style="margin:10px 0 0">The solid line is posted actual revenue. The dashed line
+  and dotted bounds are a least-squares planning aid, kept separate from every actual total.</p>
+</div>
+{forecast_chart_script}"""
         return layout("Revenue forecast", body, "reports/revenue-forecast", user, tenant)
 
     def page_anomaly_digest(self, conn, user, tenant, q) -> str:
@@ -7043,7 +7747,8 @@ review. They are not proof of fraud, error or intent.</p>"""
         body = f"""
 <div class="sect-head"><div><h2>Products / services</h2>
 <div class="small muted">Price, margin, GST, HSN and stock belong to the item master. A ledger account
-only classifies the accounting posting, so one Sales ledger can hold many products.</div></div></div>
+only classifies the accounting posting, so one Sales ledger can hold many products.</div></div>
+<a class="btn ghost small" href="/stock-adjustments">Stock adjustments</a></div>
 <div class="grid2">
 <div class="card table-wrap"><table><thead><tr><th>SKU</th><th>Name</th><th>Category</th><th>HSN</th>
 <th class="num">Sale price</th><th class="num">Margin</th><th class="num">GST</th><th class="num">Stock</th><th class="num">Reorder</th><th class="num">Cost</th></tr></thead>
@@ -8017,6 +8722,31 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             return self._redirect("/budgets?error=" + urllib.parse.quote(str(exc)))
         return self._redirect("/budgets?deleted=1")
 
+    def _create_stock_adjustment(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "stock.adjust")
+        direction = first(form, "direction").strip().lower()
+        try:
+            if direction not in ("increase", "decrease"):
+                raise stock_adjust_mod.StockAdjustmentError(
+                    "BAD_DIRECTION", "Choose increase or decrease.")
+            qty = money.parse_qty(first(form, "qty") or "0")
+            if qty <= 0:
+                raise stock_adjust_mod.StockAdjustmentError(
+                    "BAD_QTY", "Enter a positive adjustment quantity.")
+            signed_qty = qty if direction == "increase" else -qty
+            row = stock_adjust_mod.adjust_stock(
+                conn, tenant["id"], first(form, "item_id").strip(),
+                first(form, "adjustment_date"), signed_qty,
+                first(form, "reason"), first(form, "note"),
+                created_by=user["id"],
+            )
+        except (stock_adjust_mod.StockAdjustmentError, acct.AccountingError,
+                money.MoneyError) as exc:
+            return self._redirect(
+                "/stock-adjustments?error=" + urllib.parse.quote(str(exc)))
+        return self._redirect(
+            "/stock-adjustments?saved=" + urllib.parse.quote(row["adjustment_no"]))
+
     def _create_item(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "item.manage")
         sku = first(form, "sku").strip()
@@ -8915,6 +9645,19 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                       r["name"], f'{r["in_qty"] / 1000:.3f}',
                       f'{r["out_qty"] / 1000:.3f}', money.to_str(r["unit_price"]),
                       money.to_str(r["value"])] for r in data["rows"]]
+        elif key == "stock-adjustments":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.stock_adjustment_register(conn, tenant, dfrom, dto)
+            rows = [["Date", "Document", "SKU", "Item", "Direction", "Quantity",
+                     "Unit cost", "Value", "Reason", "Note", "Journal", "By"]]
+            rows += [[r["date"], r["adjustment_no"], r["sku"], r["name"],
+                      r["direction"], f'{r["signed_qty"] / 1000:.3f}',
+                      money.to_str(r["unit_cost"]), money.to_str(r["value"]),
+                      r["reason"], r["note"], r["entry_no"], r["created_by_name"]]
+                     for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
         elif key == "inventory-valuation":
             as_of = (q.get("as_of") or [today])[0]
             data = reports_mod.inventory_valuation(conn, tenant, as_of)

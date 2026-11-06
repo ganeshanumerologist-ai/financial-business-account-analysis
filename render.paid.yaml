@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: arthivio
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: arthivio-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: ARTHIVIO_HOST
+        value: 0.0.0.0
+      - key: ARTHIVIO_DB
+        value: /var/data/arthivio.db
+      - key: ARTHIVIO_BACKUP_DIR
+        value: /var/data/backups
+      - key: ARTHIVIO_DEMO_AUTOLOGIN
+        value: "0"

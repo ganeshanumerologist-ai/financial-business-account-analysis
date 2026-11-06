@@ -102,6 +102,27 @@ Dr  Bank                           3,717.00
 ```
 ✓
 
+### Worked example — manual stock adjustment
+
+A physical count finds one extra unit of an item whose current moving weighted-average cost is
+₹100.00. The quantity rises by 1.000 and the adjustment value is ₹100.00:
+
+```
+Dr  Inventory                        100.00
+    Cr  Stock Adjustments                        100.00
+```
+
+A damaged unit is removed at the same current cost:
+
+```
+Dr  Stock Adjustments                100.00
+    Cr  Inventory                                100.00
+```
+
+The item cost is not changed by either entry. A decrease cannot take stock below zero. Both entries
+are posted journals, so the inventory ledger and the item quantity move together; the reason, user and
+journal link stay in the stock-adjustment register and audit log.
+
 ---
 
 ## 4. Document numbering

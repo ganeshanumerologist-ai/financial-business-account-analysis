@@ -547,3 +547,51 @@ CREATE INDEX ix_budget_tenant_period ON budget (tenant_id, period);
 - Stock valuation uses the current moving weighted-average `item.cost_paise`; no historical cost
   layer table exists. FIFO and batch/expiry remain future schema work.
 - No report caches a total. Every screen recalculates from posted rows on each request.
+
+## 24. Build 0.17 stock adjustments: one additive table and one additive chart account (2026-11-06)
+
+Build 0.17 also adds the R-506 manual stock-adjustment register. It adds **one table and one chart
+account**; no existing column, table or cached total is dropped or rewritten.
+
+```sql
+CREATE TABLE stock_adjustment (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    adjustment_no TEXT NOT NULL,
+    adjustment_date TEXT NOT NULL,
+    item_id TEXT NOT NULL REFERENCES item(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli <> 0),
+    unit_cost_paise INTEGER NOT NULL CHECK (unit_cost_paise >= 0),
+    value_paise INTEGER NOT NULL CHECK (value_paise <> 0),
+    reason TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    journal_entry_id TEXT NOT NULL REFERENCES journal_entry(id),
+    idempotency_key TEXT,
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, adjustment_no),
+    UNIQUE (tenant_id, idempotency_key)
+);
+CREATE INDEX ix_stock_adjustment_tenant_date
+    ON stock_adjustment (tenant_id, adjustment_date);
+CREATE INDEX ix_stock_adjustment_item
+    ON stock_adjustment (tenant_id, item_id, adjustment_date);
+```
+
+- `qty_milli` is signed: positive increases stock, negative decreases it. `value_paise` is signed to
+  match the direction and is snapshotted at the item's current `cost_paise`. The item's cost is not
+  changed by the adjustment.
+- The new `5950 Stock Adjustments` expense account is in the standard chart. Existing tenants receive
+  it on their first adjustment through `db.seed_chart()`. An increase debits `1200 Inventory` and
+  credits `5950`; a decrease reverses those lines. Both post through the existing balanced
+  `post_journal()` path and write a normal journal entry with `source_type='stock_adjustment'`.
+- The register row stores the reason, note, journal id, optional idempotency key and creator.
+  `audit_log.action='stock.adjust'` records the item, signed quantity, unit cost, value, reason and
+  journal id. There is no approval workflow.
+- R-502, R-501, R-503, R-505 and R-507 include `stock_adjustment` as a movement source. `stock now`
+  is always the current item-master quantity, not a historical balance at the adjustment date.
+- The backup table list includes `stock_adjustment`; backup verification compares its row count with
+  the source database.
+- `5950` is an expense ledger. A positive adjustment therefore credits an expense account and a
+  negative adjustment debits it. The P&L shows the net stock-adjustment expense; it is not an
+  other-income or revaluation reserve.

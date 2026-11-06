@@ -258,7 +258,7 @@ vendor ?? bill ??? AP ?? vendor payment ??? cash/bank
 | Ageing | Derived from outstanding balances and document dates; buckets current / 31-60 / 61-90 / 90+. |
 | GST | Working summary from GST control accounts plus sales/purchase registers. Explicitly not a filed return. |
 | Backup | `app/backup.py` online backup + four checks (integrity, foreign keys, balanced journals, row counts) before a run is marked verified. |
-| UI | Grouped navigation (Dashboard / Transactions / Entries / Books / Reports / Masters / Settings); the Ledger hub lists every account and opens its full posted ledger, while Cash/Bank/Journal entry pages stay separate; every list links to its source document. |
+| UI | Grouped navigation (Dashboard / Transactions / Entries / Books / Reports / Masters / Settings); the Reports panel uses nested group submenus with a viewport-limited scroll area so its long report list does not overflow the page; the Ledger hub lists every account and opens its full posted ledger, while Cash/Bank/Journal entry pages stay separate; every list links to its source document. A shared `charting.py` helper renders local ECharts from the same actuals shown in the tables; forecast charts use a dashed line and dotted bounds and never mix into actual totals. |
 
 Known architectural limits: single-process HTTP server, SQLite single-writer, no background
 jobs, no PDF renderer, no bank-feed integration. These are deployment decisions, not
@@ -594,13 +594,13 @@ floats and show `n/a` when the denominator is zero. The module provides:
 ### 18.2 Report Library
 
 `/reports/library` lists all 66 catalogued reports, filters by group and status, and shows
-**56 working, 0 partial and 10 planned**. Working rows link to a route. Planned rows have no route
+**57 working, 0 partial and 9 planned**. Working rows link to a route. Planned rows have no route
 and no sample data, so a delivery map cannot be mistaken for a finished report.
 
 ### 18.3 Export and security boundary
 
 `/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`,
-`/export/expense-breakdown.csv`, the ten Build 0.16 report exports and the eighteen Build 0.17 report exports require `report.export`, are
+`/export/expense-breakdown.csv`, the ten Build 0.16 report exports and the nineteen Build 0.17 report exports require `report.export`, are
 tenant-scoped and send `no-store`. Amounts are exported as exact decimal strings from integer paise.
 Quantities in the stock report are exported as three-decimal strings.
 
@@ -703,9 +703,9 @@ journal entry, so the report is a document-creator view rather than a separate s
 Price variance compares the latest bill price in the period with the previous bill and the current
 moving weighted-average item cost.
 
-Stock movement history is a chronological union of posted purchase, sale, credit-note and
-debit-note lines with source document and party; opening stock is not a document line and is
-excluded. Inventory valuation reconstructs closing quantity at a date from current item stock and
+Stock movement history is a chronological union of posted purchase, sale, credit-note, debit-note and
+manual stock-adjustment lines with source document and party; opening stock is not a document line and
+is excluded. Inventory valuation reconstructs closing quantity at a date from current item stock and
 later movements, then applies the current moving weighted-average cost. Reorder/shortage uses the
 new additive `item.reorder_level_milli` column and also surfaces zero/negative stock when no level
 is configured. Dead/slow stock finds stocked items whose latest posted movement is older than the
@@ -713,6 +713,15 @@ selected number of days. Inventory-to-GL reconciliation compares item-master sto
 posted inventory account balance and shows the difference without posting a correction. Receivables
 risk combines open receivable ageing with customer credit days and limits, compares overdue value
 with a prior date and labels High/Medium/Low risk.
+
+R-506 stock adjustment register records manual quantity corrections in the additive
+`stock_adjustment` table. An increase debits Inventory and credits the new `5950 Stock Adjustments`
+expense ledger; a decrease reverses those lines. The item quantity changes but its current cost does
+not. The register keeps the signed quantity, current-cost value, reason, note, journal id and posting
+user; a decrease below available stock, a non-stock item and a zero-cost item are rejected. The
+`/stock-adjustments` screen is the entry point and `/reports/stock-adjustments` is the register.
+`stock.adjust` gates writes and every adjustment writes a `stock.adjust` audit event. The report is
+not an approval workflow and does not create a historical cost layer.
 
 R-901 budget vs actual stores monthly planning amounts per income/expense ledger in the additive
 `budget` table and compares them with posted actuals. Variance is actual minus budget; income
@@ -727,9 +736,12 @@ ageing and inventory), R-1001 trend explanation (deterministic narrative over mo
 R-1002 revenue forecast (least-squares line with an indicative band and actual/forecast separation)
 and R-1003 anomaly digest (rule-based review prompts, never fraud findings).
 
-All eighteen reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
-tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.test_46`. The schema
-changes are additive: `item.reorder_level_milli` with a zero default, `journal_entry.rule_version`
-with a `posting-v1` default, and the `budget` table keyed by tenant, ledger and month. No table,
-index, cached total or destructive migration was removed or rewritten. The catalogue now shows
-**56 working, 0 partial and 10 planned**.
+All nineteen reports have routes under the existing Reports dropdown, CSV exports under `report.export`,
+tenant scoping, empty states and tests in `tests/test_reports.py` and `test_web.test_46`. R-506 also
+adds `/stock-adjustments` and an additive `stock_adjustment` register table; each adjustment posts a
+balanced inventory journal at the item's current moving weighted-average cost, updates only the item
+quantity and writes a `stock.adjust` audit event. The schema changes are additive:
+`item.reorder_level_milli` with a zero default, `journal_entry.rule_version` with a `posting-v1`
+default, the `budget` table keyed by tenant, ledger and month, and the `stock_adjustment` table. No
+table, index, cached total or destructive migration was removed or rewritten. The catalogue now shows
+**57 working, 0 partial and 9 planned**.

@@ -116,6 +116,12 @@ class TestAdditiveMigration(unittest.TestCase):
             "SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertIn("account_profile", tables)
         self.assertIn("bank_account", tables)
+        self.assertIn("budget", tables)
+        self.assertIn("stock_adjustment", tables)
+        indexes = {row["name"] for row in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")}
+        self.assertIn("ix_stock_adjustment_tenant_date", indexes)
+        self.assertIn("ix_stock_adjustment_item", indexes)
 
 
 if __name__ == "__main__":

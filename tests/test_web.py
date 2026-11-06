@@ -177,6 +177,9 @@ class WebTest(unittest.TestCase):
         self.assertIn("Net profit", body)
         self.assertNotIn("None", body)
         self.assertNotIn("NaN", body)
+        self.assertIn('class="menu-sub"', body)
+        self.assertIn("Financial statements", body)
+        self.assertIn('class="menu-panel"', body)
 
     def test_04_reports_render_and_balance(self):
         self.login()
@@ -1639,6 +1642,35 @@ class WebTest(unittest.TestCase):
         self.assertIn("Expense breakdown", page)
         self.assertIn("ECharts", page)
 
+        status, dash = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn('id="dash-monthly"', dash)
+        self.assertIn('id="dash-expense"', dash)
+        self.assertIn("/static/echarts.min.js", dash)
+
+        for route, marker in (
+            ("/reports/pnl", 'id="pnl-totals"'),
+            ("/reports/pnl", 'id="pnl-income"'),
+            ("/reports/pnl", 'id="pnl-expense"'),
+            ("/reports/balance-sheet", 'id="bs-balance"'),
+            ("/reports/balance-sheet", 'id="bs-assets"'),
+            ("/reports/cash-flow", 'id="cash-categories"'),
+            ("/reports/ar-ageing", 'id="ageing-buckets"'),
+            ("/reports/gst", 'id="gst-heads"'),
+            ("/reports/inventory-valuation", 'id="inventory-value"'),
+            ("/reports/sales-summary", 'id="sales-summary-trend"'),
+            ("/reports/top-customers", 'id="top-customers-chart"'),
+            ("/reports/product-sales", 'id="product-sales-chart"'),
+            ("/reports/expense-breakdown", 'id="expense-breakdown-chart"'),
+            ("/reports/budget", 'id="budget-vs-actual"'),
+            ("/reports/comparison", 'id="comparison-chart"'),
+            ("/reports/trend-explanation", 'id="trend-chart"'),
+            ("/reports/revenue-forecast", 'id="forecast-chart"'),
+        ):
+            status, body = self.get(route)
+            self.assertEqual(status, 200, route)
+            self.assertIn(marker, body, route)
+
     def test_44_grounded_insight_api_and_page(self):
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
@@ -1740,7 +1772,7 @@ class WebTest(unittest.TestCase):
         status, page = self.get("/reports/library")
         self.assertEqual(status, 200)
         self.assertIn("Report library", page)
-        self.assertIn("56 of 66 working", page)
+        self.assertIn("57 of 66 working", page)
         self.assertIn("R-104", page)
         self.assertIn("R-905", page)
         self.assertIn("Planned reports are deliberately not filled with sample data", page)
@@ -1772,6 +1804,7 @@ class WebTest(unittest.TestCase):
             "/reports/salesperson": "Salesperson performance",
             "/reports/price-variance": "Price variance",
             "/reports/stock-movements": "Stock movement history",
+            "/reports/stock-adjustments": "Stock adjustment register",
             "/reports/inventory-valuation": "Inventory valuation",
             "/reports/reorder": "Reorder and shortage",
             "/reports/dead-stock": "Dead and slow stock",
@@ -1812,6 +1845,7 @@ class WebTest(unittest.TestCase):
             "/export/salesperson.csv?from=2026-04-01&to=2026-10-31": "Collection %",
             "/export/price-variance.csv?from=2026-04-01&to=2026-10-31": "Latest price",
             "/export/stock-movements.csv?from=2026-04-01&to=2026-10-31": "Source",
+            "/export/stock-adjustments.csv?from=2026-04-01&to=2026-10-31": "Document",
             "/export/inventory-valuation.csv?as_of=2026-10-31": "Unit cost",
             "/export/reorder.csv?as_of=2026-10-31": "Reorder level",
             "/export/dead-stock.csv?as_of=2026-10-31&days=90": "Last movement",
@@ -2022,6 +2056,61 @@ class WebTest(unittest.TestCase):
         conn = db.connect(self.db_path)
         self.assertEqual(conn.execute(
             "SELECT COUNT(*) c FROM audit_log WHERE tenant_id=? AND action='budget.delete'",
+            (tenant_id,)).fetchone()["c"], 1)
+        conn.close()
+
+
+    def test_50_stock_adjustment_entry_report_and_csv(self):
+        self.login()
+        status, page = self.get("/stock-adjustments")
+        self.assertEqual(status, 200)
+        self.assertIn("Stock adjustments", page)
+        self.assertIn("Record a stock adjustment", page)
+        token = self.csrf(page)
+
+        conn = db.connect(self.db_path)
+        tenant_id = conn.execute(
+            "SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()["id"]
+        item_id = db.new_id()
+        conn.execute(
+            "INSERT INTO item (id, tenant_id, sku, name, unit, cost_paise,"
+            " stock_milli, track_stock) VALUES (?,?,?,?,?,?,?,1)",
+            (item_id, tenant_id, "WEB-STK-1", "Web adjustment item", "pcs",
+             2500, 10000))
+        conn.close()
+
+        status, page, final = self.post("/stock-adjustments", {
+            "_csrf": token, "adjustment_date": "2026-10-20",
+            "item_id": item_id, "direction": "increase", "qty": "2.5",
+            "reason": "Physical count gain", "note": "Web test"})
+        self.assertEqual(status, 200)
+        self.assertIn("Stock adjustment STK-", page)
+        self.assertIn("Web adjustment item", page)
+
+        status, report = self.get(
+            "/reports/stock-adjustments?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("Stock adjustment register", report)
+        self.assertIn("R-506", report)
+        self.assertIn("Web adjustment item", report)
+        self.assertIn("Physical count gain", report)
+
+        status, csv_body = self.get(
+            "/export/stock-adjustments.csv?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("Document", csv_body)
+        self.assertIn("WEB-STK-1", csv_body)
+        self.assertIn("Physical count gain", csv_body)
+
+        conn = db.connect(self.db_path)
+        self.assertEqual(conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0],
+            12500)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) c FROM stock_adjustment WHERE tenant_id=? AND item_id=?",
+            (tenant_id, item_id)).fetchone()["c"], 1)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) c FROM audit_log WHERE tenant_id=? AND action='stock.adjust'",
             (tenant_id,)).fetchone()["c"], 1)
         conn.close()
 

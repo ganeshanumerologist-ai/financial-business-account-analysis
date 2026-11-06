@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import accounting as acct
-from app import budgeting, db, reports
+from app import budgeting, db, reports, stock_adjustments
 from app.demo import seed_demo
 
 
@@ -23,18 +23,29 @@ class ReportsTest(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_catalog_has_66_rows_and_56_working(self):
+    def _stock_item(self, stock_milli: int = 100000, cost_paise: int = 10000,
+                    track_stock: int = 1) -> str:
+        item_id = db.new_id()
+        self.conn.execute(
+            "INSERT INTO item (id, tenant_id, sku, name, unit, cost_paise,"
+            " stock_milli, track_stock) VALUES (?,?,?,?,?,?,?,?)",
+            (item_id, self.tenant["id"], f"STK-{item_id[:8]}", "Adjustment test item",
+             "pcs", cost_paise, stock_milli, track_stock),
+        )
+        return item_id
+
+    def test_catalog_has_66_rows_and_57_working(self):
         cat = reports.catalog()
         self.assertEqual(cat["total"], 66)
-        self.assertEqual(cat["working"], 56)
+        self.assertEqual(cat["working"], 57)
         self.assertEqual(cat["partial"], 0)
-        self.assertEqual(cat["planned"], 10)
+        self.assertEqual(cat["planned"], 9)
         working = [r for g in cat["groups"] for r in g["reports"] if r["status"] == "working"]
         self.assertTrue(all(r["route"] for r in working))
         for rid in ("R-104", "R-107", "R-108", "R-109", "R-110", "R-202", "R-203",
                     "R-205", "R-206", "R-301", "R-302", "R-303", "R-306", "R-307", "R-308",
                     "R-309", "R-401", "R-404", "R-405", "R-406", "R-501", "R-502",
-                    "R-503", "R-504", "R-505", "R-507", "R-704", "R-705", "R-706",
+                    "R-503", "R-504", "R-505", "R-506", "R-507", "R-704", "R-705", "R-706",
                     "R-807", "R-901", "R-903", "R-904", "R-905", "R-1001", "R-1002", "R-1003"):
             row = next(r for r in reports.REPORT_CATALOG if r["id"] == rid)
             self.assertEqual(row["status"], "working", rid)
@@ -402,6 +413,130 @@ class ReportsTest(unittest.TestCase):
             if row["last_date"]:
                 self.assertIsNotNone(row["age_days"])
         self.assertGreaterEqual(data["totals"]["items"], 1)
+
+    def test_stock_adjustment_posts_and_register_reconciles(self):
+        item_id = self._stock_item(stock_milli=100000, cost_paise=10000)
+        increase = stock_adjustments.adjust_stock(
+            self.conn, self.tenant["id"], item_id, "2026-10-15", 1000,
+            "Physical count gain")
+        self.assertTrue(increase["adjustment_no"].startswith("STK-"))
+        self.assertEqual(increase["qty_milli"], 1000)
+        self.assertEqual(increase["value_paise"], 10000)
+
+        entry = self.conn.execute(
+            "SELECT * FROM journal_entry WHERE id=?",
+            (increase["journal_entry_id"],)).fetchone()
+        self.assertEqual(entry["source_type"], "stock_adjustment")
+        lines = self.conn.execute(
+            "SELECT a.code, l.debit_paise, l.credit_paise FROM journal_line l"
+            " JOIN account a ON a.id=l.account_id WHERE l.entry_id=?"
+            " ORDER BY a.code", (entry["id"],)).fetchall()
+        self.assertEqual([(r["code"], r["debit_paise"], r["credit_paise"])
+                          for r in lines],
+                         [("1200", 10000, 0), ("5950", 0, 10000)])
+        stock = self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0]
+        self.assertEqual(stock, 101000)
+
+        decrease = stock_adjustments.adjust_stock(
+            self.conn, self.tenant["id"], item_id, "2026-10-16", -500,
+            "Damaged in storage")
+        self.assertEqual(decrease["value_paise"], -5000)
+        lines = self.conn.execute(
+            "SELECT a.code, l.debit_paise, l.credit_paise FROM journal_line l"
+            " JOIN account a ON a.id=l.account_id WHERE l.entry_id=?"
+            " ORDER BY a.code", (decrease["journal_entry_id"],)).fetchall()
+        self.assertEqual([(r["code"], r["debit_paise"], r["credit_paise"])
+                          for r in lines],
+                         [("1200", 0, 5000), ("5950", 5000, 0)])
+        stock = self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0]
+        self.assertEqual(stock, 100500)
+
+        data = reports.stock_adjustment_register(
+            self.conn, self.tenant, "2026-10-01", "2026-10-31")
+        self.assertEqual(data["totals"]["adjustments"], 2)
+        self.assertEqual(data["totals"]["items"], 1)
+        self.assertEqual(data["totals"]["increase_qty"], 1000)
+        self.assertEqual(data["totals"]["decrease_qty"], 500)
+        self.assertEqual(data["totals"]["net_qty"], 500)
+        self.assertEqual(data["totals"]["increase_value"], 10000)
+        self.assertEqual(data["totals"]["decrease_value"], 5000)
+        self.assertEqual(data["totals"]["net_value"], 5000)
+
+        movements = reports.stock_movements(
+            self.conn, self.tenant, "2026-10-01", "2026-10-31")
+        adjustment_rows = [r for r in movements["rows"]
+                           if r["doc_type"] == "Stock adjustment"]
+        self.assertEqual(len(adjustment_rows), 2)
+        self.assertEqual(sum(r["in_qty"] for r in adjustment_rows), 1000)
+        self.assertEqual(sum(r["out_qty"] for r in adjustment_rows), 500)
+
+        summary = reports.stock_summary(
+            self.conn, self.tenant, "2026-10-01", "2026-10-31")
+        summary_row = next(r for r in summary["rows"] if r["id"] == item_id)
+        self.assertEqual(summary_row["opening"], 100000)
+        self.assertEqual(summary_row["in_period"], 1000)
+        self.assertEqual(summary_row["out_period"], 500)
+        self.assertEqual(summary_row["closing"], 100500)
+
+        audits = self.conn.execute(
+            "SELECT action FROM audit_log WHERE tenant_id=? AND action='stock.adjust'",
+            (self.tenant["id"],)).fetchall()
+        self.assertEqual(len(audits), 2)
+
+    def test_stock_adjustment_rejects_invalid_quantities(self):
+        tracked = self._stock_item(stock_milli=1000, cost_paise=10000)
+        with self.assertRaises(stock_adjustments.StockAdjustmentError) as ctx:
+            stock_adjustments.adjust_stock(
+                self.conn, self.tenant["id"], tracked, "2026-10-15", -2000,
+                "Too much")
+        self.assertEqual(ctx.exception.code, "INSUFFICIENT_STOCK")
+        with self.assertRaises(stock_adjustments.StockAdjustmentError) as ctx:
+            stock_adjustments.adjust_stock(
+                self.conn, self.tenant["id"], tracked, "2026-10-15", 0,
+                "Nothing")
+        self.assertEqual(ctx.exception.code, "BAD_QTY")
+
+        untracked = self._stock_item(track_stock=0)
+        with self.assertRaises(stock_adjustments.StockAdjustmentError) as ctx:
+            stock_adjustments.adjust_stock(
+                self.conn, self.tenant["id"], untracked, "2026-10-15", 1000,
+                "Not tracked")
+        self.assertEqual(ctx.exception.code, "NOT_TRACKED")
+
+        zero_cost = self._stock_item(cost_paise=0)
+        with self.assertRaises(stock_adjustments.StockAdjustmentError) as ctx:
+            stock_adjustments.adjust_stock(
+                self.conn, self.tenant["id"], zero_cost, "2026-10-15", 1000,
+                "No cost")
+        self.assertEqual(ctx.exception.code, "COST_REQUIRED")
+
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM stock_adjustment WHERE tenant_id=?",
+            (self.tenant["id"],)).fetchone()[0], 0)
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (tracked,)).fetchone()[0],
+            1000)
+
+    def test_stock_adjustment_idempotency_does_not_double_post(self):
+        item_id = self._stock_item()
+        first = stock_adjustments.adjust_stock(
+            self.conn, self.tenant["id"], item_id, "2026-10-15", 1000,
+            "Count gain", idempotency_key="stock-test-key-1")
+        second = stock_adjustments.adjust_stock(
+            self.conn, self.tenant["id"], item_id, "2026-10-15", 1000,
+            "Count gain", idempotency_key="stock-test-key-1")
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM stock_adjustment WHERE tenant_id=?",
+            (self.tenant["id"],)).fetchone()[0], 1)
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0],
+            101000)
+        self.assertEqual(self.conn.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE tenant_id=? AND action='stock.adjust'",
+            (self.tenant["id"],)).fetchone()[0], 1)
 
     def test_inventory_gl_reconciliation_shows_difference(self):
         data = reports.inventory_gl_reconciliation(

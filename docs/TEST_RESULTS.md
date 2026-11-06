@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.17.** The latest application run is `RUN-2026-11-06-01` with
-> **295 tests, OK**, Python 3.14.6, Windows - see section 33. The table immediately below is the original
+> **Current status: Build 0.17.** The latest application run is `RUN-2026-11-06-02` with
+> **299 tests, OK**, Python 3.14.6, Windows - see section 34. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1518,10 +1518,10 @@ Run ID: `RUN-2026-11-05-03`.
   cost layers, and stock movements exclude opening stock because it is not a document line.
 - Salesperson performance uses the journal creator, not a separate salesperson master. Receivables
   risk is advisory and never blocks a sale.
-- Eleven catalogued reports still have no screen: R-204, R-506, R-508, R-601 to R-605, R-901,
-  R-902 and R-1004. They need draft-document, stock-adjustment, batch/expiry,
-  job/project/cost-centre, budget, department/branch or intercompany-elimination data that does not
-  exist yet.
+- Eleven catalogued reports still had no screen at this run: R-204, R-506, R-508, R-601 to R-605,
+  R-901, R-902 and R-1004. R-901 was implemented in section 33 and R-506 in section 34; the other
+  nine still need draft-document, batch/expiry, job/project/cost-centre, department/branch or
+  intercompany-elimination data.
 - No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
   accounting review was run for Build 0.17.
 - The trial URL is a temporary Cloudflare quick tunnel with no uptime guarantee. The database is
@@ -1557,10 +1557,85 @@ Run ID: `RUN-2026-11-06-01`.
   no approval workflow or budget lock.
 - R-901 only compares stored budgets with posted actuals. It does not forecast or infer a missing
   budget. A ledger with no budget is shown as `No budget`, never as zero budget.
-- Ten catalogued reports still have no screen: R-204, R-506, R-508, R-601 to R-605, R-902 and
-  R-1004. They need draft-document, stock-adjustment, batch/expiry, job/project/cost-centre,
-  department/branch or intercompany-elimination data that does not exist yet.
+- Ten catalogued reports still had no screen at this run: R-204, R-506, R-508, R-601 to R-605, R-902
+  and R-1004. R-506 is implemented in section 34; the other nine still need draft-document,
+  batch/expiry, job/project/cost-centre, department/branch or intercompany-elimination data.
 - No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
   accounting review was run for Build 0.17.
 - The trial URL is a temporary Cloudflare quick tunnel with no uptime guarantee. The database is
   synthetic and must not hold real financial data.
+
+## 34. Build 0.17 verification - stock adjustment register (2026-11-06)
+
+Run ID: `RUN-2026-11-06-02`.
+
+### 34.1 What was actually executed
+
+| Command / check | Result |
+|---|---|
+| `python -m unittest discover -s tests` | **299 tests, OK**, 26.435 s, Python 3.14.6, Windows |
+| `python -m unittest tests.test_reports -q` | 39 report tests, OK, 6.021 s |
+| `python -m unittest tests.test_web -q` | 51 web tests, OK, 14.576 s |
+| `python -m unittest tests.test_migrations -q` | 2 migration tests, OK |
+| Offline package | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.17.zip` rebuilt; uncompressed 30,893,595 bytes, ZIP 14,853,092 bytes |
+| Package health | Embedded runtime on port 8099 returned `ok` from `GET /health` |
+| Trial server | `127.0.0.1:8010`, `data/arthivio-trial.db`, `/health` returned `ok` |
+| Trial library | `ganesha4558@gmail.com` signed in; `/reports/library` shows **57 of 66 working** |
+| Public trial | Quick-tunnel `/health` returned `ok`; signed-in `/reports/library` also shows **57 of 66 working** |
+
+### 34.2 R-506 checks
+
+| Check | Result |
+|---|---|
+| Increase posting | Dr `1200 Inventory` / Cr `5950 Stock Adjustments`, balanced, `source_type='stock_adjustment'` |
+| Decrease posting | Dr `5950 Stock Adjustments` / Cr `1200 Inventory`, balanced |
+| Item quantity | Increase and decrease update `item.stock_milli`; `item.cost_paise` is unchanged |
+| Register totals | Signed quantity, increase/decrease quantity, value, net quantity and net value reconcile to the posted rows |
+| Stock integration | R-502 stock movements and R-501 stock summary include adjustment movements and reconcile opening + in - out = closing |
+| Guardrails | Insufficient stock, zero quantity, non-stock item and zero-cost item are rejected; no partial row or journal remains |
+| Idempotency | Replaying the same key returns the first adjustment and does not double-post stock or audit |
+| Audit | Every adjustment writes one `stock.adjust` event with item, signed quantity, value, reason and journal id |
+| Web | `/stock-adjustments` posts an adjustment; `/reports/stock-adjustments` and `/export/stock-adjustments.csv` render the same data |
+| Migration | An old database gains the additive `stock_adjustment` table and both indexes without rewriting existing rows |
+
+### 34.3 Honest limits
+
+- Adjustments use the item's **current moving weighted-average cost**. There is no FIFO layer, batch
+  cost, expiry cost or historical revaluation. Changing an item's current cost later does not
+  restate an earlier adjustment.
+- There is no approval workflow. The register records the user who posted the adjustment and its
+  journal entry; it does not prove a second person approved it.
+- The register's `Stock now` column is the current item-master quantity, not a historical balance at
+  the adjustment date.
+- Nine catalogued reports still have no screen: R-204, R-508, R-601 to R-605, R-902 and R-1004. They
+  need draft-document, batch/expiry, job/project/cost-centre, department/branch or
+  intercompany-elimination data that does not exist yet.
+- No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
+  accounting review was run for Build 0.17.
+- The trial URL is a temporary Cloudflare quick tunnel with no uptime guarantee. The database is
+  synthetic and must not hold real financial data.
+
+### 34.4 Reports menu viewport fix
+
+- The Reports panel now shows nine nested group headings instead of all report links at once.
+- Opening a group expands it inside the panel; opening another group closes the previous one.
+- The panel is capped at `calc(100vh - 88px)` and scrolls internally. On a 1000 x 700 browser
+  viewport the closed panel was 424 px tall with its bottom at 553 px, so it stayed inside the
+  viewport.
+- The active report's group opens automatically when the user is already on that report.
+- `test_03_login_and_dashboard` asserts the nested submenu markup is present. The full suite still
+  passes **299 tests, OK**, 26.435 s.
+
+### 34.5 Chart batch across core screens
+
+- `app/charting.py` renders local ECharts from JSON-safe option dictionaries with shared INR
+  tooltips, compact axes, theme palette colours and empty states.
+- Nineteen charts were added on fifteen screens: dashboard (2), P&L (3), balance sheet (2), cash
+  flow (1), AR/AP ageing (1), GST (1), inventory valuation (1), sales summary (1), top customers
+  (1), product sales (1), expense breakdown (1), budget vs actual (1), period comparison (1),
+  trend explanation (1) and revenue forecast (1).
+- A browser check on each route found the expected `.echart` div and a rendered `<canvas>`:
+  dashboard 2, P&L 3, balance sheet 2 and one on each of the other twelve screens. The forecast
+  chart keeps actuals solid and the forecast dashed with dotted bounds.
+- `test_43_echarts_static_asset_and_interactive_view` asserts every chart marker and the local
+  ECharts asset. The full suite still passes **299 tests, OK**, 26.435 s.

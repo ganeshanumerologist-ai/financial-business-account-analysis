@@ -913,3 +913,58 @@ posted journal, account balance or existing table is rewritten.
 - Coverage becomes **56 of 66** working, with 0 partial and 10 planned. The full suite passes
   **295 tests, OK**, 28.976 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
   `RUN-2026-11-06-01`.
+
+## D-043 - Build 0.17 adds manual stock adjustments and R-506
+
+**Date:** 2026-11-06. **Status:** accepted for Build 0.17.
+
+R-506 needs a record of quantity corrections that are not purchase bills, sales invoices or returns.
+The build adds one additive `stock_adjustment` table and a small entry screen. It does not rewrite a
+posted document, a journal line or an item cost.
+
+- `stock_adjustment` stores a signed `qty_milli`, the item's current `unit_cost_paise` snapshot,
+  signed `value_paise`, reason, note, journal link, optional idempotency key and creator. A unique
+  `(tenant_id, adjustment_no)` and `(tenant_id, idempotency_key)` key protect the register. Quantity
+  and value are non-zero.
+- `/stock-adjustments` posts one adjustment atomically. An increase debits `1200 Inventory` and
+  credits `5950 Stock Adjustments`; a decrease reverses those lines. The item's `stock_milli` changes,
+  but `cost_paise` does not. A decrease cannot take stock below zero, and a zero-cost or non-stock item
+  is rejected.
+- A new `stock.adjust` permission gates writes; owner, admin, manager, accountant and inventory
+  receive it. `report.view` can read `/reports/stock-adjustments`; `report.export` gates the CSV.
+  Every adjustment writes `stock.adjust` to `audit_log` with the item, quantity, value, reason and
+  journal id.
+- Existing tenants receive `5950 Stock Adjustments` on their first adjustment; new tenants receive it
+  in the standard chart. The adjustment is valued at the current moving weighted-average cost. It is
+  not a FIFO layer and does not create a historical cost layer.
+- R-502, R-501, R-503, R-505 and R-507 include stock adjustments as a movement source. The register
+  and stock-movement reports show the current item quantity separately and never present it as a
+  historical balance at the adjustment date. The register records the posting user, not an approval
+  workflow.
+- Coverage becomes **57 of 66** working, with 0 partial and 9 planned. The full suite passes
+  **299 tests, OK**, 27.844 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
+  `RUN-2026-11-06-02`.
+
+## D-044 - Build 0.17 adds actuals-only charts across core screens
+
+**Date:** 2026-11-06. **Status:** accepted for Build 0.17.
+
+The app already had an ECharts monthly view and an expense donut on `/reports/analytics`, but most
+core screens were table-only. The build adds a small shared helper and charts to the screens where
+the same actuals are already displayed.
+
+- `app/charting.py` accepts JSON-safe option dictionaries and emits one ECharts init script per
+  page. It adds shared INR tooltips, compact axis labels, theme palette colours, pie label formatting
+  and a consistent empty state. It never creates a data point.
+- Nineteen charts are added on fifteen screens: dashboard monthly revenue/expense/profit and
+  expense mix; P&L totals, income mix and expense mix; balance-sheet totals and asset mix; cash
+  movement by category; AR/AP ageing buckets; GST output/input by head; top inventory items;
+  monthly sales trend; top customers; top products; expense composition; budget vs actual; current
+  vs previous period; monthly trend; and actual-vs-forecast.
+- Charts use the same posted-journal, invoice, bill, budget and document values as the tables beside
+  them. Empty periods show an empty state rather than zero-filled decorative data.
+- Forecast charts keep the actual line solid and the forecast line dashed with dotted lower/upper
+  bounds. Forecast values never enter an actual total.
+- The ECharts asset remains locally vendored. There is no CDN call and no chart library network
+  dependency. The full suite still passes **299 tests, OK**, 26.435 s, Python 3.14.6, Windows,
+  recorded in `docs/TEST_RESULTS.md` `RUN-2026-11-06-02`.

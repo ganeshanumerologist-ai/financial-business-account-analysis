@@ -557,7 +557,30 @@ CREATE TABLE IF NOT EXISTS budget (
     UNIQUE (tenant_id, account_id, period)
 );
 
+CREATE TABLE IF NOT EXISTS stock_adjustment (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    adjustment_no TEXT NOT NULL,
+    adjustment_date TEXT NOT NULL,
+    item_id TEXT NOT NULL REFERENCES item(id),
+    qty_milli INTEGER NOT NULL CHECK (qty_milli <> 0),
+    unit_cost_paise INTEGER NOT NULL CHECK (unit_cost_paise >= 0),
+    value_paise INTEGER NOT NULL CHECK (value_paise <> 0),
+    reason TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    journal_entry_id TEXT NOT NULL REFERENCES journal_entry(id),
+    idempotency_key TEXT,
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, adjustment_no),
+    UNIQUE (tenant_id, idempotency_key)
+);
+
 CREATE INDEX IF NOT EXISTS ix_budget_tenant_period ON budget (tenant_id, period);
+CREATE INDEX IF NOT EXISTS ix_stock_adjustment_tenant_date
+    ON stock_adjustment (tenant_id, adjustment_date);
+CREATE INDEX IF NOT EXISTS ix_stock_adjustment_item
+    ON stock_adjustment (tenant_id, item_id, adjustment_date);
 CREATE INDEX IF NOT EXISTS ix_jl_tenant_account ON journal_line (tenant_id, account_id);
 CREATE INDEX IF NOT EXISTS ix_jl_party ON journal_line (tenant_id, party_id);
 CREATE INDEX IF NOT EXISTS ix_je_tenant_date ON journal_entry (tenant_id, entry_date);
@@ -599,6 +622,7 @@ CHART = [
     ("5000", "Cost of Goods Sold", "expense", "cost_of_goods_sold"),
     ("5100", "Purchases", "expense", "purchase"),
     ("5900", "Rounding Off", "expense", "other_expense"),
+    ("5950", "Stock Adjustments", "expense", "other_expense"),
     ("6000", "Rent", "expense", "other_expense"),
     ("6010", "Salaries", "expense", "employee_expense"),
     ("6020", "Utilities", "expense", "other_expense"),

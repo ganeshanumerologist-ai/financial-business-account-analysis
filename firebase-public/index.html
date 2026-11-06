@@ -1,0 +1,481 @@
+<!doctype html><html lang="en" data-theme="ocean" style="--lp-hero-a:#0C3157;--lp-hero-b:#0A2A48;--lp-hero-c:#061A30;--lp-overlay-1:rgba(4,22,47,.94);--lp-overlay-2:rgba(4,22,47,.84);--lp-overlay-3:rgba(4,22,47,.50);--lp-overlay-4:rgba(4,22,47,.22);--lp-accent:#67E8F9;--lp-accent-2:#5EEAD4;--lp-accent-3:#86EFAC;--lp-primary:#2563EB;--lp-primary-2:#1D4ED8;--lp-proof-a:#08223D;--lp-proof-b:#0A2A48;--lp-side-a:#0A2A48;--lp-side-b:#061A30;--lp-glow:rgba(56,189,248,.30)"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#0B1F3A">
+<meta name="description" content="ARTHIVIO brings together accounting, finance, inventory, analytics and AI in one powerful platform for businesses of every size.">
+<title>ARTHIVIO · Smarter Finance. Stronger Business.</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+.lp-body{background:#FFFFFF;color:#0B1F3A;overflow-x:hidden;font-family:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.lp h1,.lp h2,.lp h3{margin:0;font-weight:650;letter-spacing:-.015em;color:#0B1F3A}
+.lp a{text-decoration:none}
+.lp-body a{color:var(--lp-primary);text-decoration:none}
+.lp-body a:hover{text-decoration:none}
+.lp{min-height:100vh}
+.lp-skip{position:absolute;left:16px;top:-60px;z-index:100;background:#F6F9FF;color:#0B1F3A!important;padding:10px 14px;border-radius:8px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.lp-skip:focus{top:12px}
+.lp-ico{width:16px;height:16px;flex:0 0 auto;display:inline-block;vertical-align:middle}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.lp-wrap{max-width:1340px;margin:0 auto;padding:0 28px}
+
+/* Header */
+.lp-nav{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.97);border-bottom:1px solid #E6EDF7;backdrop-filter:blur(16px);box-shadow:0 8px 30px rgba(33,37,41,.05)}
+.lp-nav-inner{max-width:1400px;margin:auto;padding:0 28px;height:74px;display:flex;align-items:center;gap:18px}
+.lp-brand{display:flex;align-items:center;gap:10px;color:#0B1F3A;flex:0 0 auto}
+.lp-brand .mark{width:39px;height:39px;display:grid;place-items:center}
+.lp-brand .mark svg{width:39px;height:39px}
+.lp-name{display:block;font-size:20px;font-weight:800;letter-spacing:.10em;line-height:1;color:#0B1F3A}
+.lp-tag{display:block;font-size:9.5px;color:#64748B;margin-top:4px;letter-spacing:.02em}
+.lp-menu{display:flex;align-items:center;gap:19px;margin-left:16px}
+.lp-menu a{position:relative;display:inline-flex;align-items:center;gap:3px;padding:27px 0;font-size:12.5px;font-weight:600;color:#475569;white-space:nowrap}
+.lp-menu a:hover,.lp-menu a.on{color:var(--lp-primary-2)}
+.lp-menu a.on:after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--lp-primary);border-radius:2px 2px 0 0}
+.lp-chev{width:9px;height:9px;color:#64748B;stroke-width:2}
+.lp-nav-actions{margin-left:auto;display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.lp-icon-btn{position:relative;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#475569;background:#F8FAFC;border:1px solid #E6EDF7}
+.lp-icon-btn:hover{color:#1D4ED8;background:#EFF6FF;border-color:#DBEAFE}
+.lp-icon-btn .lp-ico{width:14px;height:14px}
+.lp-icon-btn .dot{position:absolute;right:5px;top:5px;width:5px;height:5px;border-radius:50%;background:#EF4444;border:1px solid #fff}
+.lp-lang{display:flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:#475569;padding:0 2px}
+.lp-lang .lp-ico{width:13px;height:13px;color:#64748B}
+.lp-user{display:flex;align-items:center;gap:8px;padding:4px 5px;border-radius:999px;color:#0B1F3A!important}
+.lp-user:hover{background:#EFF6FF}
+.lp-user .avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#DBEAFE,#DBEAFE);color:#1D4ED8;font-size:9px;font-weight:800;display:grid;place-items:center;border:1px solid #BFDBFE}
+.lp-user b{display:block;font-size:9.5px;line-height:1.15;font-weight:700}
+.lp-user span span{display:block;font-size:8px;line-height:1.2;color:#64748B;margin-top:2px}
+.lp-theme{position:relative;flex:0 0 auto}
+.lp-theme-btn{width:auto;height:30px;padding:0 9px;border-radius:999px;display:inline-flex;align-items:center;gap:5px;color:#475569;background:#F8FAFC;border:1px solid #E6EDF7;cursor:pointer;list-style:none;font-size:10px;font-weight:700;letter-spacing:.01em}
+.lp-theme-btn::-webkit-details-marker{display:none}
+.lp-theme-btn:hover{color:var(--lp-primary-2);background:#EFF6FF;border-color:#DBEAFE}
+.lp-theme-btn .lp-ico{width:14px;height:14px}
+.lp-theme-btn .lp-chev{width:9px;height:9px;transform:rotate(90deg)}
+.lp-theme-menu{position:absolute;right:0;top:calc(100% + 10px);z-index:90;min-width:194px;background:#fff;border:1px solid #E6EDF7;border-radius:12px;box-shadow:0 18px 45px rgba(11,31,58,.18);padding:7px}
+.lp-theme-title{display:block;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#64748B;font-weight:800;padding:6px 9px 4px}
+.lp-theme-menu a{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:8px;font-size:12px;color:#334A66;font-weight:600;white-space:nowrap}
+.lp-theme-menu a:hover{background:#F6F9FF;color:#0B1F3A}
+.lp-theme-menu a.on{background:#EFF6FF;color:var(--lp-primary-2)}
+.lp-theme-menu a i{width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #DCE6F2;flex:0 0 auto}
+.lp-theme-menu .lp-check{width:14px;height:14px;margin-left:auto;color:var(--lp-primary-2)}
+.lp-theme-note{display:block;font-size:9px;line-height:1.35;color:#7C8CA3;padding:6px 9px 3px;border-top:1px solid #EEF3FA;margin-top:4px}
+
+/* Hero */
+.lp-hero{position:relative;isolation:isolate;overflow:hidden;padding:64px 0 74px;background:linear-gradient(135deg,var(--lp-hero-a) 0%,var(--lp-hero-b) 55%,var(--lp-hero-c) 100%);color:#F0F9FF;min-height:620px}
+.lp-hero-art{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.82}
+.lp-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,var(--lp-overlay-1) 0%,var(--lp-overlay-2) 34%,var(--lp-overlay-3) 62%,var(--lp-overlay-4) 100%);z-index:1;pointer-events:none}
+.lp-hero-inner{position:relative;z-index:2;max-width:1340px;margin:auto;padding:0 28px;display:grid;grid-template-columns:1fr 1.05fr;gap:52px;align-items:center}
+.lp-hero-copy{min-width:0}
+.lp-eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:10.5px;letter-spacing:.18em;font-weight:800;color:var(--lp-accent)}
+.lp-eyebrow span{width:24px;height:1px;background:var(--lp-accent);display:inline-block;box-shadow:0 0 10px var(--lp-accent)}
+.lp-hero h1{font-size:clamp(44px,4.5vw,68px);line-height:.95;letter-spacing:-.05em;color:#fff;margin:18px 0 0;max-width:720px;font-weight:800}
+.lp-hero h1 em{font-style:normal;color:var(--lp-accent);display:block;padding-bottom:3px}
+@supports((background-clip:text) or (-webkit-background-clip:text)){
+  .lp-hero h1 em{background:linear-gradient(90deg,var(--lp-accent) 0%,var(--lp-accent-2) 42%,var(--lp-accent-3) 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+}
+.lp-hero-copy p{font-size:15.5px;line-height:1.72;color:#D4E3F5;max-width:585px;margin:23px 0 0}
+.lp-ctas{display:flex;gap:12px;flex-wrap:wrap;margin:30px 0 0}
+.lp-btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;border-radius:10px;padding:13px 20px;font-size:13.5px;font-weight:700;transition:transform .16s ease,background .16s ease,box-shadow .16s ease}
+.lp-btn:hover{transform:translateY(-1px)}
+.lp-btn.primary{background:linear-gradient(135deg,var(--lp-primary-2),var(--lp-primary) 58%,var(--lp-primary-2));color:#fff!important;box-shadow:0 14px 30px rgba(4,22,47,.28)}
+.lp-btn.primary:hover{filter:brightness(.93)}
+.lp-btn.secondary{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.32);color:#F1F7FF!important}
+.lp-btn.secondary:hover{background:rgba(255,255,255,.13)}
+.lp-btn.green{background:linear-gradient(135deg,#15803D,#22C55E);color:#fff!important;box-shadow:0 12px 26px rgba(34,197,94,.28)}
+.lp-btn.green:hover{background:linear-gradient(135deg,#166534,#22C55E)}
+.lp-btn .play{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.55);font-size:9px;padding-left:1px}
+.lp-btn .play .lp-ico{width:9px;height:9px;stroke-width:2.4;margin-left:1px}
+.lp-trust{display:flex;flex-wrap:wrap;gap:9px 20px;margin-top:28px;color:#BBD2EA;font-size:11.5px}
+.lp-trust span{display:inline-flex;align-items:center;gap:6px}
+.lp-trust i{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;background:var(--lp-primary);color:#EFF6FF;font-style:normal;font-size:9px;font-weight:800}
+
+/* Dashboard preview */
+.lp-preview{position:relative;z-index:2;min-width:0;isolation:isolate}
+.lp-preview:before{content:"";position:absolute;inset:8% -7% -11%;background:radial-gradient(circle,var(--lp-glow),transparent 67%);filter:blur(24px);z-index:-1;pointer-events:none}
+.pv-window{background:#fff;border:1px solid rgba(255,255,255,.55);border-radius:16px;box-shadow:0 34px 80px rgba(0,0,0,.38),0 2px 0 rgba(255,255,255,.6) inset;overflow:hidden;color:#0B1F3A;transform:rotate(-.25deg)}
+.pv-top{height:50px;display:flex;align-items:center;gap:9px;padding:0 12px;background:#FBFDFF;border-bottom:1px solid #E6EDF7}
+.pv-brand{display:flex;align-items:center;gap:5px;font-size:8.5px;font-weight:800;letter-spacing:.08em;color:#1D4ED8;white-space:nowrap}
+.pv-brand svg{width:19px;height:19px}
+.pv-search{flex:1;max-width:170px;height:24px;border-radius:999px;background:#EFF6FF;color:#64748B;font-size:8px;display:flex;align-items:center;gap:4px;padding:0 8px;margin-left:5px;white-space:nowrap}
+.pv-search .lp-ico{width:10px;height:10px}
+.pv-top-icons{display:flex;align-items:center;gap:8px;color:#64748B;margin-left:auto}
+.pv-top-icons .lp-ico{width:11px;height:11px}
+.pv-company{display:flex;align-items:center;gap:5px;border-left:1px solid #E6EDF7;padding-left:8px;font-size:6.5px;line-height:1.15;color:#64748B}
+.pv-company .avatar{width:20px;height:20px;border-radius:50%;background:#DBEAFE;color:#1D4ED8;font-size:6.5px;font-weight:800;display:grid;place-items:center}
+.pv-body{display:grid;grid-template-columns:124px 1fr;min-height:424px}
+.pv-side{background:linear-gradient(180deg,var(--lp-side-a),var(--lp-side-b));padding:11px 8px;color:#B9D0EA}
+.pv-side-item{display:flex;align-items:center;gap:6px;font-size:8.1px;padding:5.5px 7px;border-radius:5px;white-space:nowrap;margin-bottom:1.5px}
+.pv-side-item.active{background:linear-gradient(90deg,var(--lp-primary-2),var(--lp-primary));color:#FFFFFF;font-weight:700;box-shadow:0 4px 10px rgba(4,22,47,.32)}
+.pv-side .lp-ico{width:10px;height:10px;flex:0 0 auto;stroke-width:1.8}
+.pv-main{padding:13px;background:#F7FAFF;min-width:0;overflow:hidden}
+.pv-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.pv-head h2{font-size:15px;letter-spacing:-.02em;color:#0B1F3A;line-height:1.1}
+.pv-head p{font-size:7px;color:#64748B;margin:3px 0 0}
+.pv-date{font-size:6.5px;color:#64748B;background:#EFF6FF;padding:4px 6px;border-radius:5px;white-space:nowrap}
+.pv-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.pv-kpi{background:#fff;border:1px solid #E6EDF7;border-radius:7px;padding:7px 7px 6px;min-width:0}
+.pv-kpi span{display:block;font-size:6.5px;color:#64748B;text-transform:uppercase;letter-spacing:.045em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-kpi b{display:block;font-size:12.2px;margin-top:3px;color:#0B1F3A;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.02em}
+.pv-kpi small{font-size:6.2px;color:#15803D;white-space:nowrap;font-weight:700}
+.pv-grid{display:grid;grid-template-columns:1.58fr 1fr;gap:7px;margin-top:7px}
+.pv-card{background:#fff;border:1px solid #E6EDF7;border-radius:7px;padding:8px;min-width:0}
+.pv-card h3{font-size:8px;color:#475569;line-height:1.2}
+.pv-card-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.pv-legend-inline{display:flex;gap:7px;font-size:6px;color:#64748B;white-space:nowrap}
+.pv-legend-inline i{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:3px}
+.pv-legend-inline .blue{background:#2563EB}
+.pv-legend-inline .green{background:#22C55E}
+.pv-chart{width:100%;height:91px;margin-top:4px;display:block}
+.pv-performance{display:flex;align-items:center;gap:9px;margin-top:9px}
+.pv-donut{width:78px;height:78px;border-radius:50%;background:conic-gradient(#2563EB 0 48%,#22C55E 48% 72%,#A78BFA 72% 86%,#F59E0B 86% 100%);display:grid;place-items:center;position:relative;flex:0 0 auto}
+.pv-donut:after{content:"";position:absolute;inset:13px;background:#fff;border-radius:50%}
+.pv-donut b{position:relative;z-index:1;font-size:10.5px;color:#0B1F3A;line-height:1}
+.pv-donut small{position:relative;z-index:1;font-size:5.8px;color:#64748B;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.pv-donut .donut-label{position:relative;z-index:1;display:grid;place-items:center}
+.pv-legend{display:grid;gap:4px;font-size:6.1px;color:#64748B;min-width:0}
+.pv-legend span{display:flex;align-items:center;white-space:nowrap}
+.pv-legend i{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:4px;flex:0 0 auto}
+.pv-legend b{margin-left:auto;color:#475569;font-weight:700;padding-left:6px}
+.pv-quick{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:6.3px;color:#64748B;white-space:nowrap;overflow:hidden}
+.pv-quick b{color:#2563EB;font-size:6.5px}
+.pv-quick span{display:inline-flex;align-items:center;gap:2px;background:#EFF6FF;border-radius:4px;padding:3px 5px}
+.pv-quick .lp-ico{width:8px;height:8px}
+.pv-mini{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:7px}
+.pv-mini div{background:#fff;border:1px solid #E6EDF7;border-radius:6px;padding:6px 7px;min-width:0}
+.pv-mini span{display:block;font-size:6.2px;color:#64748B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pv-mini b{display:block;font-size:10px;margin-top:2px;white-space:nowrap;color:#0B1F3A}
+.pv-mini small{font-size:5.8px;color:#15803D;font-weight:700}
+.pv-note{margin-top:7px;font-size:5.9px;color:#64748B;text-align:right;letter-spacing:.02em}
+
+/* Feature band */
+.lp-feature-band{padding:32px 0 36px;background:#fff;border-bottom:1px solid #E6EDF7}
+.lp-feature-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.lp-feature{background:#fff;border:1px solid #E6EDF7;border-radius:14px;padding:17px 14px;display:flex;align-items:flex-start;gap:11px;box-shadow:0 2px 5px rgba(33,37,41,.05);transition:transform .16s ease,box-shadow .16s ease}
+.lp-feature:hover{transform:translateY(-3px);box-shadow:0 16px 34px rgba(33,37,41,.10)}
+.lp-fi{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#EFF6FF;color:#2563EB;flex:0 0 auto}
+.lp-fi .lp-ico{width:21px;height:21px}
+.lp-fi.blue{background:#EFF6FF;color:#2563EB}
+.lp-fi.violet{background:#F3E8FF;color:#7C3AED}
+.lp-fi.green{background:#DCFCE7;color:#22C55E}
+.lp-fi.amber{background:#FEF3C7;color:#D97706}
+.lp-feature h3{font-size:12.5px;margin:1px 0 4px;letter-spacing:-.015em;line-height:1.2}
+.lp-feature p{font-size:10.5px;line-height:1.45;color:#64748B;margin:0}
+
+/* Why */
+.lp-why{padding:68px 0 76px;background:#fff;border-bottom:1px solid #E6EDF7}
+.lp-why-inner{display:grid;grid-template-columns:.70fr 1.30fr;gap:50px;align-items:center}
+.lp-why h2{font-size:clamp(30px,3.2vw,44px);line-height:1.06;letter-spacing:-.04em;margin:0 0 17px;font-weight:750}
+.lp-why h2 em{font-style:normal;background:linear-gradient(transparent 72%,#DCFCE7 72%);padding:0 2px}
+.lp-kicker{display:block;font-size:10px;letter-spacing:.17em;font-weight:800;color:var(--lp-primary);margin-bottom:12px}
+.lp-why-copy p{font-size:14px;line-height:1.72;color:#475569;max-width:390px;margin:0 0 24px}
+.lp-why-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.lp-why-card{background:#fff;border:1px solid #E6EDF7;border-radius:14px;padding:16px 12px;min-height:174px;box-shadow:0 3px 10px rgba(33,37,41,.05);transition:transform .16s ease,box-shadow .16s ease}
+.lp-why-card:hover{transform:translateY(-3px);box-shadow:0 14px 28px rgba(33,37,41,.10)}
+.lp-why-card .lp-fi{width:38px;height:38px;border-radius:11px;margin:0 0 13px}
+.lp-why-card .lp-fi .lp-ico{width:18px;height:18px}
+.lp-why-card h3{font-size:11.5px;margin-bottom:6px;line-height:1.2}
+.lp-why-card p{font-size:10.5px;line-height:1.5;color:#64748B;margin:0}
+
+/* Trust strip */
+.lp-proof{background:linear-gradient(90deg,var(--lp-proof-a),var(--lp-proof-b) 55%,var(--lp-proof-a));color:#EFF6FF;padding:32px 0}
+.lp-proof-grid{display:grid;grid-template-columns:1.55fr .82fr .72fr .72fr 1fr;gap:24px;align-items:center}
+.lp-proof-intro,.lp-mission{display:flex;gap:11px;align-items:flex-start;min-width:0}
+.lp-proof-intro .lp-ico,.lp-mission .lp-ico{width:24px;height:24px;color:var(--lp-accent);flex:0 0 auto;margin-top:2px}
+.lp-proof-intro b,.lp-mission b{display:block;font-size:12.5px;color:#fff;line-height:1.3}
+.lp-proof-intro span{display:block;font-size:9.5px;line-height:1.5;color:#9EBBD9;margin-top:3px}
+.lp-proof-stat{display:flex;align-items:center;gap:9px;min-width:0}
+.lp-proof-stat .lp-ico{width:22px;height:22px;color:var(--lp-accent);flex:0 0 auto}
+.lp-proof-stat b{display:block;font-size:20px;line-height:1;color:#fff;font-weight:750;letter-spacing:-.02em}
+.lp-proof-stat span{display:block;font-size:9.5px;color:#9EBBD9;margin-top:4px;white-space:nowrap}
+.lp-mission b{font-size:12.5px}
+.lp-mission em{font-style:normal;display:inline-block;color:var(--lp-accent-3);background:linear-gradient(transparent 72%,rgba(255,255,255,.22) 72%);padding:0 2px}
+.lp-demo-note{background:#041326;color:#A9B8CC;font-size:9.5px;text-align:center;padding:9px 18px;letter-spacing:.02em}
+
+@media(max-width:1180px){
+  .lp-menu{display:none}
+  .lp-why-inner{grid-template-columns:.8fr 1.2fr;gap:32px}
+  .lp-why-grid{grid-template-columns:repeat(3,1fr)}
+  .lp-why-card{min-height:150px}
+}
+@media(max-width:1080px){
+  .lp-hero-inner{grid-template-columns:1fr;gap:38px}
+  .lp-hero-copy{max-width:760px}
+  .lp-preview{max-width:720px;margin:0 auto;width:100%}
+  .lp-feature-grid{grid-template-columns:repeat(3,1fr)}
+  .lp-why-inner{grid-template-columns:1fr;gap:30px}
+  .lp-why-copy p{max-width:620px}
+  .lp-proof-grid{grid-template-columns:repeat(3,1fr);row-gap:22px}
+  .lp-proof-intro{grid-column:span 2}
+}
+@media(max-width:760px){
+  .lp-nav-inner{height:66px;padding:0 18px;gap:12px}
+  .lp-brand .mark,.lp-brand .mark svg{width:34px;height:34px}
+  .lp-name{font-size:18px}
+  .lp-tag{font-size:8.5px}
+  .lp-icon-btn,.lp-lang{display:none}
+  .lp-theme-btn{width:30px;padding:0;justify-content:center}
+  .lp-theme-btn span,.lp-theme-btn .lp-chev{display:none}
+  .lp-user b,.lp-user span span{display:none}
+  .lp-user{padding:2px}
+  .lp-wrap,.lp-hero-inner{padding:0 18px}
+  .lp-hero{padding:44px 0 54px;min-height:0}
+  .lp-hero:after{background:linear-gradient(180deg,var(--lp-overlay-1),var(--lp-overlay-3))}
+  .lp-hero h1{font-size:clamp(42px,12vw,60px)}
+  .lp-hero-copy p{font-size:14px}
+  .lp-ctas{gap:9px}
+  .lp-btn{padding:12px 15px;font-size:12.5px}
+  .lp-trust{gap:7px 13px;font-size:10.5px}
+  .pv-body{grid-template-columns:92px 1fr;min-height:0}
+  .pv-side-item{font-size:7px;padding:5px 4px;gap:4px}
+  .pv-main{padding:9px}
+  .pv-kpis{grid-template-columns:repeat(2,1fr)}
+  .pv-grid{grid-template-columns:1fr}
+  .pv-card:nth-child(2){display:none}
+  .pv-company{display:none}
+  .pv-search{max-width:130px}
+  .lp-feature-band{padding:24px 0}
+  .lp-feature-grid{grid-template-columns:repeat(2,1fr)}
+  .lp-why{padding:52px 0 58px}
+  .lp-why-grid{grid-template-columns:repeat(2,1fr)}
+  .lp-why-card{min-height:0}
+  .lp-proof-grid{grid-template-columns:repeat(2,1fr);gap:18px}
+  .lp-proof-intro{grid-column:1/-1}
+  .lp-proof-stat span{white-space:normal}
+}
+@media(max-width:480px){
+  .lp-feature-grid,.lp-why-grid,.lp-proof-grid{grid-template-columns:1fr}
+  .lp-proof-intro{grid-column:auto}
+  .pv-side{display:none}
+  .pv-body{grid-template-columns:1fr}
+  .pv-kpis{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:380px){
+  .lp-wrap,.lp-hero-inner{padding:0 14px}
+  .lp-hero h1{font-size:34px}
+  .lp-hero-copy p{font-size:13px}
+  .pv-search,.pv-top-icons,.pv-quick{display:none}
+  .pv-kpis{grid-template-columns:1fr}
+  .pv-main{padding:8px}
+}
+@media(prefers-reduced-motion:reduce){
+  .lp *{transition:none!important}
+}
+</style></head>
+<body class="lp-body"><div class="lp">
+<a class="lp-skip" href="#main">Skip to content</a>
+<header class="lp-nav"><div class="lp-nav-inner">
+  <a class="lp-brand" href="/"><span class="mark"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true">
+<path d="M3 30 L13 5 L21 24 Z" fill="#22D3EE"/>
+<path d="M11 30 L19 9 L30 30 Z" fill="#2563EB"/>
+<path d="M18 30 L24 18 L33 30 Z" fill="#7C3AED" opacity=".92"/>
+<path d="M6 30 L13 13 L18 30 Z" fill="#0EA5E9" opacity=".48"/>
+</svg></span><span><span class="lp-name">ARTHIVIO</span><span class="lp-tag">Business, Seen Clearly.</span></span></a>
+  <nav class="lp-menu" aria-label="Main navigation"><a class="on" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Dashboard<svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a><a class="" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Accounting<svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a><a class="" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Sales &amp; Purchase<svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a><a class="" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Inventory<svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a><a class="" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Reports &amp; Analytics<svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a><a class="" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Business Intelligence<svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></a></nav>
+  <div class="lp-nav-actions">
+    <details class="lp-theme">
+      <summary class="lp-theme-btn" aria-label="Choose background colour" title="Choose background colour"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="9" r="1.1"/><circle cx="15" cy="9" r="1.1"/><circle cx="9" cy="15" r="1.1"/><circle cx="15" cy="15" r="1.1"/></svg><span>Colour</span><svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></summary>
+      <div class="lp-theme-menu"><span class="lp-theme-title">Landing colour</span><a href="https://petition-fabric-himself-bedford.trycloudflare.com/home?theme=ocean" class="on" aria-current="true"><i style="background:#2563EB"></i>Ocean Blue<svg class="lp-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg></a><a href="https://petition-fabric-himself-bedford.trycloudflare.com/home?theme=emerald" class=""><i style="background:#15803D"></i>Emerald Green</a><a href="https://petition-fabric-himself-bedford.trycloudflare.com/home?theme=violet" class=""><i style="background:#7C3AED"></i>Royal Violet</a><a href="https://petition-fabric-himself-bedford.trycloudflare.com/home?theme=sunset" class=""><i style="background:#C2410C"></i>Warm Sunset</a><span class="lp-theme-note">Workspace theme: Settings → Appearance.</span></div>
+    </details>
+    <a class="lp-icon-btn" href="https://petition-fabric-himself-bedford.trycloudflare.com/login" aria-label="Settings"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14.2 3h-4.4l-.3 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2l.3 2.6h4.4l.3-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></svg></a>
+    <a class="lp-icon-btn" href="https://petition-fabric-himself-bedford.trycloudflare.com/login" aria-label="Notifications"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 1112 0c0 7 3 7 3 9H3c0-2 3-2 3-9zM10 21h4"/></svg><span class="dot"></span></a>
+    <span class="lp-lang"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg> EN <svg class="lp-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
+    <a class="lp-user" href="https://petition-fabric-himself-bedford.trycloudflare.com/login"><span class="avatar" aria-hidden="true">BU</span><span><b>Welcome</b><span>Business User</span></span><span class="sr-only">Sign in</span></a>
+  </div>
+</div></header>
+
+<main id="main">
+<section class="lp-hero">
+  
+<svg class="lp-hero-art" viewBox="0 0 1440 700" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+  <defs>
+    <linearGradient id="lp-sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#031126"/><stop offset=".50" stop-color="#062A50"/><stop offset="1" stop-color="#0B3F72"/>
+    </linearGradient>
+    <linearGradient id="lp-bld" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0A2C52"/><stop offset="1" stop-color="#041A33"/>
+    </linearGradient>
+    <linearGradient id="lp-bld2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0D365F"/><stop offset="1" stop-color="#06213D"/>
+    </linearGradient>
+    <linearGradient id="lp-arrow" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22C55E" stop-opacity="0"/><stop offset=".55" stop-color="#34D399"/><stop offset="1" stop-color="#86EFAC" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="lp-windows" width="11" height="15" patternUnits="userSpaceOnUse">
+      <rect x="2" y="3" width="2" height="4" fill="#38BDF8" opacity=".38"/>
+    </pattern>
+    <pattern id="lp-windows2" width="14" height="18" patternUnits="userSpaceOnUse">
+      <rect x="3" y="4" width="2.4" height="4.5" fill="#7DD3FC" opacity=".24"/>
+    </pattern>
+    <radialGradient id="lp-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#38BDF8" stop-opacity=".40"/><stop offset="1" stop-color="#38BDF8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1440" height="700" fill="url(#lp-sky)"/>
+  <circle cx="1100" cy="340" r="310" fill="url(#lp-glow)"/>
+  <g opacity=".62" fill="url(#lp-bld2)">
+    <rect x="0" y="390" width="90" height="310"/><rect x="100" y="330" width="70" height="370"/>
+    <rect x="180" y="285" width="64" height="415"/><rect x="254" y="410" width="86" height="290"/>
+    <rect x="350" y="345" width="78" height="355"/><rect x="438" y="300" width="92" height="400"/>
+    <rect x="540" y="390" width="70" height="310"/><rect x="620" y="330" width="86" height="370"/>
+    <rect x="716" y="250" width="66" height="450"/><rect x="792" y="320" width="80" height="380"/>
+    <rect x="882" y="380" width="72" height="320"/><rect x="964" y="300" width="92" height="400"/>
+    <rect x="1066" y="350" width="78" height="350"/><rect x="1154" y="275" width="70" height="425"/>
+    <rect x="1234" y="395" width="86" height="305"/><rect x="1330" y="335" width="110" height="365"/>
+  </g>
+  <g fill="url(#lp-bld)">
+    <rect x="0" y="450" width="118" height="250"/><rect x="130" y="382" width="84" height="318"/>
+    <rect x="226" y="330" width="72" height="370"/><rect x="310" y="455" width="96" height="245"/>
+    <rect x="418" y="370" width="82" height="330"/><rect x="512" y="315" width="96" height="385"/>
+    <rect x="620" y="410" width="78" height="290"/><rect x="710" y="278" width="70" height="422"/>
+    <rect x="792" y="350" width="92" height="350"/><rect x="896" y="428" width="74" height="272"/>
+    <rect x="982" y="352" width="88" height="348"/><rect x="1082" y="300" width="74" height="400"/>
+    <rect x="1168" y="410" width="92" height="290"/><rect x="1272" y="345" width="168" height="355"/>
+  </g>
+  <g fill="url(#lp-windows)" opacity=".75">
+    <rect x="0" y="450" width="118" height="250"/><rect x="130" y="382" width="84" height="318"/>
+    <rect x="226" y="330" width="72" height="370"/><rect x="310" y="455" width="96" height="245"/>
+    <rect x="418" y="370" width="82" height="330"/><rect x="512" y="315" width="96" height="385"/>
+    <rect x="620" y="410" width="78" height="290"/><rect x="710" y="278" width="70" height="422"/>
+    <rect x="792" y="350" width="92" height="350"/><rect x="896" y="428" width="74" height="272"/>
+    <rect x="982" y="352" width="88" height="348"/><rect x="1082" y="300" width="74" height="400"/>
+    <rect x="1168" y="410" width="92" height="290"/><rect x="1272" y="345" width="168" height="355"/>
+  </g>
+  <g fill="url(#lp-windows2)" opacity=".55">
+    <rect x="130" y="382" width="84" height="318"/><rect x="310" y="455" width="96" height="245"/>
+    <rect x="512" y="315" width="96" height="385"/><rect x="792" y="350" width="92" height="350"/>
+    <rect x="1082" y="300" width="74" height="400"/><rect x="1272" y="345" width="168" height="355"/>
+  </g>
+  <rect y="628" width="1440" height="72" fill="#03162C" opacity=".92"/>
+  <g stroke="#2B7BAA" stroke-width="1" opacity=".22">
+    <path d="M0 646h1440M0 662h1440M0 678h1440M0 694h1440"/>
+    <path d="M120 654h170M420 670h250M830 646h180M1140 682h210" opacity=".6"/>
+  </g>
+  <path d="M70 654 C420 610 636 468 1002 330" fill="none" stroke="url(#lp-arrow)" stroke-width="24" opacity=".18" stroke-linecap="round"/>
+  <path d="M958 306 L1058 312 L1004 382 Z" fill="#34D399" opacity=".16"/>
+</svg>
+  <div class="lp-hero-inner">
+    <div class="lp-hero-copy">
+      <div class="lp-eyebrow"><span></span>GLOBAL BUSINESS MANAGEMENT PLATFORM</div>
+      <h1>Smarter Finance.<em>Stronger Business.</em></h1>
+      <p>ARTHIVIO brings together accounting, finance, inventory, analytics and AI — in one powerful platform. Built for businesses of every size. Trusted worldwide.</p>
+      <div class="lp-ctas">
+        <a class="lp-btn primary" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Get Started Free <svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        <a class="lp-btn secondary" href="https://petition-fabric-himself-bedford.trycloudflare.com/login"><span class="play"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg></span> Watch Demo</a>
+      </div>
+      <div class="lp-trust">
+        <span><i>✓</i> Secure</span><span><i>✓</i> Scalable</span>
+        <span><i>✓</i> Multi-Language</span><span><i>✓</i> Global Ready</span>
+      </div>
+    </div>
+    <div class="lp-preview" id="preview">
+<div class="pv-window" aria-label="Illustrative ARTHIVIO dashboard preview">
+  <div class="pv-top">
+    <div class="pv-brand"><svg width="38" height="38" viewBox="0 0 36 36" aria-hidden="true">
+<path d="M3 30 L13 5 L21 24 Z" fill="#22D3EE"/>
+<path d="M11 30 L19 9 L30 30 Z" fill="#2563EB"/>
+<path d="M18 30 L24 18 L33 30 Z" fill="#7C3AED" opacity=".92"/>
+<path d="M6 30 L13 13 L18 30 Z" fill="#0EA5E9" opacity=".48"/>
+</svg><span>ARTHIVIO</span></div>
+    <div class="pv-search"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg><span>Search anything...</span></div>
+    <div class="pv-top-icons"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 1112 0c0 7 3 7 3 9H3c0-2 3-2 3-9zM10 21h4"/></svg><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg></div>
+    <div class="pv-company"><span class="avatar">GT</span><span>Global Tech<br>Solutions</span></div>
+  </div>
+  <div class="pv-body">
+    <div class="pv-side">
+      <div class="pv-side-item active"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg> Dashboard</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l3 3v15H6zM15 3v4h4M9 11h6M9 15h6M9 19h3"/></svg> Accounting</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.2 10.2a2 2 0 002 1.6h8.4a2 2 0 002-1.6L21 7H6M9 21a1 1 0 100-2 1 1 0 000 2zM18 21a1 1 0 100-2 1 1 0 000 2z"/></svg> Sales</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.2 10.2a2 2 0 002 1.6h8.4a2 2 0 002-1.6L21 7H6M9 21a1 1 0 100-2 1 1 0 000 2zM18 21a1 1 0 100-2 1 1 0 000 2z"/></svg> Purchases</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7zM12 11v10M4 7l8 4 8-4"/></svg> Inventory</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-5 9 5M5 9v9M9 9v9M15 9v9M19 9v9M3 21h18"/></svg> Banking</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/></svg> Reports</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/></svg> Business Analytics</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3z"/><path d="M19 15l.7 1.8L21.5 18l-1.8.7L19 21l-.7-2.3L16.5 18l1.8-1.2L19 15z"/></svg> AI Insights</div>
+      <div class="pv-side-item"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14.2 3h-4.4l-.3 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 002 1.2l.3 2.6h4.4l.3-2.6a7 7 0 002-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></svg> Settings</div>
+    </div>
+    <div class="pv-main">
+      <div class="pv-head">
+        <div><h2>Business Overview</h2><p>Sample workspace · synthetic data</p></div>
+        <span class="pv-date">01 Apr 2025 - 30 Apr 2025</span>
+      </div>
+      <div class="pv-kpis">
+        <div class="pv-kpi"><span>Total Revenue</span><b>$248,620</b><small>↗ 18.6%</small></div>
+        <div class="pv-kpi"><span>Net Profit</span><b>$185,430</b><small>↗ 22.4%</small></div>
+        <div class="pv-kpi"><span>Cash Flow</span><b>$96,240</b><small>↗ 12.8%</small></div>
+        <div class="pv-kpi"><span>Total Customers</span><b>1,248</b><small>↗ 8.2%</small></div>
+      </div>
+      <div class="pv-grid">
+        <div class="pv-card">
+          <div class="pv-card-head"><h3>Revenue &amp; Profit Trend</h3><div class="pv-legend-inline"><span><i class="blue"></i>Revenue</span><span><i class="green"></i>Profit</span></div></div>
+          <svg class="pv-chart" viewBox="0 0 360 118" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="lp-area" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#2563EB" stop-opacity=".20"/>
+                <stop offset="1" stop-color="#2563EB" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <g stroke="#E2E8F0" stroke-width="1">
+              <line x1="0" y1="103" x2="360" y2="103"/><line x1="0" y1="76" x2="360" y2="76"/>
+              <line x1="0" y1="49" x2="360" y2="49"/><line x1="0" y1="22" x2="360" y2="22"/>
+            </g>
+            <path d="M0 94 C38 88 58 76 94 78 S146 62 184 61 S234 44 272 46 S326 24 360 20 L360 118 L0 118 Z" fill="url(#lp-area)"/>
+            <path d="M0 94 C38 88 58 76 94 78 S146 62 184 61 S234 44 272 46 S326 24 360 20" fill="none" stroke="#2563EB" stroke-width="2.1" stroke-linecap="round"/>
+            <path d="M0 106 C40 102 62 96 98 97 S150 88 188 89 S240 80 278 78 S330 66 360 63" fill="none" stroke="#22C55E" stroke-width="1.7" stroke-linecap="round"/>
+            <g fill="#2563EB"><circle cx="94" cy="78" r="2.3"/><circle cx="272" cy="46" r="2.3"/></g>
+          </svg>
+        </div>
+        <div class="pv-card">
+          <h3>Business Performance</h3>
+          <div class="pv-performance">
+            <div class="pv-donut"><div class="donut-label"><b>18.3%</b><small>Growth</small></div></div>
+            <div class="pv-legend">
+              <span><i style="background:#2563EB"></i>Sales <b>48%</b></span>
+              <span><i style="background:#22C55E"></i>Services <b>24%</b></span>
+              <span><i style="background:#A78BFA"></i>Inventory <b>14%</b></span>
+              <span><i style="background:#F59E0B"></i>Other <b>14%</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pv-quick"><b>Quick Actions</b><span><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l3 3v15H6zM15 3v4h4M9 11h6M9 15h6M9 19h3"/></svg> New Invoice</span><span><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.2 2.7-5 6-5s6 1.8 6 5M16 5a3 3 0 010 6M18 14c2.2.5 3 2 3 4"/></svg> Add Customer</span><span><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18v14H3zM3 10h18M16 15h2"/></svg> Record Payment</span><span><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/></svg> View Reports</span></div>
+      <div class="pv-mini">
+        <div><span>Inventory Value</span><b>$112,480 <small>↗ 6.4%</small></b></div>
+        <div><span>Accounts Receivable</span><b>$268,900 <small>↗ 9.2%</small></b></div>
+        <div><span>Accounts Payable</span><b>$142,350 <small>↘ 4.1%</small></b></div>
+      </div>
+      <div class="pv-note">Illustrative dashboard · synthetic sample data</div>
+    </div>
+  </div>
+</div></div>
+  </div>
+</section>
+
+<section class="lp-feature-band" id="features"><div class="lp-wrap">
+  <div class="lp-feature-grid"><article class="lp-feature"><div class="lp-fi blue"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01"/></svg></div><div><h3>Accounting &amp; Finance</h3><p>Smart. Accurate. Compliant.</p></div></article><article class="lp-feature"><div class="lp-fi violet"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.2 10.2a2 2 0 002 1.6h8.4a2 2 0 002-1.6L21 7H6M9 21a1 1 0 100-2 1 1 0 000 2zM18 21a1 1 0 100-2 1 1 0 000 2z"/></svg></div><div><h3>Sales &amp; POS</h3><p>Fast. Flexible. Everywhere.</p></div></article><article class="lp-feature"><div class="lp-fi green"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7zM12 11v10M4 7l8 4 8-4"/></svg></div><div><h3>Inventory &amp; Warehouse</h3><p>Track. Manage. Optimize.</p></div></article><article class="lp-feature"><div class="lp-fi amber"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7"/></svg></div><div><h3>Business Analytics</h3><p>Data to Decisions.</p></div></article><article class="lp-feature"><div class="lp-fi violet"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3z"/><path d="M19 15l.7 1.8L21.5 18l-1.8.7L19 21l-.7-2.3L16.5 18l1.8-1.2L19 15z"/></svg></div><div><h3>AI Insights</h3><p>Smarter Decisions.</p></div></article><article class="lp-feature"><div class="lp-fi green"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V8l8-4v17M12 21V11l8 4v6M7 10h2M7 14h2M7 18h2M16 16h1M16 19h1"/></svg></div><div><h3>Multi-Company</h3><p>Grow Without Limits.</p></div></article></div>
+</div></section>
+
+<section class="lp-why" id="why"><div class="lp-wrap">
+  <div class="lp-why-inner">
+    <div class="lp-why-copy">
+      <span class="lp-kicker">WHY ARTHIVIO?</span>
+      <h2>Everything You Need to Run Your Business — <em>Smarter.</em></h2>
+      <p>From daily operations to strategic decisions, ARTHIVIO gives you the power of real-time data, advanced analytics and automation — all in one platform.</p>
+      <a class="lp-btn green" href="https://petition-fabric-himself-bedford.trycloudflare.com/login">Explore All Features <svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+    <div class="lp-why-grid"><article class="lp-why-card"><div class="lp-fi green"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3z"/><path d="M8 12l2.5 2.5L16 9"/></svg></div><h3>100% Data Accuracy</h3><p>Your data is always accurate, secure and up to date.</p></article><article class="lp-why-card"><div class="lp-fi blue"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4 4 0 01-.4-8A6 6 0 0118 11a3.5 3.5 0 01-.5 7H7z"/></svg></div><h3>Offline &amp; Online</h3><p>Work anytime, anywhere — online or offline.</p></article><article class="lp-why-card"><div class="lp-fi green"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div><h3>Advanced Security</h3><p>Bank-level security to keep your business data safe.</p></article><article class="lp-why-card"><div class="lp-fi blue"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13a8 8 0 0116 0M4 13v5a2 2 0 002 2h2v-7H6M20 13v5a2 2 0 01-2 2h-2v-7h2"/></svg></div><h3>Global Support</h3><p>24/7 support in multiple languages, wherever you are.</p></article><article class="lp-why-card"><div class="lp-fi green"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 7-8M15 7h5v5"/></svg></div><h3>Scalable for Growth</h3><p>From startup to enterprise, we grow with you.</p></article></div>
+  </div>
+</div></section>
+
+<section class="lp-proof" id="trust"><div class="lp-wrap"><div class="lp-proof-grid">
+  <div class="lp-proof-intro"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg><div><b>Trusted by Businesses Worldwide</b><span>Retail · Manufacturing · Trading · Services · Healthcare · Education · and more...</span></div></div>
+  <div class="lp-proof-stat"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.2 2.7-5 6-5s6 1.8 6 5M16 5a3 3 0 010 6M18 14c2.2.5 3 2 3 4"/></svg><div><b>50,000+*</b><span>Happy Businesses</span></div></div>
+  <div class="lp-proof-stat"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg><div><b>120+*</b><span>Countries</span></div></div>
+  <div class="lp-proof-stat"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6l8-3z"/><path d="M8 12l2.5 2.5L16 9"/></svg><div><b>99.99%*</b><span>Uptime</span></div></div>
+  <div class="lp-mission"><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 7-8M15 7h5v5"/></svg><div><b>Your Growth.<br><em>Our Mission.</em></b></div></div>
+</div></div></section>
+<div class="lp-demo-note">Local prototype ? *illustrative marketing metrics, not verified production figures ? demo data is synthetic.</div>
+</main>
+</div>
+<script>
+(function(){var d=document.querySelector('details.lp-theme');if(!d)return;document.addEventListener('click',function(e){if(d.open&&!d.contains(e.target))d.open=false;});document.addEventListener('keydown',function(e){if(e.key==='Escape')d.open=false;});})();
+</script>
+</body></html>

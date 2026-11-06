@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.5 |
-| Date | 2026-11-05 |
-| Status | **56 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds eighteen more) |
+| Version | 1.6 |
+| Date | 2026-11-06 |
+| Status | **57 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 adds nineteen more, including R-506) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -13,7 +13,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > **Build 0.11/0.12 pilot:** `/reports/analytics` is a cross-cutting **Analytics Overview** (actual
 > monthly revenue/expense, expense composition, top customers/vendors, balance checks, freshness,
 > locally vendored ECharts monthly and expense-composition views and deterministic grounded insights). It is **not
-> counted** in the 38/66 figure until it gets a catalogue ID and the full per-report metadata,
+> counted** in the working-report count until it gets a catalogue ID and the full per-report metadata,
 > export and drill-down set above. It is not a substitute for the missing reports.
 >
 > **Build 0.13 Report Library:** `/reports/library` shows all 66 catalogued reports, their group,
@@ -25,13 +25,14 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501
 > stock summary and R-706 credit-limit utilisation.
 >
-> **Build 0.17 report batch:** eighteen more working reports were added with CSV exports: R-107 opening
+> **Build 0.17 report batch:** nineteen more working reports were added with CSV exports: R-107 opening
 > vs closing balances, R-205 locked period register, R-206 rule version usage, R-308 salesperson performance, R-405 price
 > variance, R-502 stock movement history, R-503 inventory valuation, R-504 reorder/shortage, R-505
-> dead/slow stock, R-507 inventory-to-GL reconciliation, R-704 receivables risk, R-705 cash flow
-> forecast, R-807 tax ledger, R-904 KPI dashboard pack, R-1001 trend explanation, R-1002 revenue
-> forecast, R-1003 anomaly digest and R-901 budget vs actual. The library now marks **56 working, 0 partial and 10 planned**;
-> planned rows still have no route and are never filled with sample data.
+> dead/slow stock, R-506 stock adjustment register, R-507 inventory-to-GL reconciliation, R-704
+> receivables risk, R-705 cash flow forecast, R-807 tax ledger, R-904 KPI dashboard pack, R-1001 trend
+> explanation, R-1002 revenue forecast, R-1003 anomaly digest and R-901 budget vs actual. The library
+> now marks **57 working, 0 partial and 9 planned**; planned rows still have no route and are never
+> filled with sample data.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
 > trial balance, P&L, balance sheet, ageing, cash/bank, inventory and GST working sheets, and the
@@ -126,7 +127,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-503 | Inventory Valuation | item stock + current cost | Closing quantity ? current moving weighted-average cost | To item | 4 | Working (Build 0.17) |
 | R-504 | Reorder / Shortage | item stock + reorder level | Items at or below reorder level, or out of stock | To item | 4 | Working (Build 0.17) |
 | R-505 | Dead / Slow Stock | posted stock movements + item | Stocked items with no movement for N days | To item | 4 | Working (Build 0.17) |
-| R-506 | Stock Adjustment Register | adjustments | List with reasons + approver | 4 | Not implemented |
+| R-506 | Stock Adjustment Register | `stock_adjustment` + item + journal_entry | Signed quantity, current-cost value, reason, note, journal and posting user; no approval workflow | To stock movements / item | 4 | Working (Build 0.17) |
 | R-507 | Inventory ? GL Reconciliation | item stock value + inventory ledger | Item-master stock value versus inventory account balance | To ledger/item | 4 | Working (Build 0.17) |
 | R-508 | Expiry / Batch Report | batch | Days to expiry buckets | 4 | Not implemented |
 
@@ -206,7 +207,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | Accounting & audit | 6 | 5 | 5 |
 | Sales & customers | 9 | 9 | 9 |
 | Purchases & suppliers | 6 | 6 | 6 |
-| Inventory & warehouse | 8 | 6 | 6 |
+| Inventory & warehouse | 8 | 7 | 7 |
 | Costing & operations | 5 | 0 | 0 |
 | Cash, credit & risk | 6 | 6 | 6 |
 | Tax & compliance | 7 | 7 | 7 |
@@ -214,7 +215,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | Management & KPIs | 1 | 1 | 1 |
 | AI-assisted analysis | 3 | 3 | 3 |
 | AI & cross-business | 1 | 0 | 0 |
-| **Total** | **66** | **56** | **56** |
+| **Total** | **66** | **57** | **57** |
 
 Implemented counts include only reports with a route and a passing automated check; partial
 working papers (for example opening/closing statement balances) are noted in the group tables but
@@ -222,7 +223,8 @@ not counted as complete. Build 0.6 adds GSTR-2B reconciliation (R-806) and state
 R-305/R-403; Build 0.7 adds per-line ITC review and a GSTR-3B-vs-2B comparison inside R-806;
 Build 0.9 adds cash book (R-701) and bank book (R-702). Build 0.10 makes the bank book selectable
 for every linked bank account, but adds no new catalogue row or report count. Build 0.17 adds
-R-901 budget vs actual with stored monthly budgets.
+R-901 budget vs actual with stored monthly budgets, and R-506 stock adjustment register with
+current-cost manual adjustments.
 
 The spec's ≈150 target will be reached by extending groups 1–10; the 66 catalogued here are the ones with a defined formula and a clear user. Reports without a defined source and formula are not catalogued — they would be decoration, not information.
 

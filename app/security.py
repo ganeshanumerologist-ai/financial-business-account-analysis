@@ -22,7 +22,7 @@ PERMISSIONS = {
     "report.view", "report.export", "backup.run", "statement.share", "gst.reconcile",
     "payment.record", "bill.create", "credit_note.create", "debit_note.create",
     "vendor.manage", "journal.post", "bank.reconcile", "account.manage",
-    "budget.manage",
+    "budget.manage", "stock.adjust",
 }
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
@@ -31,15 +31,15 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "manager": {"ledger.post", "invoice.create", "customer.manage", "item.manage",
                 "report.view", "report.export", "payment.record", "bill.create",
                 "credit_note.create", "debit_note.create", "vendor.manage", "bank.reconcile",
-                "statement.share", "gst.reconcile", "budget.manage"},
+                "statement.share", "gst.reconcile", "budget.manage", "stock.adjust"},
     "accountant": {"ledger.post", "ledger.reverse", "invoice.create", "customer.manage",
                    "report.view", "report.export", "payment.record", "bill.create",
                    "credit_note.create", "debit_note.create", "vendor.manage",
                    "journal.post", "bank.reconcile", "statement.share", "gst.reconcile",
-                   "account.manage", "budget.manage"},
+                   "account.manage", "budget.manage", "stock.adjust"},
     "cashier": {"invoice.create", "customer.manage", "report.view", "payment.record"},
     "sales": {"invoice.create", "customer.manage", "report.view"},
-    "inventory": {"item.manage", "report.view"},
+    "inventory": {"item.manage", "report.view", "stock.adjust"},
     "readonly": {"report.view"},
 }
 

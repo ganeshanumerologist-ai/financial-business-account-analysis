@@ -3,6 +3,37 @@
 > **Status:** deployment blueprint for a public demo. It is not a production
 > security or accounting certification. Use synthetic demo data only.
 
+## 0. Firebase Hosting (public landing only)
+
+| Field | Value |
+|---|---|
+| Firebase project | `financial-business-accounting` |
+| Hosting URL | `https://financial-business-accounting.web.app` |
+| Deployed files | `firebase-public/index.html` |
+| Config | `firebase.json`, `.firebaserc` |
+
+This release serves the **public ARTHIVIO landing page only**. Firebase Hosting
+is a static file host; it cannot run the Python HTTP server, SQLite database,
+server-side sessions or PDF/Excel writers in this repository. The landing page's
+login and call-to-action links point to the current temporary demo tunnel, not
+to an app running inside Firebase.
+
+For the full online app, the Firebase project needs one of these:
+
+- **Cloud Run + Cloud SQL/Firestore** under the same project. Cloud Run requires
+  an enabled billing account; this project currently has no billing account.
+- **A paid Render/Railway/VPS deployment with a persistent disk**, with Firebase
+  Hosting redirecting to it. The app does not need a schema change.
+
+Redeploy the static landing with:
+
+```powershell
+firebase deploy --only hosting --project financial-business-accounting
+```
+
+Do not describe the Firebase URL as a permanent production accounting service
+until a persistent backend and a measured restore drill exist.
+
 ## 1. One-click Render demo
 
 The repository contains `Dockerfile` and `render.yaml`. Render's free web
@@ -40,6 +71,26 @@ For a durable deployment, attach a Render persistent disk to a paid instance
 and set `ARTHIVIO_DB` to the disk mount path (for example
 `/var/data/arthivio.db`). A small VPS with a backed-up SQLite file is another
 option. The application itself does not need a schema change.
+
+`render.paid.yaml` is the ready-made paid blueprint:
+
+| Setting | Value |
+|---|---|
+| Service | `arthivio` |
+| Plan | `starter` (paid) |
+| Disk | `arthivio-data`, 1 GB, mounted at `/var/data` |
+| Database | `/var/data/arthivio.db` |
+| Backups | `/var/data/backups` |
+| Public demo autologin | disabled |
+
+This keeps the existing SQLite application and avoids a database migration. The
+Firebase Hosting URL can redirect to the Render URL once it is live. The disk is
+not a substitute for an off-site backup: download the backup ZIPs regularly or
+copy them to an external drive.
+
+**Recommendation:** use this Render paid path for the first stable online
+deployment. Cloud Run + Cloud SQL is a larger change because this app uses
+SQLite, not a client/server database.
 
 ## 2. Run the container locally
 
