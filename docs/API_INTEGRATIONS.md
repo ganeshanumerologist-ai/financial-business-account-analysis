@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.1 |
-| Date | 2026-10-28 |
-| Status | Draft - **no external provider is connected; internal imports and analytics API are implemented** |
+| Version | 1.9 |
+| Date | 2026-11-06 |
+| Status | **No external provider is connected; internal imports, reports and analytics API are implemented through Build 0.19** |
 | Policy | No paid APIs, no credentials, no fabrication |
 
 > Current state: **0 external integrations configured. 0 provider credentials stored. 0 outbound API calls made by the product.** Manual CSV/`.xlsx` import and the internal session-authenticated analytics/Power BI export surface are implemented; everything below labelled planned still needs external access, credentials or owner decisions.
@@ -133,6 +133,14 @@
 | `/export/cash-flow-forecast.csv`, `/export/tax-ledger.csv`, `/export/kpi-pack.csv`, `/export/trend-explanation.csv`, `/export/revenue-forecast.csv`, `/export/anomaly-digest.csv` | Build 0.17 CSV exports; session + `report.export`; exact decimal strings; forecasts and actuals are separated; no external service |
 | `/export/budget.csv` | Build 0.17 CSV export; session + `report.export`; budget, actual, variance, variance %, status and budget months; no external service |
 | `/export/draft-entries.csv` | Build 0.18 CSV export; session + `report.export`; draft number, date, customer, taxable, GST, total, age days, bucket and created timestamp; no external service |
+| `/dimensions`, `/dimensions/update`, `/dimensions/budget` | Build 0.19 dimension master and monthly cost-centre budget; `budget.manage`; additive register, no journal or stock effect |
+| `/batches`, `/batches/void` | Build 0.19 manual batch/expiry register; `item.manage`; no stock movement or journal |
+| `/production-orders`, `/production-orders/status` | Build 0.19 production-order register; `item.manage`; no stock movement or journal |
+| `/reports/expiry` | Build 0.19 R-508 expiry/batch working paper; `report.view` |
+| `/reports/project-costing`, `/reports/cost-centre`, `/reports/dimension-pnl` | Build 0.19 R-601, R-605 and R-902 tagged-journal reports with explicit unallocated rows; `report.view` |
+| `/reports/wip`, `/reports/production-consumption`, `/reports/yield` | Build 0.19 R-602, R-603 and R-604 production-register reports; `report.view` |
+| `/reports/consolidated` | Build 0.19 R-1004 read-only owner/admin consolidation; intercompany-flagged journals excluded from combined totals; `report.view` |
+| `/export/expiry.csv`, `/export/project-costing.csv`, `/export/wip.csv`, `/export/production-consumption.csv`, `/export/yield.csv`, `/export/cost-centre.csv`, `/export/dimension-pnl.csv`, `/export/consolidated.csv` | Build 0.19 CSV exports; session + `report.export`; exact decimal strings and three-decimal quantities; no external service |
 
 There is still no external BI token API. The session-authenticated JSON analytics API remains the
 only machine-readable external surface, and it exposes actuals only.

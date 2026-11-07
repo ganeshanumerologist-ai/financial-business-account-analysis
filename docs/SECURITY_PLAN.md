@@ -440,3 +440,33 @@ The frontend receives **no** secrets — only a public API base URL.
 - **Residual risk:** there is no draft approval workflow, no in-place draft-line editing and no
   draft-bill or draft-journal workflow. The new paths have not had a penetration test or independent
   accounting review.
+
+## 22. Build 0.19 addendum - advanced registers and consolidation
+
+- **Permission reuse:** dimensions and cost-centre budgets use `budget.manage`; batches and
+  production orders use `item.manage`; all advanced report pages use `report.view`; all CSV exports
+  use `report.export`. No new permission string was added.
+- **Tenant scope:** every register and report query filters by the session tenant id. Dimension
+  creation and update resolve the tenant from the session, never from a caller-supplied tenant id.
+  `post_journal` rejects a dimension id that is inactive or belongs to another tenant.
+- **No hidden accounting effect:** the batch and production registers write only their own tables.
+  They do not post a journal, change `item.stock_milli`, value inventory or compute tax. The pages
+  say so explicitly.
+- **Consolidation authorisation:** R-1004 first calls `advanced.consolidation_tenants(conn,
+  user_id)`, which returns only active tenants where the user has an active owner or admin
+  membership. The report function receives only that list. A user cannot request another tenant id
+  through the query string.
+- **Intercompany treatment:** `journal_entry.is_intercompany` is set only from the manual journal
+  form. R-1004 excludes flagged entries from combined totals and reports their count and value
+  separately. There is no automatic matching or elimination engine, so the screen cannot claim a
+  complete elimination.
+- **Audit:** dimension create/update, cost-centre budget set, batch create/void, production-order
+  create/status and journal posting write normal audit events. Reversals preserve the original
+  dimension tag and intercompany flag.
+- **CSV boundary:** the eight new exports are generated in memory, sent with `no-store`, and use
+  exact decimal strings from integer paise and three-decimal quantities. The consolidated export
+  re-checks the owner/admin tenant list before reading.
+- **Residual risk:** dimension tags are available on manual journal lines only; invoice, bill,
+  receipt and payment forms do not expose the selector. There is no allocation, recharge, timesheet,
+  batch-costing or intercompany matching engine. The new pages have not had a penetration test or
+  independent accounting review.

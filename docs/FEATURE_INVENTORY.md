@@ -2,22 +2,22 @@
 
 Baseline inventory built from the governing specification, verified against the actual workspace.
 
-> **Current status is Build 0.14, not the empty baseline below.** Sections 1-13 preserve the
+> **Current status is Build 0.19, not the empty baseline below.** Sections 1-13 preserve the
 > original 2026-10-24 audit of an empty workspace so the starting point stays honest. The
 > implemented and verified features are recorded in the later build sections, most recently
-> **§21 (Build 0.13 Report Library plus nine management reports)**. Use §21
+> **section 27 (advanced operational registers and 66/66 reports)**. Use section 27
 > for the current feature list, not the baseline table in this header.
 
 | Field | Value |
 |---|---|
 | Baseline inventory date | 2026-10-24 |
-| Current build | **0.12 (2026-10-28)** |
+| Current build | **0.19 (2026-11-06)** |
 | Spec source | `ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md` (763 lines) |
 | Specified features tracked | 142 tracked line items across 13 modules (counted from this file, not estimated) |
 | Status vocabulary | `NOT IMPLEMENTED` · `PARTIAL` · `IMPLEMENTED` · `VERIFIED` |
 
 > A feature only reaches `VERIFIED` when implementation + tests + documentation agree. Current
-> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-10-27-02` (215 tests, OK).
+> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-11-06-04` (313 tests, OK).
 
 ---
 
@@ -742,3 +742,36 @@ and documentation agree.
 - 8 catalogued report screens, saved dashboards, full drill-down, filters and EN/HI labels.
 - Batch/expiry, job/project costing, WIP/production/yield, cost-centre and department/branch P&L data models.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.18.
+
+## 27. Status after advanced registers and 66/66 reports (Build 0.19, 2026-11-06)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Dimension master | `/dimensions` | project, cost-centre, department and branch masters with code, name, note, active flag, tagged-line count and audit events; `budget.manage`; `test_project_costing_and_dimension_pnl_are_tagged_only` |
+| Cost-centre budget | `/dimensions` | monthly budget per cost centre, upsert and audit; R-605 compares actual tagged expense with the monthly budget; `test_cost_centre_budget_actual_and_variance` |
+| Batch/expiry register | `/batches` | manual batch number, expiry date, quantity and cost; void with reason; no stock or journal effect; `test_batch_register_and_expiry_buckets` |
+| Production orders | `/production-orders` | input/output item, quantities, standard input, costs and open/completed/void status; no stock or journal effect; `test_production_wip_consumption_and_yield` |
+| Journal dimension tags | `/entries/journal` | optional dimension selector on manual journal lines; `post_journal` validates active tenant dimensions; reversals preserve the tag |
+| Intercompany flag | `/entries/journal` | entry-level checkbox on manual journals; reversals preserve the flag; R-1004 excludes flagged entries from combined totals |
+| R-508 Expiry / Batch | `/reports/expiry` | days to expiry, Expired / 0-30 / 31-90 / 91-180 / 181+ buckets, quantity and batch value; CSV export |
+| R-601 Project Costing | `/reports/project-costing` | tagged revenue less tagged direct expense plus an explicit unallocated row; no automatic indirect allocation; CSV export |
+| R-602 WIP | `/reports/wip` | open production-order input value less output value; completed orders show zero WIP; CSV export |
+| R-603 Production Consumption | `/reports/production-consumption` | actual input quantity versus user-entered standard input quantity, variance quantity and variance %; CSV export |
+| R-604 Yield / Wastage | `/reports/yield` | output / input yield, wastage balance and operational loss value; CSV export |
+| R-605 Cost Centre Performance | `/reports/cost-centre` | actual tagged expense versus monthly cost-centre budget, variance, variance % and status; CSV export |
+| R-902 Department / Branch P&L | `/reports/dimension-pnl` | tagged revenue, expense and contribution by department/branch, with scope filter and explicit unallocated row; CSV export |
+| R-1004 Consolidated Multi-Company | `/reports/consolidated` | read-only owner/admin consolidation with intercompany-flagged journals excluded from combined totals and reported separately; CSV export |
+| Report coverage | Reports menu | **66 of 66 working; 0 partial; 0 planned** |
+| Additive schema | schema | four new tables and two optional/defaulted columns; no historical row rewritten; `backup.TABLES` covers the new tables |
+| Offline package 0.19 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.19.zip` | rebuilt after this batch; embedded Python 3.14.6, `openpyxl` 3.1.5, embedded `/health` returned `ok` |
+
+### Still not implemented
+
+- Dimension tags on invoice, bill, receipt and payment forms; only manual journal lines expose the selector.
+- Automatic cost allocation, recharge, timesheet, intercompany matching or elimination engines.
+- Batch allocation to sales, batch-level stock valuation or batch-wise cost layers.
+- Production-order stock consumption, WIP journal posting or standard-costing engine.
+- Saved dashboards, full drill-down, filters and EN/HI labels.
+- Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.19.

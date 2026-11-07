@@ -33,8 +33,10 @@
 > The same build now adds **R-506 Stock Adjustment Register** with a manual adjustment entry screen,
 > balanced inventory posting at current moving weighted-average cost, reason/user/journal audit and
 > CSV export.
-> Coverage is now **58 of 66**.
-> The remaining 8 reports, saved dashboards, EN/HI and the ~150-template library are still Phase B.
+> Coverage is now **66 of 66**. Build 0.19 adds R-508 expiry/batch, R-601 to R-605 costing and
+> production, R-902 department/branch P&L and R-1004 consolidation, plus additive dimension,
+> cost-centre-budget, batch and production-order registers. Saved dashboards, EN/HI and the
+> ~150-template library are still Phase B.
 
 ---
 
@@ -44,7 +46,7 @@
 |---|---|---|
 | Double-entry accounting core | Working: invoices, bills, receipts, payments, journals, GST working papers, bank reconciliation, opening balances, audit | **Yes, foundation** |
 | Financial statements | Trial balance, P&L, balance sheet, ledger, day book, cash book, bank book, ageing, GST summaries | **Partial** |
-| Report library | 58 of 66 catalogued reports have a working screen or export, plus a Report Library page and an uncounted Analytics Overview pilot; target is ~150 templates | **Partial** |
+| Report library | 66 of 66 catalogued reports have a working screen or export, plus a Report Library page and an uncounted Analytics Overview pilot; target is ~150 templates | **Catalogue complete; depth remains** |
 | Charts and visual analytics | Analytics Overview pilot: actual monthly revenue/expense bars, expense composition, top-party tables and checks; dashboard bars and landing SVG remain; no full chart engine or custom dashboards | **Partial / early** |
 | Excel import | Real `.xlsx` upload for opening balances, bank statements and GSTR-2B; not a general workbook importer | **Partial / real slice** |
 | Excel export | Real 20-sheet `.xlsx` actuals workbook with native charts and exact paise source; no formula-driven AI workbook or pivot model | **Partial / real slice** |

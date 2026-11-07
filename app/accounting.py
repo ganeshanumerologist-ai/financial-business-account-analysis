@@ -1033,10 +1033,12 @@ def set_opening_balance(conn: sqlite3.Connection, tenant_id: str, account_id: st
 
 def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narration: str,
                  lines: list[dict], source_type: str, source_id: str | None = None,
-                 idempotency_key: str | None = None, created_by: str | None = None) -> str:
+                 idempotency_key: str | None = None, created_by: str | None = None,
+                 is_intercompany: bool = False) -> str:
     """Post a balanced journal entry atomically. Returns entry id.
 
-    lines: [{"account_id":..., "debit": paise, "credit": paise, "memo":...}]
+    lines: [{"account_id":..., "debit": paise, "credit": paise, "memo":...,
+             "dimension_id": optional}]
     """
     if len(lines) < 2:
         raise AccountingError("TOO_FEW_LINES", "A journal entry needs at least two lines")
@@ -1052,7 +1054,8 @@ def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narr
             raise AccountingError("LINE_SIDE", "Exactly one of debit/credit must be non-zero")
         total_debit += d
         total_credit += c
-        clean.append((ln["account_id"], d, c, ln.get("memo"), ln.get("party_id")))
+        clean.append((ln["account_id"], d, c, ln.get("memo"), ln.get("party_id"),
+                      (ln.get("dimension_id") or "").strip() or None))
 
     if total_debit != total_credit:
         raise AccountingError(
@@ -1063,6 +1066,18 @@ def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narr
         raise AccountingError("ZERO_ENTRY", "Entry has no value")
 
     _assert_accounts(conn, tenant_id, {c[0] for c in clean})
+    dimension_ids = {c[5] for c in clean if c[5]}
+    if dimension_ids:
+        marks = ",".join("?" for _ in dimension_ids)
+        found = conn.execute(
+            f"SELECT id FROM dimension WHERE tenant_id=? AND active=1 AND id IN ({marks})",
+            (tenant_id, *sorted(dimension_ids)),
+        ).fetchall()
+        if len(found) != len(dimension_ids):
+            raise AccountingError(
+                "BAD_DIMENSION",
+                "Choose an active project, cost centre, department or branch from this business",
+            )
     _assert_period_open(conn, tenant_id, entry_date)
 
     own_tx = not conn.in_transaction
@@ -1087,16 +1102,17 @@ def post_journal(conn: sqlite3.Connection, tenant_id: str, entry_date: str, narr
         entry_no = db.next_number(conn, tenant_id, "journal", "JV")
         conn.execute(
             "INSERT INTO journal_entry (id, tenant_id, entry_no, entry_date, narration, source_type,"
-            " source_id, rule_version, idempotency_key, status, posted_at, created_by)"
-            " VALUES (?,?,?,?,?,?,?,?,?, 'posted', ?, ?)",
+            " source_id, rule_version, idempotency_key, status, is_intercompany, posted_at, created_by)"
+            " VALUES (?,?,?,?,?,?,?,?,?, 'posted', ?, ?, ?)",
             (entry_id, tenant_id, entry_no, entry_date, narration, source_type,
-             source_id, RULE_VERSION, idempotency_key, db.now(), created_by),
+             source_id, RULE_VERSION, idempotency_key, 1 if is_intercompany else 0,
+             db.now(), created_by),
         )
-        for i, (aid, d, c, memo, party) in enumerate(clean, start=1):
+        for i, (aid, d, c, memo, party, dimension_id) in enumerate(clean, start=1):
             conn.execute(
                 "INSERT INTO journal_line (id, tenant_id, entry_id, line_no, account_id, party_id,"
-                " debit_paise, credit_paise, memo) VALUES (?,?,?,?,?,?,?,?,?)",
-                (db.new_id(), tenant_id, entry_id, i, aid, party, d, c, memo),
+                " dimension_id, debit_paise, credit_paise, memo) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (db.new_id(), tenant_id, entry_id, i, aid, party, dimension_id, d, c, memo),
             )
         audit(conn, tenant_id, created_by, "ledger.post", "journal_entry", entry_id,
               meta={"amount": total_debit, "lines": len(clean), "source": source_type})
@@ -1131,6 +1147,7 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
     ).fetchall()
     mirrored = [{"account_id": l["account_id"], "debit": l["credit_paise"],
                  "credit": l["debit_paise"], "party_id": l["party_id"],
+                 "dimension_id": l["dimension_id"] if "dimension_id" in l.keys() else None,
                  "memo": f"Reversal: {reason}"} for l in lines]
 
     own_tx = not conn.in_transaction
@@ -1142,7 +1159,8 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
         new_id = post_journal(conn, tenant_id, entry["entry_date"],
                               f"Reversal of {entry['entry_no']}: {reason}",
                               mirrored, source_type="reversal", source_id=entry_id,
-                              created_by=created_by)
+                              created_by=created_by,
+                              is_intercompany=bool(entry["is_intercompany"]))
         conn.execute("UPDATE journal_entry SET status='reversed' WHERE id=?", (entry_id,))
         conn.execute("UPDATE journal_entry SET reversal_of=? WHERE id=?", (entry_id, new_id))
         if own_tx:
@@ -1161,7 +1179,8 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
 
 def replace_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str,
                   entry_date: str, narration: str, lines: list[dict], reason: str,
-                  created_by: str | None = None) -> dict:
+                  created_by: str | None = None,
+                  is_intercompany: bool | None = None) -> dict:
     """Correct a posted manual entry by reversing it and posting a replacement.
 
     Posted journal rows are never mutated. The original entry stays in the books
@@ -1205,6 +1224,8 @@ def replace_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str,
         new_id = post_journal(
             conn, tenant_id, entry_date, narration, lines, source_type="manual",
             source_id=entry_id, created_by=created_by,
+            is_intercompany=(bool(entry["is_intercompany"])
+                             if is_intercompany is None else bool(is_intercompany)),
         )
         audit(conn, tenant_id, created_by, "journal.edit", "journal_entry", entry_id,
               meta={"original_entry": entry_id, "original_entry_no": entry["entry_no"],

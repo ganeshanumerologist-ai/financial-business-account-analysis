@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.18.** The latest application run is `RUN-2026-11-06-03` with
-> **307 tests, OK**, Python 3.14.6, Windows - see section 35. The table immediately below is the original
+> **Current status: Build 0.19.** The latest application run is `RUN-2026-11-06-04` with
+> **313 tests, OK**, Python 3.14.6, Windows - see section 36. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1685,3 +1685,37 @@ Run ID: `RUN-2026-11-06-03`.
   accounting review was run for Build 0.18.
 - The trial URL remains a temporary Cloudflare quick tunnel with no uptime guarantee. The database is
   synthetic and must not hold real financial data.
+
+---
+
+## 36. Build 0.19 verification - advanced operations and 66/66 reports (2026-11-06)
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-06-04` |
+| Full test suite | **313 tests, OK**, 30.908 s, Python 3.14.6, Windows (re-run on 2026-11-07: 313 tests, OK, 36.644 s) |
+| New report functions | R-508, R-601, R-602, R-603, R-604, R-605, R-902 and R-1004 have automated formula tests |
+| New web flows | HTTP test covers dimension creation, cost-centre budget, batch creation, production-order creation, dimension-tagged journal posting, all eight report pages and the project-costing CSV |
+| Report library | `/reports/library` shows **66 of 66 working**, 0 partial and 0 planned |
+| Schema | Additive only: `dimension`, `dimension_budget`, `inventory_batch`, `production_order`; `journal_line.dimension_id`; `journal_entry.is_intercompany` |
+| Backup coverage | `backup.TABLES` includes all four new tables; the persistent-table coverage test passes |
+| Accounting integrity | Dimension tags are optional and validated against active tenant dimensions; intercompany flag is entry-level; reversals preserve both; no report posts a journal or moves stock |
+| CSV exports | Added for expiry, project costing, WIP, production consumption, yield, cost centre, dimension P&L and consolidated summary |
+| Offline package | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.19.zip` rebuilt; approximately 31.2 MB extracted, 14.9 MB ZIP; embedded `/health` returned `ok` with `Server: ARTHIVIO/0.19 Python/3.14.6` |
+
+### 36.1 Honest limits
+
+- R-508 is a **manual batch register**. It does not allocate batches to sales, change item stock or
+  post a journal. Batch quantity and cost are working-paper values.
+- R-601, R-605 and R-902 use **explicit journal-line tags**. Untagged lines are shown as
+  `Unallocated`; there is no automatic cost allocation, recharge or timesheet engine.
+- R-602, R-603 and R-604 use the **production-order register**. They do not post WIP journals,
+  consume stock or value inventory. Standard input quantity is user-entered.
+- R-1004 is a **read-only consolidation working paper** for businesses where the user is owner or
+  admin. Intercompany-flagged manual journals are excluded from combined totals and reported
+  separately. There is no automatic intercompany matching or elimination engine.
+- Invoice, bill, receipt and payment lines still cannot be tagged with a dimension through their own
+  forms; only manual journal lines expose the dimension selector. This is a deliberate scope limit,
+  not a hidden allocation.
+- No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
+  accounting review was run for Build 0.19.

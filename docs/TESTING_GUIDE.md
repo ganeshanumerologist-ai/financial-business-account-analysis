@@ -174,8 +174,8 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 ### M. Report Library
 
 - [ ] Report Library opens
-- [ ] It shows 58 of 66 working
-- [ ] Planned reports are clearly marked and do not show fake data
+- [ ] It shows 66 of 66 working
+- [ ] No report is marked planned or filled with fake data
 - [ ] Every working report opens without a 500 error
 - [ ] Sales summary, top customers, product sales, discounts and sales returns open
 - [ ] Top suppliers and purchase returns open
@@ -188,6 +188,15 @@ Mark each item **Pass / Fail / Confusing** and add a note.
 - [ ] A budget can be set for an income/expense ledger and month
 - [ ] Setting the same month and ledger updates the existing amount
 - [ ] A budget can be removed and the removal appears in the Audit Log
+- [ ] A project, cost centre, department and branch can be created under Masters > Operations
+- [ ] A manual journal line can be tagged to a dimension and the tag appears in R-601/R-605/R-902
+- [ ] Untagged lines appear as `Unallocated`, not as an invented allocation
+- [ ] A batch can be added and voided with a reason; it does not change item stock
+- [ ] Expiry buckets show Expired, 0-30, 31-90, 91-180 and 181+ days
+- [ ] A production order can be created, completed and voided; it does not post a journal or move stock
+- [ ] WIP, production consumption and yield reports open and show their operational-register note
+- [ ] An intercompany-flagged manual journal is excluded from R-1004 combined totals and shown separately
+- [ ] R-1004 lists only businesses where the signed-in user is owner or admin
 - [ ] Budget vs Actual shows `No budget` when no budget is stored
 - [ ] Each new report's CSV downloads and opens
 
@@ -258,7 +267,12 @@ Screenshot:
 
 ## 5. Known limits in this trial
 
-- 58 of 66 catalogued reports are working; none is partial and 8 are planned.
+- All 66 catalogued reports are working; none is partial or planned.
+- Dimension tags exist on manual journal lines only; invoice, bill, receipt and payment forms do not
+  expose the selector in this build.
+- Batch and production registers are operational working papers; they do not post journals or move
+  stock.
+- R-1004 is a read-only owner/admin consolidation working paper, not a filed consolidated statement.
 - No generative AI provider is connected.
 - Power BI is an external reporting layer, not an embedded live model.
 - The public trial URL is temporary and has no uptime guarantee.

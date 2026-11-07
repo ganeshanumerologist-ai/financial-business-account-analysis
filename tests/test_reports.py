@@ -7,8 +7,10 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from datetime import date, timedelta
+
 from app import accounting as acct
-from app import budgeting, db, reports, stock_adjustments
+from app import advanced, budgeting, db, reports, stock_adjustments
 from app.demo import seed_demo
 
 
@@ -34,22 +36,163 @@ class ReportsTest(unittest.TestCase):
         )
         return item_id
 
-    def test_catalog_has_66_rows_and_58_working(self):
+    def test_catalog_has_66_rows_and_all_working(self):
         cat = reports.catalog()
         self.assertEqual(cat["total"], 66)
-        self.assertEqual(cat["working"], 58)
+        self.assertEqual(cat["working"], 66)
         self.assertEqual(cat["partial"], 0)
-        self.assertEqual(cat["planned"], 8)
+        self.assertEqual(cat["planned"], 0)
         working = [r for g in cat["groups"] for r in g["reports"] if r["status"] == "working"]
         self.assertTrue(all(r["route"] for r in working))
         for rid in ("R-104", "R-107", "R-108", "R-109", "R-110", "R-202", "R-203", "R-204",
                     "R-205", "R-206", "R-301", "R-302", "R-303", "R-306", "R-307", "R-308",
                     "R-309", "R-401", "R-404", "R-405", "R-406", "R-501", "R-502",
-                    "R-503", "R-504", "R-505", "R-506", "R-507", "R-704", "R-705", "R-706",
-                    "R-807", "R-901", "R-903", "R-904", "R-905", "R-1001", "R-1002", "R-1003"):
+                    "R-503", "R-504", "R-505", "R-506", "R-507", "R-508", "R-601", "R-602",
+                    "R-603", "R-604", "R-605", "R-704", "R-705", "R-706", "R-807", "R-901",
+                    "R-902", "R-903", "R-904", "R-905", "R-1001", "R-1002", "R-1003",
+                    "R-1004"):
             row = next(r for r in reports.REPORT_CATALOG if r["id"] == rid)
             self.assertEqual(row["status"], "working", rid)
             self.assertTrue(row["route"], rid)
+
+    def test_batch_register_and_expiry_buckets(self):
+        item_id = self._stock_item()
+        today = date.today()
+        advanced.create_batch(self.conn, self.tenant, item_id, "B-EXPIRED",
+                              (today - timedelta(days=1)).isoformat(), 2000, 10000)
+        advanced.create_batch(self.conn, self.tenant, item_id, "B-30",
+                              (today + timedelta(days=10)).isoformat(), 3000, 20000)
+        advanced.create_batch(self.conn, self.tenant, item_id, "B-90",
+                              (today + timedelta(days=60)).isoformat(), 4000, 30000)
+        data = reports.expiry_batch_report(self.conn, self.tenant, today.isoformat())
+        self.assertEqual(data["totals"]["batches"], 3)
+        self.assertEqual(data["totals"]["expired"], 1)
+        self.assertEqual(data["totals"]["expiring_30"], 1)
+        self.assertEqual(data["totals"]["value"], 20000 + 60000 + 120000)
+        buckets = {b["name"]: b["batches"] for b in data["buckets"]}
+        self.assertEqual(buckets["Expired"], 1)
+        self.assertEqual(buckets["0-30 days"], 1)
+        self.assertEqual(buckets["31-90 days"], 1)
+
+    def test_project_costing_and_dimension_pnl_are_tagged_only(self):
+        today = date.today().isoformat()
+        project = advanced.create_dimension(self.conn, self.tenant, "project", "PRJ-1",
+                                            "Website")
+        department = advanced.create_dimension(self.conn, self.tenant, "department", "DEP-1",
+                                               "Operations")
+        acct.post_journal(
+            self.conn, self.tenant["id"], today, "Project revenue",
+            [{"account_id": db.account_id(self.conn, self.tenant["id"], "1100"),
+              "debit": 50000, "credit": 0, "dimension_id": project},
+             {"account_id": db.account_id(self.conn, self.tenant["id"], "4000"),
+              "debit": 0, "credit": 50000, "dimension_id": project}],
+            source_type="manual")
+        acct.post_journal(
+            self.conn, self.tenant["id"], today, "Project cost",
+            [{"account_id": db.account_id(self.conn, self.tenant["id"], "6000"),
+              "debit": 10000, "credit": 0, "dimension_id": project},
+             {"account_id": db.account_id(self.conn, self.tenant["id"], "1000"),
+              "debit": 0, "credit": 10000, "dimension_id": project}],
+            source_type="manual")
+        acct.post_journal(
+            self.conn, self.tenant["id"], today, "Department cost",
+            [{"account_id": db.account_id(self.conn, self.tenant["id"], "6010"),
+              "debit": 7000, "credit": 0, "dimension_id": department},
+             {"account_id": db.account_id(self.conn, self.tenant["id"], "1000"),
+              "debit": 0, "credit": 7000, "dimension_id": department}],
+            source_type="manual")
+        project_data = reports.project_costing(self.conn, self.tenant, today, today)
+        row = next(r for r in project_data["rows"] if r["id"] == project)
+        self.assertEqual(row["revenue"], 50000)
+        self.assertEqual(row["expense"], 10000)
+        self.assertEqual(row["net"], 40000)
+        unalloc = next(r for r in project_data["rows"] if r["kind"] == "unallocated")
+        self.assertEqual(unalloc["expense"], 7000)
+        dept_data = reports.department_branch_pnl(self.conn, self.tenant, today, today)
+        dept = next(r for r in dept_data["rows"] if r["id"] == department)
+        self.assertEqual(dept["expense"], 7000)
+        self.assertEqual(dept["net"], -7000)
+
+    def test_cost_centre_budget_actual_and_variance(self):
+        today = date.today()
+        centre = advanced.create_dimension(self.conn, self.tenant, "cost_centre", "CC-1",
+                                           "Admin")
+        advanced.set_dimension_budget(self.conn, self.tenant, centre,
+                                      today.isoformat()[:7], 50000)
+        acct.post_journal(
+            self.conn, self.tenant["id"], today.isoformat(), "Admin cost",
+            [{"account_id": db.account_id(self.conn, self.tenant["id"], "6000"),
+              "debit": 20000, "credit": 0, "dimension_id": centre},
+             {"account_id": db.account_id(self.conn, self.tenant["id"], "1000"),
+              "debit": 0, "credit": 20000, "dimension_id": centre}],
+            source_type="manual")
+        data = reports.cost_centre_performance(
+            self.conn, self.tenant, today.isoformat(), today.isoformat())
+        row = next(r for r in data["rows"] if r["id"] == centre)
+        self.assertEqual(row["actual"], 20000)
+        self.assertEqual(row["budget"], 50000)
+        self.assertEqual(row["variance"], 30000)
+        self.assertEqual(row["status"], "Under budget")
+
+    def test_production_wip_consumption_and_yield(self):
+        today = date.today().isoformat()
+        input_item = self._stock_item()
+        output_item = self._stock_item()
+        order_id = advanced.create_production_order(
+            self.conn, self.tenant, today, input_item, output_item,
+            10000, 9000, 9500, 10000, 10000)
+        wip = reports.wip_report(self.conn, self.tenant, today, today)
+        self.assertEqual(wip["totals"]["wip"], 10000)
+        consumption = reports.production_consumption(self.conn, self.tenant, today, today)
+        row = next(r for r in consumption["rows"] if r["id"] == order_id)
+        self.assertEqual(row["variance_qty"], 500)
+        self.assertEqual(consumption["totals"]["variance_pct"], 526)
+        yield_data = reports.yield_wastage(self.conn, self.tenant, today, today)
+        self.assertEqual(yield_data["totals"]["yield_pct"], 9000)
+        self.assertEqual(yield_data["totals"]["wastage_pct"], 1000)
+        advanced.set_production_status(self.conn, self.tenant, order_id, "completed")
+        wip_done = reports.wip_report(self.conn, self.tenant, today, today)
+        self.assertEqual(wip_done["totals"]["wip"], 0)
+
+    def test_consolidated_summary_excludes_intercompany_entries(self):
+        today = date.today().isoformat()
+        first_id = db.create_tenant(self.conn, "First Co", "first-co")
+        second_id = db.create_tenant(self.conn, "Second Co", "second-co")
+        acct.post_journal(
+            self.conn, first_id, today, "Normal sale",
+            [{"account_id": db.account_id(self.conn, first_id, "1100"),
+              "debit": 100000, "credit": 0},
+             {"account_id": db.account_id(self.conn, first_id, "4000"),
+              "debit": 0, "credit": 100000}],
+            source_type="manual")
+        acct.post_journal(
+            self.conn, first_id, today, "Intercompany sale",
+            [{"account_id": db.account_id(self.conn, first_id, "1100"),
+              "debit": 20000, "credit": 0},
+             {"account_id": db.account_id(self.conn, first_id, "4000"),
+              "debit": 0, "credit": 20000}],
+            source_type="manual", is_intercompany=True)
+        acct.post_journal(
+            self.conn, first_id, today, "Intercompany cost",
+            [{"account_id": db.account_id(self.conn, first_id, "6000"),
+              "debit": 20000, "credit": 0},
+             {"account_id": db.account_id(self.conn, first_id, "2000"),
+              "debit": 0, "credit": 20000}],
+            source_type="manual", is_intercompany=True)
+        acct.post_journal(
+            self.conn, second_id, today, "Second sale",
+            [{"account_id": db.account_id(self.conn, second_id, "1100"),
+              "debit": 50000, "credit": 0},
+             {"account_id": db.account_id(self.conn, second_id, "4000"),
+              "debit": 0, "credit": 50000}],
+            source_type="manual")
+        data = reports.consolidated_summary(self.conn, [first_id, second_id], today)
+        self.assertEqual(data["totals"]["tenants"], 2)
+        self.assertEqual(data["totals"]["revenue"], 150000)
+        self.assertEqual(data["totals"]["intercompany_entries"], 2)
+        self.assertEqual(data["totals"]["intercompany_value"], 40000)
+        first = next(r for r in data["rows"] if r["id"] == first_id)
+        self.assertEqual(first["revenue"], 100000)
 
     def test_budget_vs_actual_marks_favourable_and_unfavourable(self):
         tenant_id = db.create_tenant(self.conn, "Budget Test Co", "budget-test-co")

@@ -1013,3 +1013,33 @@ workflow.
 - Coverage becomes **58 of 66** working, with 0 partial and 8 planned. The full suite passes
   **307 tests, OK**, 31.524 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
   `RUN-2026-11-06-03`.
+
+## D-047 - Build 0.19 completes the report catalogue with additive operational registers
+
+**Date:** 2026-11-06. **Status:** accepted for Build 0.19.
+
+The last eight catalogued reports needed data that the double-entry core did not capture: batches,
+production orders, job/project/cost-centre tags and an intercompany marker. The build adds the
+minimum additive registers and tags, and states the limits on every screen instead of inventing
+allocations.
+
+- New tables: `dimension`, `dimension_budget`, `inventory_batch`, `production_order`. New nullable
+  columns: `journal_line.dimension_id` and `journal_entry.is_intercompany`. No existing column is
+  rewritten, no existing table is replaced and no historical row is backfilled.
+- Dimensions are optional tags on **manual journal lines only**. Invoice, bill, receipt and payment
+  forms do not expose a dimension selector in this build. Untagged lines are shown as `Unallocated`
+  in R-601, R-605 and R-902. There is no automatic allocation, recharge or timesheet engine.
+- Batch and production registers are operational working papers. They do not post journals, move
+  stock, value inventory or compute tax. R-508, R-602, R-603 and R-604 say this on the page.
+- R-1004 includes only businesses where the user is owner/admin. Manual journals flagged
+  `is_intercompany` are excluded from combined totals and reported separately. There is no automatic
+  intercompany matching or elimination engine; it is a read-only working paper, not a filed
+  consolidated statement.
+- Reversals preserve the original dimension tag and intercompany flag, so a reversed tagged entry
+  nets to zero in the same report scope. `post_journal` validates that every non-null dimension is
+  active and belongs to the tenant.
+- Coverage becomes **66 of 66** working, with 0 partial and 0 planned. The full suite passes
+  **313 tests, OK**, 30.908 s, Python 3.14.6, Windows, recorded in `docs/TEST_RESULTS.md`
+  `RUN-2026-11-06-04`.
+- New CSV exports: expiry, project costing, WIP, production consumption, yield, cost centre,
+  dimension P&L and consolidated summary. All use the existing session + `report.export` gate.

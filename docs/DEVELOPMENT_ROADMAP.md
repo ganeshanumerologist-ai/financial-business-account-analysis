@@ -4,7 +4,7 @@
 |---|---|
 | Version | 1.1 |
 | Date | 2026-10-28 |
-| Status | In delivery; Build 0.18 verified, full Phase 6/8/10 gates remain |
+| Status | In delivery; Build 0.19 verified, full Phase 6/8/10 gates remain |
 | Rule | Each phase ends with a gate. No gate = no progression. |
 
 Effort bands are indicative for a single developer working part-time with AI assistance. They are **not commitments**.
@@ -93,7 +93,7 @@ Effort bands are indicative for a single developer working part-time with AI ass
 | | |
 |---|---|
 | Goal | Insight that equals the ledger |
-| Build | Report engine with defined source/formula, the 66 catalogued reports, dashboards, ECharts visualisations, drill-down, exports, freshness indicators, empty states, EN/HI, responsive 360-4K and WCAG AA. **Build 0.12 delivered:** analytics pilot, two ECharts actuals views (monthly and expense composition), 20-sheet `.xlsx` actuals workbook, static Power BI pack, freshness and empty states. **Build 0.13 delivered:** Report Library plus nine management reports (cash flow, ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle), taking coverage to 28 of 66. **Build 0.16 delivered:** ten more working reports (trial balance exceptions, sales summary, top customers, product-wise sales, discounts, sales returns, top suppliers, purchase returns, stock summary, credit-limit utilisation), taking coverage to 38 of 66. **Build 0.17 delivered:** nineteen more working reports (opening vs closing, locked periods, rule version usage, salesperson performance, price variance, stock movements, inventory valuation, reorder/shortage, dead/slow stock, inventory-to-GL reconciliation, receivables risk, cash flow forecast, tax ledger, KPI dashboard pack, trend explanation, revenue forecast, anomaly digest, budget vs actual and stock adjustment register), taking coverage to 57 of 66. **Build 0.18 delivered:** R-204 draft entries, taking coverage to 58 of 66. **Still missing:** 8 catalogued report screens, saved dashboards, full drill-down, EN/HI and the ~150-template library. |
+| Build | Report engine with defined source/formula, the 66 catalogued reports, dashboards, ECharts visualisations, drill-down, exports, freshness indicators, empty states, EN/HI, responsive 360-4K and WCAG AA. **Build 0.12 delivered:** analytics pilot, two ECharts actuals views (monthly and expense composition), 20-sheet `.xlsx` actuals workbook, static Power BI pack, freshness and empty states. **Build 0.13 delivered:** Report Library plus nine management reports (cash flow, ratios, period comparison, reversal register, account activity, sales register, purchase register, expense breakdown, working-capital cycle), taking coverage to 28 of 66. **Build 0.16 delivered:** ten more working reports (trial balance exceptions, sales summary, top customers, product-wise sales, discounts, sales returns, top suppliers, purchase returns, stock summary, credit-limit utilisation), taking coverage to 38 of 66. **Build 0.17 delivered:** nineteen more working reports (opening vs closing, locked periods, rule version usage, salesperson performance, price variance, stock movements, inventory valuation, reorder/shortage, dead/slow stock, inventory-to-GL reconciliation, receivables risk, cash flow forecast, tax ledger, KPI dashboard pack, trend explanation, revenue forecast, anomaly digest, budget vs actual and stock adjustment register), taking coverage to 57 of 66. **Build 0.18 delivered:** R-204 draft entries, taking coverage to 58 of 66. **Build 0.19 delivered:** R-508, R-601 to R-605, R-902 and R-1004, taking coverage to 66 of 66. **Still missing:** saved dashboards, full drill-down, EN/HI and the ~150-template library. |
 | Gate | REP-001…007 pass; every displayed total = independent recalculation; accessibility and responsive checks recorded |
 | Effort | 4–6 weeks |
 | Risks | Performance on large books · silent filter leakage · chart legibility at 4K |
@@ -171,7 +171,7 @@ A working, testable accounting core (Phases 1–3) is realistic in roughly **6�
 
 ---
 
-## Current status - Build 0.18 (2026-11-06)
+## Current status - Build 0.19 (2026-11-06)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -195,11 +195,12 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.16 | Ten more working reports with CSV exports: R-110 trial balance exceptions, R-302 sales summary, R-303 top customers, R-306 sales returns, R-307 product-wise sales, R-309 discount analysis, R-404 top suppliers, R-406 purchase returns, R-501 stock summary and R-706 credit-limit utilisation; 38 of 66 working; 274 tests; offline package rebuilt as 0.16 | `RUN-2026-11-05-02` |
 | 0.17 | Nineteen more working reports with CSV exports: R-107 opening vs closing, R-205 locked period register, R-206 rule version usage, R-308 salesperson performance, R-405 price variance, R-502 stock movement history, R-503 inventory valuation, R-504 reorder/shortage, R-505 dead/slow stock, R-506 stock adjustment register, R-507 inventory-to-GL reconciliation, R-704 receivables risk, R-705 cash flow forecast, R-807 tax ledger, R-901 budget vs actual, R-904 KPI dashboard pack, R-1001 trend explanation, R-1002 revenue forecast and R-1003 anomaly digest; additive `item.reorder_level_milli` and `journal_entry.rule_version` columns plus additive `budget` and `stock_adjustment` tables with no destructive migration; 57 of 66 working; 299 tests; offline package rebuilt as 0.17 | `RUN-2026-11-06-02` |
 | 0.18 | R-204 unposted / draft entries with CSV export; audit-safe draft sales invoices (save draft, post draft, void with reason); drafts have no journal, stock or tax-invoice effect until posted; posting revalidates live stock and assigns the next INV number; print-page status fix; 58 of 66 working; 307 tests; offline package rebuilt as 0.18 | `RUN-2026-11-06-03` |
+| 0.19 | Advanced operational registers and the final eight report screens: R-508 expiry/batch, R-601 project costing, R-602 WIP, R-603 production consumption, R-604 yield/wastage, R-605 cost-centre performance, R-902 department/branch P&L and R-1004 consolidation; additive `dimension`, `dimension_budget`, `inventory_batch` and `production_order` tables; optional `journal_line.dimension_id` and `journal_entry.is_intercompany`; explicit unallocated rows and intercompany exclusion; 66 of 66 working; 313 tests; offline package rebuilt as 0.19 | `RUN-2026-11-06-04` |
 
 **Next:** run the single-user trial against the offline package, then finish analytics Phase B
-(remaining 8 catalogued report screens, saved dashboards, full drill-down, filters, EN/HI labels
-and the ~150-template library). Permanent online hosting and offline-to-online sync remain separate
-decisions. The static Power BI pack can become an optional
+(saved dashboards, full drill-down, filters, EN/HI labels and the ~150-template library). Permanent
+online hosting and offline-to-online sync remain separate decisions. The report catalogue itself is
+now complete at 66 of 66; remaining work is depth, not missing screens. The static Power BI pack can become an optional
 Service model only after an explicit Desktop-vs-Service scope and licensing decision; a generative
 AI provider needs consent, privacy and cost approval and must keep deterministic totals with
 citations. In parallel: bank-account deactivate, partial/one-to-many bank matching, bank-charge

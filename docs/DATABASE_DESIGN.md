@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
-| Status | Draft for owner approval |
+| Version | 1.9 |
+| Date | 2026-11-06 |
+| Status | Implemented through Build 0.19 (additive schema) |
 | Phase 1 engine | SQLite (WAL mode) via SQLAlchemy 2.x |
 | Production target | PostgreSQL 16+ (schema must remain compatible) |
 
@@ -610,3 +610,111 @@ Build 0.18 adds the R-204 draft sales-invoice workflow without a schema migratio
 - There is no draft state in `journal_entry` and no draft state in `bill`. R-204 therefore reads only
   `invoice.status='draft'` and is labelled as draft sales invoices only.
 - No table, column, index, cached total or destructive migration was removed or rewritten.
+
+## 26. Build 0.19 advanced registers: additive tables and optional tags (2026-11-06)
+
+Build 0.19 adds the minimum data capture needed by the last eight catalogue reports. All changes are
+additive; no historical row is backfilled.
+
+### 26.1 New tables
+
+```sql
+CREATE TABLE dimension (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    kind TEXT NOT NULL CHECK (kind IN ('project','cost_centre','department','branch')),
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, kind, code)
+);
+
+CREATE TABLE dimension_budget (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    dimension_id TEXT NOT NULL REFERENCES dimension(id),
+    period TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL DEFAULT 0 CHECK (amount_paise >= 0),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT REFERENCES user(id),
+    UNIQUE (tenant_id, dimension_id, period)
+);
+
+CREATE TABLE inventory_batch (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    item_id TEXT NOT NULL REFERENCES item(id),
+    batch_no TEXT NOT NULL,
+    expiry_date TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL DEFAULT 0 CHECK (qty_milli >= 0),
+    cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (cost_paise >= 0),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','void')),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, item_id, batch_no)
+);
+
+CREATE TABLE production_order (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    order_no TEXT NOT NULL,
+    order_date TEXT NOT NULL,
+    output_item_id TEXT NOT NULL REFERENCES item(id),
+    input_item_id TEXT NOT NULL REFERENCES item(id),
+    output_qty_milli INTEGER NOT NULL CHECK (output_qty_milli >= 0),
+    input_qty_milli INTEGER NOT NULL CHECK (input_qty_milli >= 0),
+    standard_input_qty_milli INTEGER NOT NULL DEFAULT 0 CHECK (standard_input_qty_milli >= 0),
+    input_cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (input_cost_paise >= 0),
+    output_cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (output_cost_paise >= 0),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','completed','void')),
+    note TEXT NOT NULL DEFAULT '',
+    completed_at TEXT,
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, order_no)
+);
+```
+
+### 26.2 New columns
+
+- `journal_line.dimension_id TEXT REFERENCES dimension(id)` is nullable. It is populated only when a
+  user tags a line on the manual journal form. Invoice, bill, receipt and payment lines leave it
+  null. `post_journal()` rejects a non-null dimension that is inactive or belongs to another tenant.
+- `journal_entry.is_intercompany INTEGER NOT NULL DEFAULT 0 CHECK (is_intercompany IN (0,1))` is
+  entry-level. It is set only from the manual journal form. Reversals preserve the original value.
+
+### 26.3 Indexes
+
+```sql
+CREATE INDEX ix_dimension_tenant_kind ON dimension (tenant_id, kind, active);
+CREATE INDEX ix_dimension_budget_tenant_period ON dimension_budget (tenant_id, period);
+CREATE INDEX ix_inventory_batch_tenant_expiry ON inventory_batch (tenant_id, expiry_date);
+CREATE INDEX ix_production_order_tenant_date ON production_order (tenant_id, order_date);
+```
+
+### 26.4 Report semantics
+
+- R-601, R-605 and R-902 read `journal_line.dimension_id` and show an explicit `Unallocated` row for
+  lines without the relevant tag. There is no automatic allocation or recharge.
+- R-508 reads `inventory_batch` only. It does not allocate batches to sales or change item stock.
+- R-602, R-603 and R-604 read `production_order` only. They do not post WIP journals, consume stock
+  or value inventory.
+- R-1004 reads owner/admin-accessible tenants and excludes `is_intercompany=1` manual journals from
+  combined totals. It reports the excluded count and value separately. There is no automatic
+  matching or elimination engine.
+- `backup.TABLES` includes all four new tables, so backup verification compares their row counts.
+
+### 26.5 Migration safety
+
+- New tables are created by `CREATE TABLE IF NOT EXISTS` in the main schema.
+- New columns are added by the existing additive `COLUMN_MIGRATIONS` path on old databases.
+- No existing table, column, index, view, cached total or historical row is removed or rewritten.
+- The demo seed does not create dimensions, batches or production orders; those registers start
+  empty for every business.

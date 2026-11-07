@@ -10,6 +10,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from . import accounting as acct
+from . import advanced
 
 
 class ReportError(Exception):
@@ -2442,6 +2443,350 @@ def rule_version_usage(conn: sqlite3.Connection, tenant, date_from: str,
 
 
 # ---------------------------------------------------------------------------
+# advanced operational reports
+# ---------------------------------------------------------------------------
+
+def _dimension_pl(conn: sqlite3.Connection, tenant_id: str, date_from: str,
+                  date_to: str, kinds: tuple[str, ...]) -> dict:
+    """P&L contribution for dimensions, plus one explicit unallocated row.
+
+    Only journal lines tagged with a dimension of the requested kinds count as
+    allocated. Everything else is shown as unallocated; there is no automatic
+    cost allocation and no invented split.
+    """
+    _validate_period(date_from, date_to)
+    marks = ",".join("?" for _ in kinds)
+    rows = conn.execute(
+        f"""SELECT d.id, d.kind, d.code, d.name, d.active,
+                  COALESCE(SUM(CASE WHEN x.type='income'
+                                    THEN x.credit_paise - x.debit_paise ELSE 0 END), 0) AS revenue,
+                  COALESCE(SUM(CASE WHEN x.type='expense'
+                                    THEN x.debit_paise - x.credit_paise ELSE 0 END), 0) AS expense,
+                  COUNT(x.line_id) AS lines
+           FROM dimension d
+           LEFT JOIN (
+               SELECT l.id AS line_id, l.dimension_id, l.debit_paise, l.credit_paise, a.type
+               FROM journal_line l
+               JOIN journal_entry e ON e.id=l.entry_id AND e.tenant_id=l.tenant_id
+               JOIN account a ON a.id=l.account_id AND a.tenant_id=l.tenant_id
+               WHERE l.tenant_id=? AND e.entry_date BETWEEN ? AND ?
+           ) x ON x.dimension_id=d.id
+           WHERE d.tenant_id=? AND d.kind IN ({marks})
+           GROUP BY d.id
+           ORDER BY d.kind, d.code""",
+        (tenant_id, date_from, date_to, tenant_id, *kinds),
+    ).fetchall()
+    out = []
+    for r in rows:
+        revenue = int(r["revenue"])
+        expense = int(r["expense"])
+        out.append({
+            "id": r["id"], "kind": r["kind"], "code": r["code"], "name": r["name"],
+            "active": bool(r["active"]), "revenue": revenue, "expense": expense,
+            "net": revenue - expense, "lines": int(r["lines"]),
+        })
+    unalloc = conn.execute(
+        f"""SELECT COALESCE(SUM(CASE WHEN a.type='income'
+                                     THEN l.credit_paise - l.debit_paise ELSE 0 END), 0) AS revenue,
+                   COALESCE(SUM(CASE WHEN a.type='expense'
+                                     THEN l.debit_paise - l.credit_paise ELSE 0 END), 0) AS expense,
+                   COUNT(l.id) AS lines
+            FROM journal_line l
+            JOIN journal_entry e ON e.id=l.entry_id AND e.tenant_id=l.tenant_id
+            JOIN account a ON a.id=l.account_id AND a.tenant_id=l.tenant_id
+            WHERE l.tenant_id=? AND e.entry_date BETWEEN ? AND ?
+              AND (l.dimension_id IS NULL OR l.dimension_id NOT IN
+                   (SELECT id FROM dimension WHERE tenant_id=? AND kind IN ({marks})))""",
+        (tenant_id, date_from, date_to, tenant_id, *kinds),
+    ).fetchone()
+    unallocated = {
+        "id": "", "kind": "unallocated", "code": "UNALLOC", "name": "Unallocated",
+        "active": True, "revenue": int(unalloc["revenue"]), "expense": int(unalloc["expense"]),
+        "net": int(unalloc["revenue"]) - int(unalloc["expense"]),
+        "lines": int(unalloc["lines"]),
+    }
+    if unallocated["lines"] or unallocated["revenue"] or unallocated["expense"]:
+        out.append(unallocated)
+    return {
+        "from": date_from, "to": date_to, "kinds": list(kinds), "rows": out,
+        "totals": {
+            "revenue": sum(r["revenue"] for r in out),
+            "expense": sum(r["expense"] for r in out),
+            "net": sum(r["net"] for r in out),
+            "lines": sum(r["lines"] for r in out),
+            "dimensions": len([r for r in out if r["kind"] != "unallocated"]),
+        },
+    }
+
+
+def project_costing(conn: sqlite3.Connection, tenant, date_from: str,
+                    date_to: str) -> dict:
+    """R-601: direct tagged project/job revenue and cost.
+
+    This is a tagged-journal report, not a full job-costing engine. Indirect
+    cost allocation and timesheets are not posted, so the report never invents
+    them.
+    """
+    data = _dimension_pl(conn, _tenant_id(tenant), date_from, date_to, ("project",))
+    data["method"] = ("Direct project-tagged journal lines only. No indirect allocation, "
+                      "timesheet or WIP adjustment is posted automatically.")
+    return data
+
+
+def cost_centre_performance(conn: sqlite3.Connection, tenant, date_from: str,
+                            date_to: str) -> dict:
+    """R-605: cost-centre actual expense against the monthly cost-centre budget."""
+    _validate_period(date_from, date_to)
+    tenant_id = _tenant_id(tenant)
+    period_from = date_from[:7]
+    period_to = date_to[:7]
+    rows = conn.execute(
+        """SELECT d.id, d.code, d.name, d.active,
+                  COALESCE(a.actual, 0) AS actual,
+                  COALESCE(b.budget, 0) AS budget,
+                  COALESCE(a.lines, 0) AS lines
+           FROM dimension d
+           LEFT JOIN (
+               SELECT l.dimension_id, SUM(l.debit_paise - l.credit_paise) AS actual,
+                      COUNT(l.id) AS lines
+               FROM journal_line l
+               JOIN journal_entry e ON e.id=l.entry_id AND e.tenant_id=l.tenant_id
+               JOIN account a ON a.id=l.account_id AND a.tenant_id=l.tenant_id
+               WHERE l.tenant_id=? AND e.entry_date BETWEEN ? AND ?
+                 AND a.type='expense'
+               GROUP BY l.dimension_id
+           ) a ON a.dimension_id=d.id
+           LEFT JOIN (
+               SELECT dimension_id, SUM(amount_paise) AS budget
+               FROM dimension_budget
+               WHERE tenant_id=? AND period BETWEEN ? AND ?
+               GROUP BY dimension_id
+           ) b ON b.dimension_id=d.id
+           WHERE d.tenant_id=? AND d.kind='cost_centre'
+           ORDER BY d.code""",
+        (tenant_id, date_from, date_to, tenant_id, period_from, period_to, tenant_id),
+    ).fetchall()
+    out = []
+    for r in rows:
+        actual = int(r["actual"])
+        budget = int(r["budget"])
+        variance = budget - actual
+        out.append({
+            "id": r["id"], "code": r["code"], "name": r["name"], "active": bool(r["active"]),
+            "actual": actual, "budget": budget, "variance": variance,
+            "variance_pct": (variance * 10000 // budget) if budget else None,
+            "status": ("No budget" if budget == 0 else
+                       ("Under budget" if variance >= 0 else "Over budget")),
+            "lines": int(r["lines"]),
+        })
+    unalloc = conn.execute(
+        """SELECT COALESCE(SUM(l.debit_paise - l.credit_paise), 0) AS actual,
+                  COUNT(l.id) AS lines
+           FROM journal_line l
+           JOIN journal_entry e ON e.id=l.entry_id AND e.tenant_id=l.tenant_id
+           JOIN account a ON a.id=l.account_id AND a.tenant_id=l.tenant_id
+           WHERE l.tenant_id=? AND e.entry_date BETWEEN ? AND ? AND a.type='expense'
+             AND (l.dimension_id IS NULL OR l.dimension_id NOT IN
+                  (SELECT id FROM dimension WHERE tenant_id=? AND kind='cost_centre'))""",
+        (tenant_id, date_from, date_to, tenant_id),
+    ).fetchone()
+    if unalloc["lines"]:
+        out.append({
+            "id": "", "code": "UNALLOC", "name": "Unallocated", "active": True,
+            "actual": int(unalloc["actual"]), "budget": 0,
+            "variance": -int(unalloc["actual"]), "variance_pct": None,
+            "status": "No budget", "lines": int(unalloc["lines"]),
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "actual": sum(r["actual"] for r in out),
+            "budget": sum(r["budget"] for r in out),
+            "variance": sum(r["variance"] for r in out),
+            "over": sum(1 for r in out if r["status"] == "Over budget"),
+            "under": sum(1 for r in out if r["status"] == "Under budget"),
+            "no_budget": sum(1 for r in out if r["status"] == "No budget"),
+        },
+        "method": ("Actual expense is the net debit on cost-centre-tagged expense lines. "
+                   "Budget is the sum of monthly cost-centre budgets in the period. "
+                   "Unallocated expense has no budget by design."),
+    }
+
+
+def department_branch_pnl(conn: sqlite3.Connection, tenant, date_from: str,
+                          date_to: str, kind: str | None = None) -> dict:
+    """R-902: contribution by department and/or branch, with unallocated row."""
+    kinds = ("department", "branch") if not kind else (kind,)
+    if any(k not in ("department", "branch") for k in kinds):
+        raise ReportError("BAD_KIND", "Choose department, branch or both")
+    data = _dimension_pl(conn, _tenant_id(tenant), date_from, date_to, kinds)
+    data["method"] = ("Only journal lines tagged to the selected department/branch are allocated. "
+                      "Project and cost-centre tags are shown as unallocated here; no automatic "
+                      "recharge or allocation is posted.")
+    return data
+
+
+def expiry_batch_report(conn: sqlite3.Connection, tenant, as_of: str | None = None) -> dict:
+    """R-508: batch/expiry working paper from the manual batch register."""
+    return advanced.list_batches(conn, tenant, as_of=as_of)
+
+
+def wip_report(conn: sqlite3.Connection, tenant, date_from: str,
+               date_to: str) -> dict:
+    """R-602: open production-order input value less completed output value."""
+    _validate_period(date_from, date_to)
+    orders = [r for r in advanced.list_production_orders(
+        conn, tenant, date_from=date_from, date_to=date_to) if r["status"] != "void"]
+    out = []
+    for r in orders:
+        out.append({
+            **r,
+            "wip": r["wip_value"],
+        })
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "orders": len(out), "open": sum(1 for r in out if r["status"] == "open"),
+            "completed": sum(1 for r in out if r["status"] == "completed"),
+            "input_value": sum(r["input_value"] for r in out),
+            "output_value": sum(r["output_value"] for r in out),
+            "wip": sum(r["wip"] for r in out),
+        },
+        "method": ("Operational production register only. WIP is input value less output value "
+                   "for open orders; completed orders show zero WIP. No journal or stock movement "
+                   "is posted by this register."),
+    }
+
+
+def production_consumption(conn: sqlite3.Connection, tenant, date_from: str,
+                           date_to: str) -> dict:
+    """R-603: actual input quantity against standard input quantity."""
+    _validate_period(date_from, date_to)
+    orders = [r for r in advanced.list_production_orders(
+        conn, tenant, date_from=date_from, date_to=date_to) if r["status"] != "void"]
+    out = []
+    for r in orders:
+        out.append({
+            **r,
+            "variance_qty": r["variance_qty"],
+            "variance_pct": r["variance_pct"],
+        })
+    measured = [r for r in out if r["standard_input_qty_milli"] > 0]
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "orders": len(out), "measured": len(measured),
+            "actual_qty": sum(r["input_qty_milli"] for r in out),
+            "standard_qty": sum(r["standard_input_qty_milli"] for r in out),
+            "variance_qty": sum((r["variance_qty"] or 0) for r in measured),
+            "variance_pct": ((sum((r["variance_qty"] or 0) for r in measured) * 10000
+                              // sum(r["standard_input_qty_milli"] for r in measured))
+                             if measured and sum(r["standard_input_qty_milli"] for r in measured)
+                             else None),
+            "over": sum(1 for r in measured if (r["variance_qty"] or 0) > 0),
+            "under": sum(1 for r in measured if (r["variance_qty"] or 0) < 0),
+        },
+        "method": ("Actual input quantity is entered on the production order. Standard input "
+                   "quantity is the user-entered benchmark. Orders with no standard are shown "
+                   "but excluded from variance totals."),
+    }
+
+
+def yield_wastage(conn: sqlite3.Connection, tenant, date_from: str,
+                  date_to: str) -> dict:
+    """R-604: output quantity divided by input quantity, with wastage balance."""
+    _validate_period(date_from, date_to)
+    orders = [r for r in advanced.list_production_orders(
+        conn, tenant, date_from=date_from, date_to=date_to) if r["status"] != "void"]
+    out = []
+    for r in orders:
+        out.append({
+            **r,
+            "yield_pct": r["yield_pct"],
+            "wastage_pct": r["wastage_pct"],
+            "loss_value": max(0, r["input_value"] - r["output_value"]),
+        })
+    input_qty = sum(r["input_qty_milli"] for r in out)
+    output_qty = sum(r["output_qty_milli"] for r in out)
+    return {
+        "from": date_from, "to": date_to, "rows": out,
+        "totals": {
+            "orders": len(out), "input_qty": input_qty, "output_qty": output_qty,
+            "yield_pct": (output_qty * 10000 // input_qty) if input_qty else None,
+            "wastage_pct": ((input_qty - output_qty) * 10000 // input_qty) if input_qty else None,
+            "loss_value": sum(r["loss_value"] for r in out),
+        },
+        "method": ("Yield is output quantity / input quantity. Wastage is the balance. "
+                   "Loss value is input value less output value where positive; it is an "
+                   "operational indicator, not a posted expense."),
+    }
+
+
+def consolidated_summary(conn: sqlite3.Connection, tenant_ids: list[str],
+                         as_of: str | None = None) -> dict:
+    """R-1004: read-only consolidation of owner/admin-accessible tenants.
+
+    Intercompany-flagged journal entries are shown separately and excluded from
+    the combined totals. There is no automatic matching or elimination engine.
+    """
+    as_of = as_of or date.today().isoformat()
+    _parse_date(as_of, "As of")
+    out = []
+    for tenant_id in tenant_ids:
+        t = conn.execute("SELECT id, name, slug FROM tenant WHERE id=?",
+                         (tenant_id,)).fetchone()
+        if not t:
+            continue
+        r = conn.execute(
+            """SELECT
+                 COALESCE(SUM(CASE WHEN a.type='income' AND e.is_intercompany=0
+                                   THEN l.credit_paise - l.debit_paise ELSE 0 END), 0) AS revenue,
+                 COALESCE(SUM(CASE WHEN a.type='expense' AND e.is_intercompany=0
+                                   THEN l.debit_paise - l.credit_paise ELSE 0 END), 0) AS expense,
+                 COALESCE(SUM(CASE WHEN a.type='asset' AND e.is_intercompany=0
+                                   THEN l.debit_paise - l.credit_paise ELSE 0 END), 0) AS assets,
+                 COALESCE(SUM(CASE WHEN a.type='liability' AND e.is_intercompany=0
+                                   THEN l.credit_paise - l.debit_paise ELSE 0 END), 0) AS liabilities,
+                 COALESCE(SUM(CASE WHEN a.type='equity' AND e.is_intercompany=0
+                                   THEN l.credit_paise - l.debit_paise ELSE 0 END), 0) AS equity,
+                 COUNT(DISTINCT CASE WHEN e.is_intercompany=1 THEN e.id END) AS ic_entries,
+                 COALESCE(SUM(CASE WHEN e.is_intercompany=1 THEN l.debit_paise ELSE 0 END), 0)
+                   AS ic_value
+               FROM journal_line l
+               JOIN journal_entry e ON e.id=l.entry_id AND e.tenant_id=l.tenant_id
+               JOIN account a ON a.id=l.account_id AND a.tenant_id=l.tenant_id
+               WHERE l.tenant_id=? AND e.entry_date <= ?""",
+            (tenant_id, as_of),
+        ).fetchone()
+        revenue = int(r["revenue"])
+        expense = int(r["expense"])
+        out.append({
+            "id": t["id"], "name": t["name"], "slug": t["slug"],
+            "revenue": revenue, "expense": expense, "profit": revenue - expense,
+            "assets": int(r["assets"]), "liabilities": int(r["liabilities"]),
+            "equity": int(r["equity"]), "intercompany_entries": int(r["ic_entries"]),
+            "intercompany_value": int(r["ic_value"]),
+        })
+    return {
+        "as_of": as_of, "rows": out,
+        "totals": {
+            "tenants": len(out),
+            "revenue": sum(r["revenue"] for r in out),
+            "expense": sum(r["expense"] for r in out),
+            "profit": sum(r["profit"] for r in out),
+            "assets": sum(r["assets"] for r in out),
+            "liabilities": sum(r["liabilities"] for r in out),
+            "equity": sum(r["equity"] for r in out),
+            "intercompany_entries": sum(r["intercompany_entries"] for r in out),
+            "intercompany_value": sum(r["intercompany_value"] for r in out),
+        },
+        "method": ("Sums posted balances for tenants where you are owner/admin. "
+                   "Manual journals marked intercompany are excluded from combined totals and "
+                   "reported separately. No automatic intercompany matching is performed."),
+    }
+
+
+# ---------------------------------------------------------------------------
 # report catalogue used by the in-app library
 # ---------------------------------------------------------------------------
 
@@ -2494,13 +2839,13 @@ REPORT_CATALOG = [
     _r("R-505", "Inventory & warehouse", "Dead / Slow Stock", "working", "/reports/dead-stock", "Stocked items with no posted movement for N days"),
     _r("R-506", "Inventory & warehouse", "Stock Adjustment Register", "working", "/reports/stock-adjustments", "Chronological manual adjustments with signed quantity, current-cost value, reason and journal"),
     _r("R-507", "Inventory & warehouse", "Inventory to GL Reconciliation", "working", "/reports/inventory-gl", "Item-master stock value versus inventory ledger balance"),
-    _r("R-508", "Inventory & warehouse", "Expiry / Batch Report", "planned", "", "Days to expiry buckets"),
+    _r("R-508", "Inventory & warehouse", "Expiry / Batch Report", "working", "/reports/expiry", "Days to expiry buckets from the manual batch register"),
     # Group 6 — costing
-    _r("R-601", "Costing & operations", "Job / Project Costing", "planned", "", "Direct plus allocated indirect cost"),
-    _r("R-602", "Costing & operations", "WIP Report", "planned", "", "Inputs minus completed output"),
-    _r("R-603", "Costing & operations", "Production Consumption", "planned", "", "Actual versus standard consumption"),
-    _r("R-604", "Costing & operations", "Yield / Wastage", "planned", "", "Output ÷ input and wastage percentage"),
-    _r("R-605", "Costing & operations", "Cost Centre Performance", "planned", "", "Budget versus actual per centre"),
+    _r("R-601", "Costing & operations", "Job / Project Costing", "working", "/reports/project-costing", "Direct project-tagged journal revenue and cost; no automatic indirect allocation"),
+    _r("R-602", "Costing & operations", "WIP Report", "working", "/reports/wip", "Open production-order input value less completed output value"),
+    _r("R-603", "Costing & operations", "Production Consumption", "working", "/reports/production-consumption", "Actual input quantity versus user-entered standard input quantity"),
+    _r("R-604", "Costing & operations", "Yield / Wastage", "working", "/reports/yield", "Output ÷ input and wastage percentage"),
+    _r("R-605", "Costing & operations", "Cost Centre Performance", "working", "/reports/cost-centre", "Cost-centre actual expense versus monthly cost-centre budget"),
     # Group 7 — cash and risk
     _r("R-701", "Cash, credit & risk", "Cash Book", "working", "/reports/cash-book", "Opening + receipts − payments"),
     _r("R-702", "Cash, credit & risk", "Bank Book", "working", "/reports/bank-book", "Opening + receipts − payments per bank"),
@@ -2518,7 +2863,7 @@ REPORT_CATALOG = [
     _r("R-807", "Tax & compliance", "Tax Ledger", "working", "/reports/tax-ledger", "Opening + output tax - input credit = closing per tax ledger"),
     # Group 9 — strategy and process
     _r("R-901", "Strategy & process", "Budget vs Actual", "working", "/reports/budget", "Variance = actual - budget for stored monthly income and expense budgets"),
-    _r("R-902", "Strategy & process", "Department / Branch P&L", "planned", "", "Contribution by scope"),
+    _r("R-902", "Strategy & process", "Department / Branch P&L", "working", "/reports/dimension-pnl", "Tagged department/branch contribution plus an explicit unallocated row"),
     _r("R-903", "Strategy & process", "Expense Breakdown", "working", "/reports/expense-breakdown", "Expense by account with share of total"),
     _r("R-904", "Management & KPIs", "KPI Dashboard Pack", "working", "/reports/kpi-pack", "Actual-only KPI cards from statements, ratios, cash, ageing and inventory"),
     _r("R-905", "Strategy & process", "Working Capital Cycle", "working", "/reports/working-capital", "DSO + DIO − DPO"),
@@ -2526,7 +2871,7 @@ REPORT_CATALOG = [
     _r("R-1001", "AI-assisted analysis", "Trend Explanation", "working", "/reports/trend-explanation", "Deterministic narrative over monthly actual revenue and expenses"),
     _r("R-1002", "AI-assisted analysis", "Revenue Forecast", "working", "/reports/revenue-forecast", "Least-squares forecast from monthly actual net revenue, with an indicative band"),
     _r("R-1003", "AI-assisted analysis", "Anomaly Digest", "working", "/reports/anomaly-digest", "Rule-based review prompts over posted journals, invoices, stock and receivables"),
-    _r("R-1004", "AI & cross-business", "Consolidated Multi-Company", "planned", "", "Sum with intercompany eliminations, authorised only"),
+    _r("R-1004", "AI & cross-business", "Consolidated Multi-Company", "working", "/reports/consolidated", "Owner/admin consolidation with intercompany-flagged journals excluded from combined totals"),
 ]
 
 

@@ -20,6 +20,7 @@ TABLES = [
     "journal_entry", "journal_line", "audit_log", "period_lock", "sequence",
     "bank_import", "bank_statement_line", "member_invite", "statement_share",
     "gstr2b_import", "gstr2b_line", "gstr2b_review", "budget", "stock_adjustment",
+    "dimension", "dimension_budget", "inventory_batch", "production_order",
 ]
 # `session` is ephemeral and `backup_run` changes when this backup is recorded;
 # neither is compared for row counts. Every other persistent table must be listed.

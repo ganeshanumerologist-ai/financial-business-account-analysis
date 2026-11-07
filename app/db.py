@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS journal_entry (
     idempotency_key TEXT,
     status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted','reversed')),
     reversal_of TEXT REFERENCES journal_entry(id),
+    is_intercompany INTEGER NOT NULL DEFAULT 0 CHECK (is_intercompany IN (0,1)),
     posted_at TEXT NOT NULL,
     created_by TEXT,
     UNIQUE (tenant_id, entry_no),
@@ -169,6 +170,7 @@ CREATE TABLE IF NOT EXISTS journal_line (
     line_no INTEGER NOT NULL,
     account_id TEXT NOT NULL REFERENCES account(id),
     party_id TEXT,
+    dimension_id TEXT REFERENCES dimension(id),
     debit_paise INTEGER NOT NULL DEFAULT 0 CHECK (debit_paise >= 0),
     credit_paise INTEGER NOT NULL DEFAULT 0 CHECK (credit_paise >= 0),
     memo TEXT,
@@ -576,7 +578,76 @@ CREATE TABLE IF NOT EXISTS stock_adjustment (
     UNIQUE (tenant_id, idempotency_key)
 );
 
+CREATE TABLE IF NOT EXISTS dimension (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    kind TEXT NOT NULL CHECK (kind IN ('project','cost_centre','department','branch')),
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, kind, code)
+);
+
+CREATE TABLE IF NOT EXISTS dimension_budget (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    dimension_id TEXT NOT NULL REFERENCES dimension(id),
+    period TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL DEFAULT 0 CHECK (amount_paise >= 0),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT REFERENCES user(id),
+    UNIQUE (tenant_id, dimension_id, period)
+);
+
+CREATE TABLE IF NOT EXISTS inventory_batch (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    item_id TEXT NOT NULL REFERENCES item(id),
+    batch_no TEXT NOT NULL,
+    expiry_date TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL DEFAULT 0 CHECK (qty_milli >= 0),
+    cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (cost_paise >= 0),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','void')),
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, item_id, batch_no)
+);
+
+CREATE TABLE IF NOT EXISTS production_order (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    order_no TEXT NOT NULL,
+    order_date TEXT NOT NULL,
+    output_item_id TEXT NOT NULL REFERENCES item(id),
+    input_item_id TEXT NOT NULL REFERENCES item(id),
+    output_qty_milli INTEGER NOT NULL CHECK (output_qty_milli >= 0),
+    input_qty_milli INTEGER NOT NULL CHECK (input_qty_milli >= 0),
+    standard_input_qty_milli INTEGER NOT NULL DEFAULT 0 CHECK (standard_input_qty_milli >= 0),
+    input_cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (input_cost_paise >= 0),
+    output_cost_paise INTEGER NOT NULL DEFAULT 0 CHECK (output_cost_paise >= 0),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','completed','void')),
+    note TEXT NOT NULL DEFAULT '',
+    completed_at TEXT,
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    UNIQUE (tenant_id, order_no)
+);
+
 CREATE INDEX IF NOT EXISTS ix_budget_tenant_period ON budget (tenant_id, period);
+CREATE INDEX IF NOT EXISTS ix_dimension_tenant_kind ON dimension (tenant_id, kind, active);
+CREATE INDEX IF NOT EXISTS ix_dimension_budget_tenant_period
+    ON dimension_budget (tenant_id, period);
+CREATE INDEX IF NOT EXISTS ix_inventory_batch_tenant_expiry
+    ON inventory_batch (tenant_id, expiry_date);
+CREATE INDEX IF NOT EXISTS ix_production_order_tenant_date
+    ON production_order (tenant_id, order_date);
 CREATE INDEX IF NOT EXISTS ix_stock_adjustment_tenant_date
     ON stock_adjustment (tenant_id, adjustment_date);
 CREATE INDEX IF NOT EXISTS ix_stock_adjustment_item
@@ -716,7 +787,11 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "user": [("theme", "TEXT NOT NULL DEFAULT 'ocean'")],
-    "journal_entry": [("rule_version", "TEXT NOT NULL DEFAULT 'posting-v1'")],
+    "journal_entry": [
+        ("rule_version", "TEXT NOT NULL DEFAULT 'posting-v1'"),
+        ("is_intercompany", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+    "journal_line": [("dimension_id", "TEXT")],
     "tenant": [
         ("gstin", "TEXT NOT NULL DEFAULT ''"),
         ("address", "TEXT NOT NULL DEFAULT ''"),

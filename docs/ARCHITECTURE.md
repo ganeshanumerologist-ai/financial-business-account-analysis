@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0 |
-| Date | 2026-10-24 |
-| Status | Draft for owner approval |
+| Version | 1.9 |
+| Date | 2026-11-06 |
+| Status | Implemented through Build 0.19 |
 | Decision | **Option A** — Next.js (TypeScript) + FastAPI (Python), approved 2026-10-24 (D-001) |
 
 ---
@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.18)
+## 11. Implementation status (current Build 0.19)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -203,6 +203,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 | `app/insights.py` | deterministic grounded observations with basis, metric keys and drill-down | Implemented, tested |
 | `app/reports.py` | Report Library catalogue and deterministic management reports (cash flow, ratios, comparison, registers, activity, working capital, sales/customer, supplier/return, stock and credit-limit reports) | Implemented, tested |
 | `app/budgeting.py` | monthly budget planning, audit-safe upsert/delete and R-901 budget vs actual | Implemented, tested |
+| `app/advanced.py` | additive dimension, dimension-budget, batch/expiry and production-order registers with audit events; no journal or stock posting | Implemented, tested |
 | `app/security.py` | scrypt hashing, sessions, CSRF token, RBAC, tenant authorisation, lockout | Implemented, tested |
 | `app/server.py` | HTTP routing, server-rendered UI, cookie/CSRF handling | Implemented, HTTP-tested |
 | `app/demo.py`, `scripts/seed_demo.py` | synthetic demo books | Implemented |
@@ -594,15 +595,16 @@ floats and show `n/a` when the denominator is zero. The module provides:
 ### 18.2 Report Library
 
 `/reports/library` lists all 66 catalogued reports, filters by group and status, and shows
-**58 working, 0 partial and 8 planned**. Working rows link to a route. Planned rows have no route
-and no sample data, so a delivery map cannot be mistaken for a finished report.
+**66 working, 0 partial and 0 planned**. Every working row links to a route. No row is filled with
+sample data, so a delivery map cannot be mistaken for a finished report.
 
 ### 18.3 Export and security boundary
 
 `/export/cash-flow.csv`, `/export/sales-register.csv`, `/export/purchase-register.csv`,
-`/export/expense-breakdown.csv`, the ten Build 0.16 report exports and the nineteen Build 0.17 report exports require `report.export`, are
-tenant-scoped and send `no-store`. Amounts are exported as exact decimal strings from integer paise.
-Quantities in the stock report are exported as three-decimal strings.
+`/export/expense-breakdown.csv`, the ten Build 0.16 report exports, the nineteen Build 0.17 report
+exports and the eight Build 0.19 advanced-report exports require `report.export`, are tenant-scoped
+and send `no-store`. Amounts are exported as exact decimal strings from integer paise. Quantities in
+the stock and advanced operational reports are exported as three-decimal strings.
 
 ### 18.4 Deliberate limits
 
@@ -769,3 +771,33 @@ is still no draft journal-entry or draft-bill workflow.
 The only schema-visible addition is the `invoice_draft` number sequence; `invoice.status` already
 allowed `draft`. No table, column, index, cached total or destructive migration was removed or
 rewritten. The catalogue now shows **58 working, 0 partial and 8 planned**.
+
+## 24. Build 0.19: advanced operational registers and 66/66 reports (2026-11-06)
+
+The final eight catalogue reports needed source data that the accounting core did not capture.
+Build 0.19 adds four additive registers and two optional tags rather than inventing a second ledger
+or fabricating allocations:
+
+- `dimension` stores project, cost-centre, department and branch masters. `dimension_budget` stores
+  monthly cost-centre budgets.
+- `inventory_batch` stores a manual batch/lot, expiry date, quantity and batch cost for R-508.
+- `production_order` stores input/output items and quantities, standard input quantity, input/output
+  cost and status for R-602, R-603 and R-604.
+- `journal_line.dimension_id` is an optional tag on **manual journal lines only**.
+  `journal_entry.is_intercompany` is an entry-level flag on **manual journal entries only**.
+- `app/advanced.py` owns the register CRUD and audit events. `app/reports.py` owns the read-only
+  report formulas. `app/server.py` owns the pages, forms and CSV exports.
+
+The reports are explicit about scope. R-601, R-605 and R-902 show an `Unallocated` row for lines
+without the relevant tag. R-508, R-602, R-603 and R-604 are operational working papers; they do not
+post a journal, move stock or value inventory. R-1004 is a read-only consolidation for businesses
+where the user is owner/admin; intercompany-flagged manual journals are excluded from combined
+totals and reported separately. There is no automatic matching, elimination, allocation, recharge
+or timesheet engine.
+
+Reversals preserve the original dimension tag and intercompany flag, so a reversed tagged entry nets
+to zero in the same report scope. `post_journal` validates every non-null dimension against active
+tenant dimensions. The schema change is additive: four new tables and two nullable/defaulted columns.
+No table, index, cached total or historical row was removed or rewritten. The catalogue now shows
+**66 working, 0 partial and 0 planned**. The full suite passes **313 tests, OK**, 30.908 s, Python
+3.14.6, Windows, recorded as `RUN-2026-11-06-04`.

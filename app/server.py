@@ -17,6 +17,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import accounting as acct
+from . import advanced as advanced_mod
 from . import analytics as analytics_mod
 from . import backup as backup_mod
 from . import bank as bank_mod
@@ -33,7 +34,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.18"
+APP_VERSION = "0.19"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -514,6 +515,14 @@ NAV = [
                 ("reports/reorder", "item", "Reorder / Shortage"),
                 ("reports/dead-stock", "item", "Dead / Slow Stock"),
                 ("reports/inventory-gl", "item", "Inventory to GL"),
+                ("reports/expiry", "item", "Expiry / Batch"),
+            ]),
+            ("Costing &amp; operations", [
+                ("reports/project-costing", "rep", "Job / Project Costing"),
+                ("reports/wip", "rep", "WIP Report"),
+                ("reports/production-consumption", "rep", "Production Consumption"),
+                ("reports/yield", "rep", "Yield / Wastage"),
+                ("reports/cost-centre", "rep", "Cost Centre Performance"),
             ]),
             ("Expense analysis", [
                 ("reports/expense-breakdown", "rep", "Expense Breakdown"),
@@ -525,6 +534,10 @@ NAV = [
             ("Budgeting", [
                 ("budgets", "rep", "Budgets"),
                 ("reports/budget", "rep", "Budget vs Actual"),
+            ]),
+            ("Strategy &amp; cross-business", [
+                ("reports/dimension-pnl", "rep", "Department / Branch P&amp;L"),
+                ("reports/consolidated", "rep", "Consolidated Multi-Company"),
             ]),
             ("GST &amp; tax working papers", [
                 ("reports/gst", "gst", "GST Summary &amp; GSTR-1"),
@@ -545,6 +558,11 @@ NAV = [
             ]),
             ("Products", [
                 ("items", "item", "Items"),
+            ]),
+            ("Operations", [
+                ("dimensions", "rep", "Dimensions"),
+                ("batches", "item", "Batch Register"),
+                ("production-orders", "rep", "Production Orders"),
             ]),
         ],
     },
@@ -1894,6 +1912,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_reorder(conn, user, tenant, q))
             if path == "/reports/dead-stock":
                 return self._send(self.page_dead_stock(conn, user, tenant, q))
+            if path == "/reports/expiry":
+                return self._send(self.page_expiry(conn, user, tenant, q))
+            if path == "/reports/project-costing":
+                return self._send(self.page_project_costing(conn, user, tenant, q))
+            if path == "/reports/wip":
+                return self._send(self.page_wip(conn, user, tenant, q))
+            if path == "/reports/production-consumption":
+                return self._send(self.page_production_consumption(conn, user, tenant, q))
+            if path == "/reports/yield":
+                return self._send(self.page_yield(conn, user, tenant, q))
+            if path == "/reports/cost-centre":
+                return self._send(self.page_cost_centre(conn, user, tenant, q))
+            if path == "/reports/dimension-pnl":
+                return self._send(self.page_dimension_pnl(conn, user, tenant, q))
+            if path == "/reports/consolidated":
+                return self._send(self.page_consolidated(conn, user, tenant, q))
+            if path == "/dimensions":
+                return self._send(self.page_dimensions(conn, user, tenant, sess, q))
+            if path == "/batches":
+                return self._send(self.page_batches(conn, user, tenant, sess, q))
+            if path == "/production-orders":
+                return self._send(self.page_production_orders(conn, user, tenant, sess, q))
             if path == "/reports/inventory-gl":
                 return self._send(self.page_inventory_gl(conn, user, tenant, q))
             if path == "/reports/receivables-risk":
@@ -2127,6 +2167,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._delete_budget(conn, user, tenant, form)
             if path == "/stock-adjustments":
                 return self._create_stock_adjustment(conn, user, tenant, form)
+            if path == "/dimensions":
+                return self._create_dimension(conn, user, tenant, form)
+            if path == "/dimensions/update":
+                return self._update_dimension(conn, user, tenant, form)
+            if path == "/dimensions/budget":
+                return self._set_dimension_budget(conn, user, tenant, form)
+            if path == "/batches":
+                return self._create_batch(conn, user, tenant, form)
+            if path == "/batches/void":
+                return self._void_batch(conn, user, tenant, form)
+            if path == "/production-orders":
+                return self._create_production_order(conn, user, tenant, form)
+            if path == "/production-orders/status":
+                return self._set_production_status(conn, user, tenant, form)
             if path == "/accounts":
                 return self._create_account(conn, user, tenant, form, sess)
             if path == "/accounts/update":
@@ -3027,6 +3081,9 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             "SELECT * FROM account WHERE tenant_id=? AND status='active' ORDER BY code",
             (tenant["id"],)).fetchall()
         account_by_id = {a["id"]: a for a in accounts}
+        dimensions = conn.execute(
+            "SELECT * FROM dimension WHERE tenant_id=? AND active=1 ORDER BY kind, code",
+            (tenant["id"],)).fetchall()
         title_map = {"cash": "Cash entry", "bank": "Bank entry", "journal": "Journal entry"}
         title = title_map.get(mode, "Journal entry")
         active = f"entries/{mode}" if mode in title_map else "entries/journal"
@@ -3053,6 +3110,14 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
             return ('<option value="">- choose account -</option>' + "".join(
                 f'<option value="{a["id"]}"{" selected" if a["id"] == chosen else ""}>'
                 f'{esc(a["code"])} - {esc(a["name"])}</option>' for a in accounts))
+
+        def dimension_options(chosen: str) -> str:
+            labels = {"project": "Project", "cost_centre": "Cost centre",
+                      "department": "Department", "branch": "Branch"}
+            return ('<option value="">- none -</option>' + "".join(
+                f'<option value="{d["id"]}"{" selected" if d["id"] == chosen else ""}>'
+                f'{esc(labels.get(d["kind"], d["kind"]))} / {esc(d["code"])} - '
+                f'{esc(d["name"])}</option>' for d in dimensions))
 
         reverse_id = (q.get("reverse") or [""])[0]
         if reverse_id:
@@ -3158,12 +3223,14 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
                 if i < len(lines):
                     line = lines[i]
                     chosen = line["account_id"] if line["account_id"] in account_by_id else ""
+                    chosen_dim = line["dimension_id"] if "dimension_id" in line.keys() else ""
                     debit = money.to_str(line["debit_paise"]) if line["debit_paise"] else ""
                     credit = money.to_str(line["credit_paise"]) if line["credit_paise"] else ""
                 else:
-                    chosen, debit, credit = "", "", ""
+                    chosen, chosen_dim, debit, credit = "", "", "", ""
                 row_html += (
                     f'<tr><td><select name="account_id">{account_options(chosen)}</select></td>'
+                    f'<td><select name="dimension_id">{dimension_options(chosen_dim)}</select></td>'
                     f'<td><input name="debit" value="{debit}" inputmode="decimal" placeholder="0.00"></td>'
                     f'<td><input name="credit" value="{credit}" inputmode="decimal" placeholder="0.00"></td></tr>')
 
@@ -3184,10 +3251,12 @@ corrected entry. Nothing is deleted, so both versions stay in the audit trail.</
 <input name="narration" value="{esc(entry["narration"])}" required maxlength="200"></div>
 </div></div>
 <div class="card sect table-wrap"><table>
-<thead><tr><th style="width:58%">Account</th><th>Debit</th><th>Credit</th></tr></thead>
+<thead><tr><th style="width:42%">Account</th><th>Project / cost centre</th><th>Debit</th><th>Credit</th></tr></thead>
 <tbody>{row_html}</tbody></table></div>
 <div class="card pad sect">
-<div class="field"><label for="reason">Why are you correcting this entry?</label>
+<label class="small"><input type="checkbox" name="is_intercompany" value="1"
+ {"checked" if entry["is_intercompany"] else ""}> Intercompany entry (excluded from consolidation totals)</label>
+<div class="field" style="margin-top:12px"><label for="reason">Why are you correcting this entry?</label>
 <input id="reason" name="reason" maxlength="200" required
 placeholder="e.g. Wrong amount entered; correct amount is 1,250.00"></div>
 </div>
@@ -3228,6 +3297,7 @@ entry is unbalanced, the whole correction is rejected and the original stays pos
             chosen = first_account if i == 0 else ""
             row_html += (
                 f'<tr><td><select name="account_id">{account_options(chosen)}</select></td>'
+                f'<td><select name="dimension_id">{dimension_options("")}</select></td>'
                 f'<td><input name="debit" value="" inputmode="decimal" placeholder="0.00"></td>'
                 f'<td><input name="credit" value="" inputmode="decimal" placeholder="0.00"></td></tr>')
 
@@ -3292,8 +3362,14 @@ entry is unbalanced, the whole correction is rejected and the original stays pos
 <input name="narration" required maxlength="200" placeholder="{esc(narration_hint)}"></div>
 </div></div>
 <div class="card sect table-wrap"><table>
-<thead><tr><th style="width:58%">Account</th><th>Debit</th><th>Credit</th></tr></thead>
+<thead><tr><th style="width:42%">Account</th><th>Project / cost centre</th><th>Debit</th><th>Credit</th></tr></thead>
 <tbody>{row_html}</tbody></table></div>
+<div class="card pad sect">
+<label class="small"><input type="checkbox" name="is_intercompany" value="1"> Intercompany entry
+(excluded from consolidation totals)</label>
+<div class="small muted" style="margin-top:6px">Tag a line to a project, cost centre, department or
+branch for the advanced reports. Leave it blank for unallocated lines.</div>
+</div>
 <div class="entry-actions">
 <button class="btn" type="submit">Post {esc(title.lower())}</button>
 <a class="btn ghost" href="/ledger">Back to ledger</a>
@@ -9364,6 +9440,7 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         accounts = form.get("account_id") or []
         debits = form.get("debit") or []
         credits = form.get("credit") or []
+        dimensions = form.get("dimension_id") or []
 
         def pick(seq, i):
             return seq[i] if i < len(seq) else ""
@@ -9377,7 +9454,8 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             if not aid:
                 raise acct.AccountingError("ACCOUNT_REQUIRED",
                                            "Choose an account for every line that has an amount.")
-            lines.append({"account_id": aid, "debit": d, "credit": c})
+            lines.append({"account_id": aid, "debit": d, "credit": c,
+                          "dimension_id": pick(dimensions, i) or None})
         return lines
 
     def _create_journal(self, conn, user, tenant, sess, form):
@@ -9387,7 +9465,8 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             entry_id = acct.post_journal(
                 conn, tenant["id"], first(form, "entry_date") or date.today().isoformat(),
                 first(form, "narration") or "Manual journal", lines, source_type="manual",
-                created_by=user["id"])
+                created_by=user["id"],
+                is_intercompany=bool(first(form, "is_intercompany")))
             first_account = lines[0]["account_id"] if lines else ""
             if first_account:
                 return self._redirect(f"/ledger?account={first_account}&posted=1")
@@ -9416,10 +9495,607 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                 conn, tenant["id"], entry_id,
                 first(form, "entry_date") or entry["entry_date"],
                 first(form, "narration") or entry["narration"],
-                lines, first(form, "reason"), created_by=user["id"])
+                lines, first(form, "reason"), created_by=user["id"],
+                is_intercompany=bool(first(form, "is_intercompany")))
             return self._redirect(f"{back}{'&' if '?' in back else '?'}edited=1")
         except (security.AuthError, acct.AccountingError, money.MoneyError) as e:
             return self._error_page(user, tenant, getattr(e, "message", str(e)), back)
+
+    # ---------------- advanced operations & reports ----------------
+    def _adv_notice(self, q) -> str:
+        error = (q.get("error") or [""])[0]
+        saved = (q.get("saved") or [""])[0]
+        if error:
+            return (f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
+                    f'<b>Not saved.</b> {esc(error)}</div>')
+        if saved:
+            return (f'<div class="card pad" style="border-color:var(--success);margin-bottom:14px">'
+                    f'<b>Saved.</b> {esc(saved)}</div>')
+        return ""
+
+    def page_expiry(self, conn, user, tenant, q) -> str:
+        return self._batch_page(conn, user, tenant, q, "reports/expiry",
+                                "Expiry / batch report")
+
+    def page_batches(self, conn, user, tenant, sess, q) -> str:
+        return self._batch_page(conn, user, tenant, q, "batches", "Batch register", sess)
+
+    def _batch_page(self, conn, user, tenant, q, active, title, sess=None) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout(title, f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          active, user, tenant)
+        try:
+            security.require(conn, user["id"], tenant["id"], "item.manage")
+            can_manage = True
+        except security.AuthError:
+            can_manage = False
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        try:
+            data = advanced_mod.list_batches(conn, tenant, as_of=as_of)
+        except advanced_mod.AdvancedError:
+            as_of = date.today().isoformat()
+            data = advanced_mod.list_batches(conn, tenant, as_of=as_of)
+        items = conn.execute(
+            "SELECT id, sku, name, unit, cost_paise FROM item WHERE tenant_id=?"
+            " AND track_stock=1 ORDER BY name", (tenant["id"],)).fetchall()
+        item_options = "".join(
+            f'<option value="{esc(i["id"])}">{esc(i["sku"])} - {esc(i["name"])}'
+            f' ({esc(i["unit"])})</option>' for i in items)
+        rows = "".join(
+            f'<tr><td>{esc(r["sku"])}</td><td>{esc(r["name"])}</td>'
+            f'<td>{esc(r["batch_no"])}</td><td>{esc(r["expiry_date"])}</td>'
+            f'<td class="num">{r["days"]}</td><td>{esc(r["bucket"])}</td>'
+            f'<td class="num">{r["qty_milli"] / 1000:.3f}</td><td>{esc(r["unit"])}</td>'
+            f'<td class="num">{money.fmt(r["cost_paise"])}</td>'
+            f'<td class="num">{money.fmt(r["value"])}</td></tr>'
+            for r in data["rows"])
+        rows = rows or '<tr><td colspan="10" class="empty">No batches in the register.</td></tr>'
+        batch_options = "".join(
+            f'<option value="{esc(r["id"])}">{esc(r["sku"])} / {esc(r["batch_no"])}'
+            f' (exp {esc(r["expiry_date"])})</option>' for r in data["rows"])
+        t = data["totals"]
+        if can_manage and sess and items:
+            form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Add a batch / lot</h2>
+<form method="post" action="/batches">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="row c4">
+<div class="field"><label>Item</label><select name="item_id" required>{item_options}</select></div>
+<div class="field"><label>Batch / lot no.</label><input name="batch_no" maxlength="60" required></div>
+<div class="field"><label>Expiry date</label><input type="date" name="expiry_date" required></div>
+<div class="field"><label>Quantity</label><input name="qty" inputmode="decimal" placeholder="0.000" required></div>
+</div>
+<div class="row c3">
+<div class="field"><label>Unit cost</label><input name="cost" inputmode="decimal" placeholder="0.00" required></div>
+<div class="field" style="grid-column:span 2"><label>Note</label><input name="note" maxlength="200" placeholder="Optional"></div>
+</div>
+<button class="btn" type="submit">Add batch</button>
+<span class="small muted" style="margin-left:10px">The batch register is an expiry working paper. It does not change stock or post a journal.</span>
+</form></div>
+<div class="card pad sect"><h2 style="margin-bottom:12px">Void a batch</h2>
+<form method="post" action="/batches/void" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="field" style="min-width:320px"><label>Batch</label><select name="batch_id" required>{batch_options}</select></div>
+<div class="field" style="min-width:260px"><label>Reason</label><input name="reason" maxlength="200" required></div>
+<button class="btn ghost" type="submit">Void batch</button>
+</form></div>"""
+        elif can_manage:
+            form = '<div class="card pad sect"><b>No stock-tracked items.</b> Add an item first.</div>'
+        else:
+            form = ('<div class="card pad sect"><b>Read-only.</b> Your role can view batches but '
+                    'cannot change the register.</div>')
+        body = f"""
+<form method="get" action="{esc(active if active == 'batches' else '/reports/expiry')}"
+ class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-508</span>
+<span class="badge neutral">Manual batch register</span></form>
+{self._adv_notice(q)}
+<div class="kpis">
+{kpi("Batches", str(t["batches"]), "active batch rows")}
+{kpi("Expired", str(t["expired"]), "past expiry date")}
+{kpi("Expiring 0-30", str(t["expiring_30"]), "next 30 days")}
+{kpi("Batch value", money.fmt(t["value"]), "quantity x batch cost")}
+</div>
+{form}
+<div class="card sect table-wrap"><table>
+<thead><tr><th>SKU</th><th>Item</th><th>Batch</th><th>Expiry</th><th>Days</th><th>Bucket</th>
+<th class="num">Qty</th><th>Unit</th><th class="num">Cost</th><th class="num">Value</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">This is a manual expiry working paper. It does not allocate batches to sales,
+change item stock or post a journal. Use the batch number on the physical stock label.</p>"""
+        return layout(title, body, active, user, tenant)
+
+    def page_dimensions(self, conn, user, tenant, sess, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Dimensions", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "dimensions", user, tenant)
+        try:
+            security.require(conn, user["id"], tenant["id"], "budget.manage")
+            can_manage = True
+        except security.AuthError:
+            can_manage = False
+        dims = advanced_mod.list_dimensions(conn, tenant)
+        budgets = advanced_mod.list_dimension_budgets(conn, tenant)
+        cost_centres = [d for d in dims if d["kind"] == "cost_centre"]
+        rows = "".join(
+            f'<tr><td>{esc(advanced_mod.DIMENSION_KINDS.get(d["kind"], d["kind"]))}</td>'
+            f'<td>{esc(d["code"])}</td><td>{esc(d["name"])}</td>'
+            f'<td class="num">{d["tagged_lines"]}</td>'
+            f'<td>{"Active" if d["active"] else "Inactive"}</td>'
+            f'<td>{esc(d["note"] or "")}</td>'
+            f'<td>{"" if not can_manage else "<form method=post action=/dimensions/update style=display:inline>" + "<input type=hidden name=_csrf value=" + esc(sess["csrf_token"]) + ">" + "<input type=hidden name=dimension_id value=" + esc(d["id"]) + ">" + "<input type=hidden name=name value=" + esc(d["name"]) + ">" + "<input type=hidden name=note value=" + esc(d["note"] or "") + ">" + "<input type=hidden name=active value=" + ("0" if d["active"] else "1") + ">" + "<button class=btn ghost small type=submit>" + ("Deactivate" if d["active"] else "Reactivate") + "</button></form>"}</td></tr>'
+            for d in dims)
+        rows = rows or '<tr><td colspan="7" class="empty">No dimensions yet.</td></tr>'
+        budget_rows = "".join(
+            f'<tr><td>{esc(b["period"])}</td><td>{esc(b["code"])}</td><td>{esc(b["name"])}</td>'
+            f'<td class="num">{money.fmt(b["amount_paise"])}</td><td>{esc(b["note"] or "")}</td></tr>'
+            for b in budgets[:50])
+        budget_rows = budget_rows or '<tr><td colspan="5" class="empty">No cost-centre budgets yet.</td></tr>'
+        if can_manage:
+            form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Create a dimension</h2>
+<form method="post" action="/dimensions">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="row c4">
+<div class="field"><label>Type</label><select name="kind">
+<option value="project">Project / Job</option><option value="cost_centre">Cost centre</option>
+<option value="department">Department</option><option value="branch">Branch</option></select></div>
+<div class="field"><label>Code</label><input name="code" maxlength="30" required placeholder="PRJ-01"></div>
+<div class="field"><label>Name</label><input name="name" maxlength="120" required placeholder="Website redesign"></div>
+<div class="field"><label>Note</label><input name="note" maxlength="200" placeholder="Optional"></div>
+</div><button class="btn" type="submit">Create dimension</button></form></div>
+<div class="card pad sect"><h2 style="margin-bottom:12px">Set a cost-centre budget</h2>
+<form method="post" action="/dimensions/budget">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="row c4">
+<div class="field"><label>Cost centre</label><select name="dimension_id" required>
+{''.join(f'<option value="{esc(d["id"])}">{esc(d["code"])} - {esc(d["name"])}</option>' for d in cost_centres)}
+</select></div>
+<div class="field"><label>Month</label><input type="month" name="period" value="{date.today().isoformat()[:7]}" required></div>
+<div class="field"><label>Budget</label><input name="amount" inputmode="decimal" placeholder="0.00" required></div>
+<div class="field"><label>Note</label><input name="note" maxlength="200" placeholder="Optional"></div>
+</div><button class="btn" type="submit">Save budget</button></form></div>"""
+        else:
+            form = ('<div class="card pad sect"><b>Read-only.</b> Your role can view dimensions but '
+                    'cannot create or change them.</div>')
+        body = f"""
+<div style="margin-bottom:10px"><span class="badge neutral">R-601</span>
+<span class="badge neutral">R-605</span> <span class="badge neutral">R-902</span></div>
+{self._adv_notice(q)}
+{form}
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Type</th><th>Code</th><th>Name</th><th class="num">Tagged lines</th>
+<th>Status</th><th>Note</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Month</th><th>Code</th><th>Cost centre</th><th class="num">Budget</th><th>Note</th></tr></thead>
+<tbody>{budget_rows}</tbody></table></div>
+<p class="small muted">Dimensions are optional tags on manual journal lines. Existing untagged lines
+remain unallocated; there is no automatic allocation or recharge.</p>"""
+        return layout("Dimensions", body, "dimensions", user, tenant)
+
+    def page_production_orders(self, conn, user, tenant, sess, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Production orders", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "production-orders", user, tenant)
+        try:
+            security.require(conn, user["id"], tenant["id"], "item.manage")
+            can_manage = True
+        except security.AuthError:
+            can_manage = False
+        dfrom, dto = self._report_period(tenant, q)
+        orders = advanced_mod.list_production_orders(conn, tenant, dfrom, dto)
+        items = conn.execute("SELECT id, sku, name, unit FROM item WHERE tenant_id=? ORDER BY name",
+                             (tenant["id"],)).fetchall()
+        item_options = "".join(
+            f'<option value="{esc(i["id"])}">{esc(i["sku"])} - {esc(i["name"])} ({esc(i["unit"])})</option>'
+            for i in items)
+        rows = "".join(
+            f'<tr><td>{esc(r["order_date"])}</td><td>{esc(r["order_no"])}</td>'
+            f'<td>{esc(r["input_sku"])} {esc(r["input_name"])}</td>'
+            f'<td class="num">{r["input_qty_milli"] / 1000:.3f}</td>'
+            f'<td>{esc(r["output_sku"])} {esc(r["output_name"])}</td>'
+            f'<td class="num">{r["output_qty_milli"] / 1000:.3f}</td>'
+            f'<td class="num">{money.fmt(r["input_value"])}</td>'
+            f'<td class="num">{money.fmt(r["output_value"])}</td>'
+            f'<td class="num">{money.fmt(r["wip_value"])}</td>'
+            f'<td>{"Open" if r["status"] == "open" else ("Completed" if r["status"] == "completed" else "Void")}</td></tr>'
+            for r in orders)
+        rows = rows or '<tr><td colspan="10" class="empty">No production orders in this period.</td></tr>'
+        open_options = "".join(
+            f'<option value="{esc(r["id"])}">{esc(r["order_no"])} - {esc(r["output_name"])}</option>'
+            for r in orders if r["status"] == "open")
+        if can_manage and items:
+            form = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Create a production order</h2>
+<form method="post" action="/production-orders">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="row c4">
+<div class="field"><label>Date</label><input type="date" name="order_date" value="{date.today().isoformat()}" required></div>
+<div class="field"><label>Input item</label><select name="input_item_id" required>{item_options}</select></div>
+<div class="field"><label>Input qty</label><input name="input_qty" inputmode="decimal" placeholder="0.000" required></div>
+<div class="field"><label>Standard input qty</label><input name="standard_qty" inputmode="decimal" placeholder="0.000"></div>
+</div>
+<div class="row c4">
+<div class="field"><label>Output item</label><select name="output_item_id" required>{item_options}</select></div>
+<div class="field"><label>Output qty</label><input name="output_qty" inputmode="decimal" placeholder="0.000" required></div>
+<div class="field"><label>Input unit cost</label><input name="input_cost" inputmode="decimal" placeholder="item cost"></div>
+<div class="field"><label>Output unit cost</label><input name="output_cost" inputmode="decimal" placeholder="item cost"></div>
+</div>
+<div class="field"><label>Note</label><input name="note" maxlength="200" placeholder="Optional"></div>
+<button class="btn" type="submit">Create order</button>
+<span class="small muted" style="margin-left:10px">Operational register only. No journal or stock movement is posted.</span>
+</form></div>
+<div class="card pad sect"><h2 style="margin-bottom:12px">Complete or void an open order</h2>
+<form method="post" action="/production-orders/status" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">
+<div class="field" style="min-width:320px"><label>Open order</label><select name="order_id" required>{open_options}</select></div>
+<div class="field"><label>Status</label><select name="status"><option value="completed">Complete</option><option value="void">Void</option></select></div>
+<div class="field" style="min-width:240px"><label>Reason (required for void)</label><input name="reason" maxlength="200"></div>
+<button class="btn ghost" type="submit">Update order</button>
+</form></div>"""
+        elif can_manage:
+            form = '<div class="card pad sect"><b>No items.</b> Add items before creating a production order.</div>'
+        else:
+            form = ('<div class="card pad sect"><b>Read-only.</b> Your role can view production orders '
+                    'but cannot change them.</div>')
+        body = f"""
+<form method="get" action="/production-orders" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-602</span> <span class="badge neutral">R-603</span>
+<span class="badge neutral">R-604</span></form>
+{self._adv_notice(q)}
+{form}
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Date</th><th>Order</th><th>Input item</th><th class="num">Input qty</th>
+<th>Output item</th><th class="num">Output qty</th><th class="num">Input value</th>
+<th class="num">Output value</th><th class="num">WIP</th><th>Status</th></tr></thead>
+<tbody>{rows}</tbody></table></div>"""
+        return layout("Production orders", body, "production-orders", user, tenant)
+
+    def _period_report_header(self, action, dfrom, dto, extra="", rid=""):
+        badge = f'<span class="badge neutral">{esc(rid)}</span>' if rid else ""
+        return (f'<form method="get" action="{esc(action)}" class="sect"'
+                f' style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">'
+                f'<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>'
+                f'<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>'
+                f'{extra}{badge}<button class="btn" type="submit">Apply</button></form>')
+
+    def page_project_costing(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Job / project costing", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/project-costing", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.project_costing(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{money.fmt(r["revenue"])}</td>'
+            f'<td class="num">{money.fmt(r["expense"])}</td>'
+            f'<td class="num">{money.fmt(r["net"])}</td>'
+            f'<td class="num">{r["lines"]}</td></tr>' for r in data["rows"])
+        rows = rows or '<tr><td colspan="6" class="empty">No project-tagged journal lines in this period.</td></tr>'
+        t = data["totals"]
+        body = f"""
+{self._period_report_header("/reports/project-costing", dfrom, dto, rid="R-601")}
+<div class="kpis">
+{kpi("Projects", str(t["dimensions"]), "tagged project dimensions")}
+{kpi("Revenue", money.fmt(t["revenue"]), "tagged income")}
+{kpi("Direct cost", money.fmt(t["expense"]), "tagged expense")}
+{kpi("Contribution", money.fmt(t["net"]), "revenue - direct cost")}
+</div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Code</th><th>Project / job</th><th class="num">Revenue</th>
+<th class="num">Direct cost</th><th class="num">Contribution</th><th class="num">Lines</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">{esc(data["method"])}</p>"""
+        return layout("Job / project costing", body, "reports/project-costing", user, tenant)
+
+    def page_cost_centre(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Cost centre performance", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/cost-centre", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.cost_centre_performance(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{money.fmt(r["actual"])}</td>'
+            f'<td class="num">{money.fmt(r["budget"])}</td>'
+            f'<td class="num">{money.fmt(r["variance"])}</td>'
+            f'<td class="num">{("n/a" if r["variance_pct"] is None else f"{r["variance_pct"] / 100:.2f}%")}</td>'
+            f'<td>{esc(r["status"])}</td></tr>' for r in data["rows"])
+        rows = rows or '<tr><td colspan="7" class="empty">No cost-centre activity in this period.</td></tr>'
+        t = data["totals"]
+        body = f"""
+{self._period_report_header("/reports/cost-centre", dfrom, dto, rid="R-605")}
+<div class="kpis">
+{kpi("Actual", money.fmt(t["actual"]), "tagged expense")}
+{kpi("Budget", money.fmt(t["budget"]), "monthly budgets in period")}
+{kpi("Variance", money.fmt(t["variance"]), "budget - actual")}
+{kpi("Over budget", str(t["over"]), "cost centres")}
+</div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Code</th><th>Cost centre</th><th class="num">Actual</th>
+<th class="num">Budget</th><th class="num">Variance</th><th class="num">Variance %</th><th>Status</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">{esc(data["method"])}</p>"""
+        return layout("Cost centre performance", body, "reports/cost-centre", user, tenant)
+
+    def page_dimension_pnl(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Department / branch P&L", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/dimension-pnl", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        kind = (q.get("kind") or [""])[0] or None
+        data = reports_mod.department_branch_pnl(conn, tenant, dfrom, dto, kind)
+        rows = "".join(
+            f'<tr><td>{esc(advanced_mod.DIMENSION_KINDS.get(r["kind"], r["kind"]))}</td>'
+            f'<td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td class="num">{money.fmt(r["revenue"])}</td>'
+            f'<td class="num">{money.fmt(r["expense"])}</td>'
+            f'<td class="num">{money.fmt(r["net"])}</td>'
+            f'<td class="num">{r["lines"]}</td></tr>' for r in data["rows"])
+        rows = rows or '<tr><td colspan="7" class="empty">No department or branch tagged lines in this period.</td></tr>'
+        t = data["totals"]
+        extra = ('<div><label>Scope</label><select name="kind">'
+                 f'<option value=""{" selected" if not kind else ""}>All departments &amp; branches</option>'
+                 f'<option value="department"{" selected" if kind == "department" else ""}>Department</option>'
+                 f'<option value="branch"{" selected" if kind == "branch" else ""}>Branch</option></select></div>')
+        body = f"""
+{self._period_report_header("/reports/dimension-pnl", dfrom, dto, extra, rid="R-902")}
+<div class="kpis">
+{kpi("Revenue", money.fmt(t["revenue"]), "tagged income")}
+{kpi("Expense", money.fmt(t["expense"]), "tagged expense")}
+{kpi("Contribution", money.fmt(t["net"]), "revenue - expense")}
+{kpi("Dimensions", str(t["dimensions"]), "selected scopes")}
+</div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Type</th><th>Code</th><th>Name</th><th class="num">Revenue</th>
+<th class="num">Expense</th><th class="num">Contribution</th><th class="num">Lines</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">{esc(data["method"])}</p>"""
+        return layout("Department / branch P&L", body, "reports/dimension-pnl", user, tenant)
+
+    def page_wip(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("WIP report", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/wip", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.wip_report(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["order_date"])}</td><td>{esc(r["order_no"])}</td>'
+            f'<td>{esc(r["output_name"])}</td><td class="num">{money.fmt(r["input_value"])}</td>'
+            f'<td class="num">{money.fmt(r["output_value"])}</td>'
+            f'<td class="num">{money.fmt(r["wip"])}</td>'
+            f'<td>{esc(r["status"])}</td></tr>' for r in data["rows"])
+        rows = rows or '<tr><td colspan="7" class="empty">No production orders in this period.</td></tr>'
+        t = data["totals"]
+        body = f"""
+{self._period_report_header("/reports/wip", dfrom, dto, rid="R-602")}
+<div class="kpis">
+{kpi("Open orders", str(t["open"]), "WIP carrying orders")}
+{kpi("Input value", money.fmt(t["input_value"]), "operational register")}
+{kpi("Output value", money.fmt(t["output_value"]), "operational register")}
+{kpi("WIP", money.fmt(t["wip"]), "open input - output")}
+</div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Date</th><th>Order</th><th>Output item</th><th class="num">Input value</th>
+<th class="num">Output value</th><th class="num">WIP</th><th>Status</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">{esc(data["method"])}</p>"""
+        return layout("WIP report", body, "reports/wip", user, tenant)
+
+    def page_production_consumption(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Production consumption", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/production-consumption", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.production_consumption(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["order_date"])}</td><td>{esc(r["order_no"])}</td>'
+            f'<td>{esc(r["input_name"])}</td>'
+            f'<td class="num">{r["input_qty_milli"] / 1000:.3f}</td>'
+            f'<td class="num">{r["standard_input_qty_milli"] / 1000:.3f}</td>'
+            f'<td class="num">{"n/a" if r["variance_qty"] is None else f"{r["variance_qty"] / 1000:.3f}"}</td>'
+            f'<td class="num">{"n/a" if r["variance_pct"] is None else f"{r["variance_pct"] / 100:.2f}%"}</td>'
+            f'<td>{esc(r["status"])}</td></tr>' for r in data["rows"])
+        rows = rows or '<tr><td colspan="8" class="empty">No production orders in this period.</td></tr>'
+        t = data["totals"]
+        body = f"""
+{self._period_report_header("/reports/production-consumption", dfrom, dto, rid="R-603")}
+<div class="kpis">
+{kpi("Measured orders", str(t["measured"]), "with a standard")}
+{kpi("Actual input", f"{t["actual_qty"] / 1000:.3f}", "total quantity")}
+{kpi("Standard input", f"{t["standard_qty"] / 1000:.3f}", "total quantity")}
+{kpi("Variance", "n/a" if t["variance_pct"] is None else f"{t["variance_pct"] / 100:.2f}%", "actual vs standard")}
+</div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Date</th><th>Order</th><th>Input item</th><th class="num">Actual qty</th>
+<th class="num">Standard qty</th><th class="num">Variance qty</th><th class="num">Variance %</th><th>Status</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">{esc(data["method"])}</p>"""
+        return layout("Production consumption", body, "reports/production-consumption", user, tenant)
+
+    def page_yield(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Yield / wastage", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/yield", user, tenant)
+        dfrom, dto = self._report_period(tenant, q)
+        data = reports_mod.yield_wastage(conn, tenant, dfrom, dto)
+        rows = "".join(
+            f'<tr><td>{esc(r["order_date"])}</td><td>{esc(r["order_no"])}</td>'
+            f'<td>{esc(r["input_name"])}</td><td>{esc(r["output_name"])}</td>'
+            f'<td class="num">{r["input_qty_milli"] / 1000:.3f}</td>'
+            f'<td class="num">{r["output_qty_milli"] / 1000:.3f}</td>'
+            f'<td class="num">{"n/a" if r["yield_pct"] is None else f"{r["yield_pct"] / 100:.2f}%"}</td>'
+            f'<td class="num">{"n/a" if r["wastage_pct"] is None else f"{r["wastage_pct"] / 100:.2f}%"}</td>'
+            f'<td class="num">{money.fmt(r["loss_value"])}</td></tr>' for r in data["rows"])
+        rows = rows or '<tr><td colspan="9" class="empty">No production orders in this period.</td></tr>'
+        t = data["totals"]
+        body = f"""
+{self._period_report_header("/reports/yield", dfrom, dto, rid="R-604")}
+<div class="kpis">
+{kpi("Yield", "n/a" if t["yield_pct"] is None else f"{t["yield_pct"] / 100:.2f}%", "output / input")}
+{kpi("Wastage", "n/a" if t["wastage_pct"] is None else f"{t["wastage_pct"] / 100:.2f}%", "input balance")}
+{kpi("Input qty", f"{t["input_qty"] / 1000:.3f}", "operational register")}
+{kpi("Loss value", money.fmt(t["loss_value"]), "input value - output value")}
+</div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Date</th><th>Order</th><th>Input item</th><th>Output item</th>
+<th class="num">Input qty</th><th class="num">Output qty</th><th class="num">Yield</th>
+<th class="num">Wastage</th><th class="num">Loss value</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">{esc(data["method"])}</p>"""
+        return layout("Yield / wastage", body, "reports/yield", user, tenant)
+
+    def page_consolidated(self, conn, user, tenant, q) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "report.view")
+        except security.AuthError as e:
+            return layout("Consolidated multi-company", f'<div class="card pad"><div class="err">{esc(e.message)}</div></div>',
+                          "reports/consolidated", user, tenant)
+        tenants = advanced_mod.consolidation_tenants(conn, user["id"])
+        as_of = (q.get("as_of") or [date.today().isoformat()])[0]
+        data = reports_mod.consolidated_summary(conn, [t["id"] for t in tenants], as_of)
+        rows = "".join(
+            f'<tr><td>{esc(r["name"])}</td><td>{esc(r["slug"])}</td>'
+            f'<td class="num">{money.fmt(r["revenue"])}</td>'
+            f'<td class="num">{money.fmt(r["expense"])}</td>'
+            f'<td class="num">{money.fmt(r["profit"])}</td>'
+            f'<td class="num">{money.fmt(r["assets"])}</td>'
+            f'<td class="num">{money.fmt(r["liabilities"])}</td>'
+            f'<td class="num">{money.fmt(r["equity"])}</td>'
+            f'<td class="num">{r["intercompany_entries"]}</td>'
+            f'<td class="num">{money.fmt(r["intercompany_value"])}</td></tr>' for r in data["rows"])
+        rows = rows or '<tr><td colspan="10" class="empty">No owner/admin businesses available to consolidate.</td></tr>'
+        t = data["totals"]
+        body = f"""
+<form method="get" action="/reports/consolidated" class="sect"
+ style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">Apply</button>
+<span class="badge neutral">R-1004</span></form>
+<div class="kpis">
+{kpi("Businesses", str(t["tenants"]), "owner/admin access")}
+{kpi("Revenue", money.fmt(t["revenue"]), "excluding intercompany")}
+{kpi("Profit", money.fmt(t["profit"]), "excluding intercompany")}
+{kpi("Intercompany excluded", money.fmt(t["intercompany_value"]), f'{t["intercompany_entries"]} flagged entries')}
+</div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th>Business</th><th>Slug</th><th class="num">Revenue</th><th class="num">Expense</th>
+<th class="num">Profit</th><th class="num">Assets</th><th class="num">Liabilities</th>
+<th class="num">Equity</th><th class="num">IC entries</th><th class="num">IC value</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small muted">{esc(data["method"])} Only businesses where you are owner or admin are included.
+This is a read-only working paper, not a filed consolidated statement.</p>"""
+        return layout("Consolidated multi-company", body, "reports/consolidated", user, tenant)
+
+    def _create_dimension(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "budget.manage")
+        try:
+            advanced_mod.create_dimension(
+                conn, tenant, first(form, "kind"), first(form, "code"),
+                first(form, "name"), first(form, "note"), created_by=user["id"])
+            conn.commit()
+        except advanced_mod.AdvancedError as exc:
+            return self._redirect("/dimensions?error=" + urllib.parse.quote(exc.message))
+        return self._redirect("/dimensions?saved=" + urllib.parse.quote("Dimension created"))
+
+    def _update_dimension(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "budget.manage")
+        try:
+            advanced_mod.update_dimension(
+                conn, tenant, first(form, "dimension_id"), first(form, "name"),
+                first(form, "note"), first(form, "active") == "1", updated_by=user["id"])
+            conn.commit()
+        except advanced_mod.AdvancedError as exc:
+            return self._redirect("/dimensions?error=" + urllib.parse.quote(exc.message))
+        return self._redirect("/dimensions?saved=" + urllib.parse.quote("Dimension updated"))
+
+    def _set_dimension_budget(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "budget.manage")
+        try:
+            amount = money.parse_amount(first(form, "amount") or "0")
+            advanced_mod.set_dimension_budget(
+                conn, tenant, first(form, "dimension_id"), first(form, "period"),
+                amount, first(form, "note"), actor=user["id"])
+            conn.commit()
+        except (advanced_mod.AdvancedError, money.MoneyError) as exc:
+            return self._redirect("/dimensions?error=" + urllib.parse.quote(str(exc)))
+        return self._redirect("/dimensions?saved=" + urllib.parse.quote("Budget saved"))
+
+    def _create_batch(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "item.manage")
+        try:
+            qty = money.parse_qty(first(form, "qty") or "0")
+            cost = money.parse_amount(first(form, "cost") or "0")
+            advanced_mod.create_batch(
+                conn, tenant, first(form, "item_id"), first(form, "batch_no"),
+                first(form, "expiry_date"), qty, cost, first(form, "note"),
+                created_by=user["id"])
+            conn.commit()
+        except (advanced_mod.AdvancedError, money.MoneyError) as exc:
+            return self._redirect("/batches?error=" + urllib.parse.quote(str(exc)))
+        return self._redirect("/batches?saved=" + urllib.parse.quote("Batch added"))
+
+    def _void_batch(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "item.manage")
+        try:
+            advanced_mod.void_batch(conn, tenant, first(form, "batch_id"),
+                                    first(form, "reason"), actor=user["id"])
+            conn.commit()
+        except advanced_mod.AdvancedError as exc:
+            return self._redirect("/batches?error=" + urllib.parse.quote(exc.message))
+        return self._redirect("/batches?saved=" + urllib.parse.quote("Batch voided"))
+
+    def _create_production_order(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "item.manage")
+        try:
+            advanced_mod.create_production_order(
+                conn, tenant, first(form, "order_date"), first(form, "input_item_id"),
+                first(form, "output_item_id"),
+                money.parse_qty(first(form, "input_qty") or "0"),
+                money.parse_qty(first(form, "output_qty") or "0"),
+                money.parse_qty(first(form, "standard_qty") or "0"),
+                money.parse_amount(first(form, "input_cost") or "0") or None,
+                money.parse_amount(first(form, "output_cost") or "0") or None,
+                first(form, "note"), created_by=user["id"])
+            conn.commit()
+        except (advanced_mod.AdvancedError, money.MoneyError) as exc:
+            return self._redirect("/production-orders?error=" + urllib.parse.quote(str(exc)))
+        return self._redirect("/production-orders?saved=" + urllib.parse.quote("Production order created"))
+
+    def _set_production_status(self, conn, user, tenant, form):
+        security.require(conn, user["id"], tenant["id"], "item.manage")
+        try:
+            advanced_mod.set_production_status(
+                conn, tenant, first(form, "order_id"), first(form, "status"),
+                first(form, "reason"), actor=user["id"])
+            conn.commit()
+        except advanced_mod.AdvancedError as exc:
+            return self._redirect("/production-orders?error=" + urllib.parse.quote(exc.message))
+        return self._redirect("/production-orders?saved=" + urllib.parse.quote("Production order updated"))
 
     # ---------------- exports ----------------
     def _send_bytes(self, data: bytes, content_type: str, filename: str):
@@ -10156,6 +10832,104 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                 ["Note", "Working reconciliation aid, not a filed return. Review states are internal; "
                          "no ITC was posted or changed."],
             ]
+        elif key == "expiry":
+            as_of = (q.get("as_of") or [today])[0]
+            data = reports_mod.expiry_batch_report(conn, tenant, as_of)
+            rows = [["SKU", "Item", "Batch", "Expiry", "Days", "Bucket", "Quantity",
+                     "Unit", "Cost", "Value"]]
+            rows += [[r["sku"], r["name"], r["batch_no"], r["expiry_date"], r["days"],
+                      r["bucket"], f'{r["qty_milli"] / 1000:.3f}', r["unit"],
+                      money.to_str(r["cost_paise"]), money.to_str(r["value"])]
+                     for r in data["rows"]]
+        elif key == "project-costing":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.project_costing(conn, tenant, dfrom, dto)
+            rows = [["Code", "Project", "Revenue", "Direct cost", "Contribution", "Lines"]]
+            rows += [[r["code"], r["name"], money.to_str(r["revenue"]),
+                      money.to_str(r["expense"]), money.to_str(r["net"]), r["lines"]]
+                     for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
+        elif key == "wip":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.wip_report(conn, tenant, dfrom, dto)
+            rows = [["Date", "Order", "Output item", "Input value", "Output value",
+                     "WIP", "Status"]]
+            rows += [[r["order_date"], r["order_no"], r["output_name"],
+                      money.to_str(r["input_value"]), money.to_str(r["output_value"]),
+                      money.to_str(r["wip"]), r["status"]] for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
+        elif key == "production-consumption":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.production_consumption(conn, tenant, dfrom, dto)
+            rows = [["Date", "Order", "Input item", "Actual qty", "Standard qty",
+                     "Variance qty", "Variance %", "Status"]]
+            rows += [[r["order_date"], r["order_no"], r["input_name"],
+                      f'{r["input_qty_milli"] / 1000:.3f}',
+                      f'{r["standard_input_qty_milli"] / 1000:.3f}',
+                      "" if r["variance_qty"] is None else f'{r["variance_qty"] / 1000:.3f}',
+                      "" if r["variance_pct"] is None else f'{r["variance_pct"] / 100:.2f}',
+                      r["status"]] for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
+        elif key == "yield":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.yield_wastage(conn, tenant, dfrom, dto)
+            rows = [["Date", "Order", "Input item", "Output item", "Input qty",
+                     "Output qty", "Yield %", "Wastage %", "Loss value"]]
+            rows += [[r["order_date"], r["order_no"], r["input_name"], r["output_name"],
+                      f'{r["input_qty_milli"] / 1000:.3f}',
+                      f'{r["output_qty_milli"] / 1000:.3f}',
+                      "" if r["yield_pct"] is None else f'{r["yield_pct"] / 100:.2f}',
+                      "" if r["wastage_pct"] is None else f'{r["wastage_pct"] / 100:.2f}',
+                      money.to_str(r["loss_value"])] for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
+        elif key == "cost-centre":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            data = reports_mod.cost_centre_performance(conn, tenant, dfrom, dto)
+            rows = [["Code", "Cost centre", "Actual", "Budget", "Variance",
+                     "Variance %", "Status"]]
+            rows += [[r["code"], r["name"], money.to_str(r["actual"]),
+                      money.to_str(r["budget"]), money.to_str(r["variance"]),
+                      "" if r["variance_pct"] is None else f'{r["variance_pct"] / 100:.2f}',
+                      r["status"]] for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
+        elif key == "dimension-pnl":
+            dfrom = (q.get("from") or [f"{today[:4]}-04-01"])[0]
+            dto = (q.get("to") or [today])[0]
+            kind = (q.get("kind") or [""])[0] or None
+            data = reports_mod.department_branch_pnl(conn, tenant, dfrom, dto, kind)
+            rows = [["Type", "Code", "Name", "Revenue", "Expense", "Contribution",
+                     "Lines"]]
+            rows += [[r["kind"], r["code"], r["name"], money.to_str(r["revenue"]),
+                      money.to_str(r["expense"]), money.to_str(r["net"]), r["lines"]]
+                     for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
+        elif key == "consolidated":
+            as_of = (q.get("as_of") or [today])[0]
+            allowed = advanced_mod.consolidation_tenants(conn, user["id"])
+            data = reports_mod.consolidated_summary(
+                conn, [t["id"] for t in allowed], as_of)
+            rows = [["Business", "Slug", "Revenue", "Expense", "Profit", "Assets",
+                     "Liabilities", "Equity", "Intercompany entries",
+                     "Intercompany value"]]
+            rows += [[r["name"], r["slug"], money.to_str(r["revenue"]),
+                      money.to_str(r["expense"]), money.to_str(r["profit"]),
+                      money.to_str(r["assets"]), money.to_str(r["liabilities"]),
+                      money.to_str(r["equity"]), r["intercompany_entries"],
+                      money.to_str(r["intercompany_value"])]
+                     for r in data["rows"]]
+            rows.append([])
+            rows.append(["Note", data["method"]])
         else:
             return self._send("Unknown export", 404)
 

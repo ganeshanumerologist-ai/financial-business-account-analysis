@@ -1,6 +1,6 @@
 # ARTHIVIO Offline Edition
 
-**Build 0.18. Single-user Windows package. No Python install, no internet, local SQLite.**
+**Build 0.19. Single-user Windows package. No Python install, no internet, local SQLite.**
 
 This document describes the offline package only. It is not permanent hosting, not a multi-user
 server, and not a substitute for an independent accounting or security review.
@@ -32,7 +32,7 @@ Build it from the repository with:
 Output:
 
 - `dist\ARTHIVIO-Offline\`
-- `dist\ARTHIVIO-Offline-0.18.zip`
+- `dist\ARTHIVIO-Offline-0.19.zip`
 
 The build downloads the Python embeddable ZIP once into `build-cache\`, copies `openpyxl` 3.1.5
 and `et_xmlfile`, and tests the embedded runtime before reporting success. The target machine does
@@ -165,19 +165,20 @@ deserves a verified backup and a restore drill.
 
 ---
 
-## 9. Verification performed for Build 0.18
+## 9. Verification performed for Build 0.19
 
 | Check | Result |
 |---|---|
-| Full test suite | **307 tests, OK**, 31.524 s, Python 3.14.6, Windows |
-| Report tests | 40 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, R-204 draft entries, credit-limit detection, malformed journal detection and tenant isolation |
+| Full test suite | **313 tests, OK**, 30.908 s, Python 3.14.6, Windows |
+| Report tests | 45 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, R-204 draft entries, R-508 expiry, R-601 project costing, R-602 WIP, R-603 consumption, R-604 yield, R-605 cost centre, R-902 dimension P&L, R-1004 consolidation, credit-limit detection, malformed journal detection and tenant isolation |
 | Draft workflow tests | save draft, post draft, insufficient stock at posting, void with reason, idempotent post, receipt guard and draft-print block |
-| Report HTTP tests | 38 report pages and 33 CSV exports, OK |
-| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.18` |
-| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.18 Python/3.14.6` |
+| Advanced web flow | dimension creation, cost-centre budget, batch creation, production-order creation, dimension-tagged journal posting, all eight new report pages and the project-costing CSV |
+| Report HTTP tests | 46 report pages and 41 CSV exports, OK |
+| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.19` |
+| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.19 Python/3.14.6` |
 | Package first run | Setup page rendered from the embedded runtime; owner creation covered by `test_first_run` |
 | External-drive backup | Local backup verified, copy hash matched, copy re-verified read-only (Build 0.14, unchanged code path) |
-| Package size | 14,868,163 bytes (ZIP); 30,948,547 bytes extracted |
+| Package size | approximately 14.9 MB (ZIP); 31.2 MB extracted |
 | Package data reset | Smoke-test database and logs were kept outside the package; no test data was added to the built folder |
 
 Not verified in this build:

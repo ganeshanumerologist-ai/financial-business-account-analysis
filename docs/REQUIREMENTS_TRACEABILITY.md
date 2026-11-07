@@ -2,15 +2,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.2 |
-| Date | 2026-11-05 |
+| Version | 1.3 |
+| Date | 2026-11-06 |
 | Purpose | Prove every requirement has a planned module, a test, and a documented status |
 | Source | `docs/PROJECT_SPEC.md` → `docs/REQUIREMENTS.md` → modules → tests |
 
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 26 (Build 0.18); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 27 (Build 0.19); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -475,3 +475,26 @@ accounting data.
 | Draft bills / draft journals | **Not implemented** | `journal_entry.status` has no draft state and `bill.status` supports only posted and void; R-204 covers draft sales invoices only |
 | Draft line editing / approval | **Not implemented** | void and recreate a draft; there is no in-place line editor or second-person approval workflow |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.18 |
+
+## 27. Status after advanced registers and 66/66 reports (Build 0.19, 2026-11-06)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Dimension master | **Verified** | `/dimensions` stores project, cost-centre, department and branch masters with code, name, active flag and audit events; `budget.manage`; `test_project_costing_and_dimension_pnl_are_tagged_only` |
+| Cost-centre budget | **Verified as planning data** | monthly budget per cost centre, upsert and audit; R-605 compares tagged actual expense with the monthly budget; `test_cost_centre_budget_actual_and_variance` |
+| Journal dimension tag | **Verified** | optional selector on manual journal lines; `post_journal` validates active tenant dimensions; reversals preserve the tag; `test_project_costing_and_dimension_pnl_are_tagged_only` |
+| Intercompany flag | **Verified** | entry-level checkbox on manual journals; reversals preserve it; R-1004 excludes flagged entries from combined totals and reports them separately; `test_consolidated_summary_excludes_intercompany_entries` |
+| R-508 Expiry / Batch | **Verified as a manual register** | `/reports/expiry` shows days to expiry, five buckets, quantity and batch value; does not allocate batches to sales or change stock; `test_batch_register_and_expiry_buckets` |
+| R-601 Project Costing | **Verified as tagged-journal reporting** | tagged revenue less tagged direct expense, plus an explicit unallocated row; no automatic indirect allocation; `test_project_costing_and_dimension_pnl_are_tagged_only` |
+| R-602 WIP | **Verified as an operational register** | open production-order input value less output value; completed orders show zero WIP; no journal or stock effect; `test_production_wip_consumption_and_yield` |
+| R-603 Production Consumption | **Verified as an operational register** | actual input quantity versus user-entered standard, variance quantity and variance %; orders without a standard are shown but excluded from variance totals; `test_production_wip_consumption_and_yield` |
+| R-604 Yield / Wastage | **Verified as an operational indicator** | output / input yield, wastage balance and loss value; not a posted expense; `test_production_wip_consumption_and_yield` |
+| R-605 Cost Centre Performance | **Verified as planning vs actual** | tagged expense versus monthly cost-centre budget, variance, variance % and status; unallocated expense has no budget; `test_cost_centre_budget_actual_and_variance` |
+| R-902 Department / Branch P&L | **Verified as tagged-journal reporting** | department/branch contribution with scope filter and explicit unallocated row; no automatic recharge; `test_project_costing_and_dimension_pnl_are_tagged_only` |
+| R-1004 Consolidated Multi-Company | **Verified as a read-only working paper** | owner/admin-accessible businesses only; intercompany-flagged journals excluded from combined totals and reported separately; no automatic matching; `test_consolidated_summary_excludes_intercompany_entries` |
+| Report coverage | **66 of 66** | 58 prior working reports plus R-508, R-601 to R-605, R-902 and R-1004; 0 partial and 0 planned |
+| Offline package 0.19 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.19.zip`; embedded runtime import and `/health` returned `ok` |
+| Dimension tags on documents | **Not implemented** | invoice, bill, receipt and payment forms do not expose a dimension selector; only manual journal lines do |
+| Automatic allocation / elimination | **Not implemented** | no allocation, recharge, timesheet, intercompany matching or elimination engine; unallocated rows are explicit |
+| Batch allocation / cost layers | **Not implemented** | batch register is manual; no batch-wise stock valuation, FIFO or historical cost layers |
+| Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.19 |

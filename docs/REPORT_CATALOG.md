@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.7 |
+| Version | 1.8 |
 | Date | 2026-11-06 |
-| Status | **58 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 added nineteen more, including R-506; Build 0.18 adds R-204 draft entries) |
+| Status | **66 of 66 catalogued reports have a working screen or export** (Build 0.13 added the Report Library and nine management reports; Build 0.16 added ten; Build 0.17 added nineteen more, including R-506; Build 0.18 added R-204 draft entries; Build 0.19 adds R-508, R-601 to R-605, R-902 and R-1004) |
 | Target | ≈150 templates across 10 groups (spec §14) |
 | Catalogued here | 66 named reports (Phase 2–6 priorities) |
 
@@ -42,6 +42,18 @@ Every report must declare: source data, formula, applicability, permissions, fil
 > revalidates live stock. The library now marks **58 working, 0 partial and 8 planned**. There is
 > still no draft journal-entry workflow, so R-204 covers draft sales invoices only and says so on
 > the screen.
+>
+> **Build 0.19 advanced operations batch:** the last eight catalogued reports are now working:
+> R-508 expiry/batch register, R-601 job/project costing, R-602 WIP, R-603 production consumption,
+> R-604 yield/wastage, R-605 cost-centre performance, R-902 department/branch P&L and R-1004
+> consolidated multi-company. The batch adds four additive operational registers - dimensions,
+> monthly dimension budgets, inventory batches and production orders - plus optional dimension tags
+> on manual journal lines and an intercompany flag on manual journal entries. These registers are
+> working papers: they do not change stock, post a journal, compute tax or invent an allocation.
+> Unallocated journal lines are shown explicitly in R-601, R-605 and R-902. R-1004 excludes
+> intercompany-flagged manual journals from combined totals and reports them separately; there is no
+> automatic matching or elimination engine. The library now marks **66 working, 0 partial and 0
+> planned**.
 >
 > **Build 0.12 export surfaces:** the 20-sheet actuals workbook (`/export/workbook.xlsx`) includes
 > trial balance, P&L, balance sheet, ageing, cash/bank, inventory and GST working sheets, and the
@@ -138,7 +150,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-505 | Dead / Slow Stock | posted stock movements + item | Stocked items with no movement for N days | To item | 4 | Working (Build 0.17) |
 | R-506 | Stock Adjustment Register | `stock_adjustment` + item + journal_entry | Signed quantity, current-cost value, reason, note, journal and posting user; no approval workflow | To stock movements / item | 4 | Working (Build 0.17) |
 | R-507 | Inventory ? GL Reconciliation | item stock value + inventory ledger | Item-master stock value versus inventory account balance | To ledger/item | 4 | Working (Build 0.17) |
-| R-508 | Expiry / Batch Report | batch | Days to expiry buckets | 4 | Not implemented |
+| R-508 | Expiry / Batch Report | `inventory_batch` + item | Days to expiry buckets; quantity x batch cost; manual register only | 4 | Working (Build 0.19) |
 
 ---
 
@@ -146,11 +158,11 @@ Every report must declare: source data, formula, applicability, permissions, fil
 
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
-| R-601 | Job / Project Costing | cost entries | Direct + allocated indirect cost | 7 | Not implemented |
-| R-602 | WIP Report | production orders | Inputs − completed output | 7 | Not implemented |
-| R-603 | Production Consumption | production | Actual vs standard consumption | 7 | Not implemented |
-| R-604 | Yield / Wastage | production | Output ÷ input, wastage % | 7 | Not implemented |
-| R-605 | Cost Centre Performance | cost entries | Budget vs actual per centre | 6 | Not implemented |
+| R-601 | Job / Project Costing | journal lines tagged to a project dimension | Tagged revenue less tagged direct expense; explicit unallocated row; no automatic indirect allocation | 7 | Working (Build 0.19) |
+| R-602 | WIP Report | `production_order` register | Open input value less output value; completed orders show zero WIP | 7 | Working (Build 0.19) |
+| R-603 | Production Consumption | `production_order` register | Actual input quantity versus user-entered standard input quantity | 7 | Working (Build 0.19) |
+| R-604 | Yield / Wastage | `production_order` register | Output quantity / input quantity; wastage is the balance; loss value is an operational indicator | 7 | Working (Build 0.19) |
+| R-605 | Cost Centre Performance | `dimension_budget` + tagged expense lines | Cost-centre actual expense versus monthly cost-centre budget; unallocated expense has no budget | 6 | Working (Build 0.19) |
 
 ---
 
@@ -188,7 +200,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | ID | Report | Source | Formula | Phase | Status |
 |---|---|---|---|---|---|
 | R-901 | Budget vs Actual | budget + journal_line | Variance = actual − budget | 6 | Working (Build 0.17) |
-| R-902 | Department / Branch P&L | journal_line + scoping | Contribution by scope | 6 | Not implemented |
+| R-902 | Department / Branch P&L | journal lines tagged to department/branch dimensions | Tagged revenue less tagged expense; explicit unallocated row; no automatic recharge | 6 | Working (Build 0.19) |
 | R-903 | Expense Breakdown | journal_line (expense) | Σ by account + share % | 6 | Working (Build 0.13) |
 | R-904 | KPI Dashboard Pack | statements + ratios + cash + ageing + inventory | Actual-only KPI cards with formula and source | To source report | 6 | Working (Build 0.17) |
 | R-905 | Working Capital Cycle | BS + AR/AP + bills | DSO + DIO - DPO | 6 | Working (Build 0.13) |
@@ -202,7 +214,7 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | R-1001 | Trend Explanation | posted monthly revenue + expenses | Deterministic statistics and narrative, sources cited | To month | 8 | Working (Build 0.17) |
 | R-1002 | Revenue Forecast | posted monthly revenue | Least-squares output, **explicitly labelled forecast** with indicative band | To actual month | 8 | Working (Build 0.17) |
 | R-1003 | Anomaly Digest | journal + invoice + stock + AR | Rule-based review prompts with reasons | To document | 8 | Working (Build 0.17) |
-| R-1004 | Consolidated Multi-Company | multiple tenants/entities | Sum with intercompany eliminations (**authorised only**) | 7 | Not implemented |
+| R-1004 | Consolidated Multi-Company | owner/admin-accessible tenants + intercompany-flagged manual journals | Read-only sum of posted balances; intercompany-flagged journals excluded from combined totals and reported separately; no automatic matching | 7 | Working (Build 0.19) |
 
 **Rule:** AI reports never replace deterministic calculations; every number must trace to records.
 
@@ -216,15 +228,15 @@ Every report must declare: source data, formula, applicability, permissions, fil
 | Accounting & audit | 6 | 5 | 5 |
 | Sales & customers | 9 | 9 | 9 |
 | Purchases & suppliers | 6 | 6 | 6 |
-| Inventory & warehouse | 8 | 7 | 7 |
-| Costing & operations | 5 | 0 | 0 |
+| Inventory & warehouse | 8 | 8 | 8 |
+| Costing & operations | 5 | 5 | 5 |
 | Cash, credit & risk | 6 | 6 | 6 |
 | Tax & compliance | 7 | 7 | 7 |
-| Strategy & process | 4 | 3 | 3 |
+| Strategy & process | 4 | 4 | 4 |
 | Management & KPIs | 1 | 1 | 1 |
 | AI-assisted analysis | 3 | 3 | 3 |
-| AI & cross-business | 1 | 0 | 0 |
-| **Total** | **66** | **57** | **57** |
+| AI & cross-business | 1 | 1 | 1 |
+| **Total** | **66** | **66** | **66** |
 
 Implemented counts include only reports with a route and a passing automated check; partial
 working papers (for example opening/closing statement balances) are noted in the group tables but
@@ -233,7 +245,11 @@ R-305/R-403; Build 0.7 adds per-line ITC review and a GSTR-3B-vs-2B comparison i
 Build 0.9 adds cash book (R-701) and bank book (R-702). Build 0.10 makes the bank book selectable
 for every linked bank account, but adds no new catalogue row or report count. Build 0.17 adds
 R-901 budget vs actual with stored monthly budgets, and R-506 stock adjustment register with
-current-cost manual adjustments.
+current-cost manual adjustments. Build 0.19 completes the catalogue: R-508 batch/expiry,
+R-601 to R-605 costing and production, R-902 department/branch P&L and R-1004 consolidation.
+The advanced reports read additive operational registers and explicit dimension tags; they do not
+post journals, move stock or fabricate allocations. R-1004 is a read-only working paper, not a
+filed consolidated statement.
 
 The spec's ≈150 target will be reached by extending groups 1–10; the 66 catalogued here are the ones with a defined formula and a clear user. Reports without a defined source and formula are not catalogued — they would be decoration, not information.
 

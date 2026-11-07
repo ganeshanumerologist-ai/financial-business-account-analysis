@@ -1772,9 +1772,11 @@ class WebTest(unittest.TestCase):
         status, page = self.get("/reports/library")
         self.assertEqual(status, 200)
         self.assertIn("Report library", page)
-        self.assertIn("58 of 66 working", page)
+        self.assertIn("66 of 66 working", page)
         self.assertIn("R-104", page)
         self.assertIn("R-905", page)
+        self.assertIn("R-508", page)
+        self.assertIn("R-1004", page)
         self.assertIn("Planned reports are deliberately not filled with sample data", page)
 
         routes = {
@@ -1817,6 +1819,17 @@ class WebTest(unittest.TestCase):
             "/reports/trend-explanation": "Trend explanation",
             "/reports/revenue-forecast": "Revenue forecast",
             "/reports/anomaly-digest": "Anomaly digest",
+            "/reports/expiry": "Expiry / batch report",
+            "/reports/project-costing": "Job / project costing",
+            "/reports/wip": "WIP report",
+            "/reports/production-consumption": "Production consumption",
+            "/reports/yield": "Yield / wastage",
+            "/reports/cost-centre": "Cost centre performance",
+            "/reports/dimension-pnl": "Department / branch",
+            "/reports/consolidated": "Consolidated multi-company",
+            "/dimensions": "Dimensions",
+            "/batches": "Batch register",
+            "/production-orders": "Production orders",
         }
         for path, title in routes.items():
             status, body = self.get(path)
@@ -2210,6 +2223,117 @@ class WebTest(unittest.TestCase):
             "SELECT status FROM invoice WHERE id=?", (void_id,)).fetchone()
         self.assertEqual(voided["status"], "void")
         conn.close()
+
+
+    def test_99_advanced_registers_and_reports(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        tenant = conn.execute("SELECT * FROM tenant WHERE slug='arthivio-demo'").fetchone()
+        items = conn.execute(
+            "SELECT id FROM item WHERE tenant_id=? ORDER BY name LIMIT 2",
+            (tenant["id"],)).fetchall()
+        self.assertGreaterEqual(len(items), 2)
+        conn.close()
+        item_id = items[0]["id"]
+        output_item_id = items[1]["id"]
+
+        status, page = self.get("/dimensions")
+        token = self.csrf(page)
+        status, body, final = self.post("/dimensions", {
+            "_csrf": token, "kind": "project", "code": "PRJ-WEB",
+            "name": "Web project", "note": "HTTP test"})
+        self.assertEqual(status, 200)
+        self.assertIn("Saved", body)
+        status, page = self.get("/dimensions")
+        token = self.csrf(page)
+        status, body, final = self.post("/dimensions", {
+            "_csrf": token, "kind": "cost_centre", "code": "CC-WEB",
+            "name": "Web cost centre", "note": ""})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        project_id = conn.execute(
+            "SELECT id FROM dimension WHERE code='PRJ-WEB'").fetchone()["id"]
+        centre_id = conn.execute(
+            "SELECT id FROM dimension WHERE code='CC-WEB'").fetchone()["id"]
+        conn.close()
+        status, page = self.get("/dimensions")
+        token = self.csrf(page)
+        status, body, final = self.post("/dimensions/budget", {
+            "_csrf": token, "dimension_id": centre_id,
+            "period": "2026-10", "amount": "5000", "note": "Web budget"})
+        self.assertEqual(status, 200)
+        self.assertIn("Budget saved", body)
+
+        status, page = self.get("/batches")
+        token = self.csrf(page)
+        status, body, final = self.post("/batches", {
+            "_csrf": token, "item_id": item_id, "batch_no": "B-WEB-1",
+            "expiry_date": "2026-10-31", "qty": "5", "cost": "10.00",
+            "note": "HTTP test"})
+        self.assertEqual(status, 200)
+        self.assertIn("Batch added", body)
+        status, page = self.get("/batches")
+        self.assertIn("B-WEB-1", page)
+
+        status, page = self.get("/production-orders")
+        token = self.csrf(page)
+        status, body, final = self.post("/production-orders", {
+            "_csrf": token, "order_date": "2026-10-20",
+            "input_item_id": item_id, "output_item_id": output_item_id,
+            "input_qty": "10", "output_qty": "9", "standard_qty": "9.5",
+            "input_cost": "10.00", "output_cost": "10.00", "note": "HTTP test"})
+        self.assertEqual(status, 200)
+        self.assertIn("Production order created", body)
+        status, page = self.get("/production-orders")
+        self.assertIn("PRD-", page)
+
+        status, page = self.get("/entries/journal")
+        token = self.csrf(page)
+        status, body, final = self.post("/journal", {
+            "_csrf": token, "entry_date": "2026-10-21",
+            "narration": "Web project tagged cost",
+            "account_id": [self._account_id("6000"), self._account_id("1000")],
+            "debit": ["100.00", "0"], "credit": ["0", "100.00"],
+            "dimension_id": [project_id, ""]})
+        self.assertEqual(status, 200)
+        self.assertIn("Journal entry", body)
+        status, page = self.get("/reports/project-costing?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-601", page)
+        self.assertIn("PRJ-WEB", page)
+        status, page = self.get("/reports/cost-centre?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-605", page)
+        self.assertIn("CC-WEB", page)
+        status, page = self.get("/reports/wip?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-602", page)
+        status, page = self.get("/reports/production-consumption?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-603", page)
+        status, page = self.get("/reports/yield?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-604", page)
+        status, page = self.get("/reports/expiry?as_of=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-508", page)
+        status, page = self.get("/reports/dimension-pnl?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-902", page)
+        status, page = self.get("/reports/consolidated?as_of=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("R-1004", page)
+
+        status, body = self.get("/export/project-costing.csv?from=2026-10-01&to=2026-10-31")
+        self.assertEqual(status, 200)
+        self.assertIn("PRJ-WEB", body)
+
+    def _account_id(self, code: str) -> str:
+        conn = db.connect(self.db_path)
+        tenant = conn.execute("SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()
+        account_id = db.account_id(conn, tenant["id"], code)
+        conn.close()
+        return account_id
 
 
 if __name__ == "__main__":
