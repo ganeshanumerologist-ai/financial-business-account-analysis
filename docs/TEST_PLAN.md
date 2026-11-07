@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.2 (active; Build 0.13) |
-| Date | 2026-11-04 |
-| Status | **Active; 257 automated tests execute on the local build** (see `docs/TEST_RESULTS.md` section 28) |
+| Version | 1.9 (active; Build 0.19) |
+| Date | 2026-11-06 |
+| Status | **Active; 313 automated tests execute on the local build** (see `docs/TEST_RESULTS.md` section 36) |
 | Owner | Project owner (approval), OpenCode agent (authoring & execution) |
 | Data policy | Synthetic data only. No real bank credentials, no real customer financial data. |
 

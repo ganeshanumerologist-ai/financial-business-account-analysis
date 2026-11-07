@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.1 |
-| Date | 2026-10-28 |
-| Status | Draft for owner approval. The per-row status column below is the original full-scope baseline and is stale; current Build 0.13 evidence is in `docs/REQUIREMENTS_TRACEABILITY.md` section 21. |
+| Version | 1.9 |
+| Date | 2026-11-06 |
+| Status | Draft for owner approval. The per-row status column below is the original full-scope baseline and is stale; current Build 0.19 evidence is in `docs/REQUIREMENTS_TRACEABILITY.md` section 27. |
 | Source of truth | `docs/PROJECT_SPEC.md` (763 lines, SHA-256 `4556C714…`) |
 | Stack | Original Option A was Next.js + FastAPI; the delivered local prototype is standard-library Python + SQLite under D-007, with approved `openpyxl` for `.xlsx` workbooks |
 
