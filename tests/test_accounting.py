@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import accounting as acc
-from app import db, money, security
+from app import db, drafts, money, security
 
 
 class Base(unittest.TestCase):
@@ -854,6 +854,327 @@ class TestOpeningBalance(Base):
         with self.assertRaises(acc.AccountingError) as ctx:
             acc.set_opening_balance(self.conn, self.t, cash, "2099-04-01", 100, "debit")
         self.assertEqual(ctx.exception.code, "BAD_OPENING_DATE")
+
+    def test_replace_opening_balance_reverses_old_and_posts_new(self):
+        cash = db.account_id(self.conn, self.t, "1000")
+        first = acc.set_opening_balance(
+            self.conn, self.t, cash, "2026-04-01", 100000, "debit")
+        result = acc.replace_opening_balance(
+            self.conn, self.t, cash, "2026-04-01", 150000, "debit",
+            "Opening cash was understated")
+        self.assertEqual(result["original_id"], first)
+        self.assertNotEqual(result["entry_id"], first)
+        self.assertNotEqual(result["reversal_id"], first)
+        balances = {a["code"]: a for a in acc.account_balances(self.conn, self.t, "2026-10-26")}
+        self.assertEqual(balances["1000"]["balance"], 150000)
+        self.assertEqual(balances["3200"]["balance"], -150000)
+        statuses = self.conn.execute(
+            "SELECT status FROM journal_entry WHERE source_type='opening' ORDER BY entry_no"
+        ).fetchall()
+        self.assertEqual([r["status"] for r in statuses], ["reversed", "posted"])
+        audit = self.conn.execute(
+            "SELECT 1 FROM audit_log WHERE tenant_id=? AND action='opening_balance.replace'",
+            (self.t,)).fetchone()
+        self.assertIsNotNone(audit)
+
+    def test_replace_opening_requires_existing_and_reason(self):
+        cash = db.account_id(self.conn, self.t, "1000")
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_opening_balance(
+                self.conn, self.t, cash, "2026-04-01", 100, "debit", "reason")
+        self.assertEqual(ctx.exception.code, "OPENING_NOT_FOUND")
+        acc.set_opening_balance(self.conn, self.t, cash, "2026-04-01", 100, "debit")
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_opening_balance(
+                self.conn, self.t, cash, "2026-04-01", 200, "debit", "")
+        self.assertEqual(ctx.exception.code, "REASON_REQUIRED")
+
+
+class TestDraftsAndApproval(Base):
+    def vendor(self, name="Test Vendor"):
+        vid = db.new_id()
+        self.conn.execute(
+            "INSERT INTO vendor (id, tenant_id, name, state_code, created_at)"
+            " VALUES (?,?,?,?,?)", (vid, self.t, name, "27", db.now()))
+        return vid
+
+    def bill_items(self, item_id, qty=2000, price=6000):
+        return [{"item_id": item_id, "qty": qty, "unit_price": price, "discount": 0}]
+
+    def test_bill_draft_lifecycle_has_no_ledger_effect_until_approval(self):
+        item_id = self.item(stock=1000)
+        vendor_id = self.vendor()
+        draft = drafts.save_bill_draft(
+            self.conn, self.t, vendor_id, "2026-10-24", "VB-1", "27",
+            self.bill_items(item_id))
+        self.assertEqual(draft["status"], "draft")
+        self.assertTrue(draft["draft_no"].startswith("DRAFT-BILL-"))
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) c FROM bill").fetchone()["c"], 0)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM journal_entry").fetchone()["c"], 0)
+        self.assertEqual(
+            self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0],
+            1000)
+
+        updated = drafts.update_bill_draft(
+            self.conn, self.t, draft["id"], vendor_id, "2026-10-24", "VB-1", "27",
+            self.bill_items(item_id, qty=3000, price=7000))
+        self.assertEqual(updated["total_paise"], 3000 * 7000 * 118 // 100 // 1000)
+
+        drafts.submit_bill_draft(self.conn, self.t, draft["id"])
+        self.assertEqual(
+            self.conn.execute("SELECT status FROM bill_draft WHERE id=?",
+                              (draft["id"],)).fetchone()["status"], "pending")
+        with self.assertRaises(acc.AccountingError) as ctx:
+            drafts.update_bill_draft(
+                self.conn, self.t, draft["id"], vendor_id, "2026-10-24", "VB-1", "27",
+                self.bill_items(item_id))
+        self.assertEqual(ctx.exception.code, "DRAFT_NOT_EDITABLE")
+
+        posted = drafts.approve_bill_draft(self.conn, self.t, draft["id"])
+        self.assertEqual(posted["status"], "posted")
+        self.assertIsNotNone(posted["posted_bill_id"])
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) c FROM bill").fetchone()["c"], 1)
+        self.assertEqual(
+            self.conn.execute("SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0],
+            4000)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM journal_entry").fetchone()["c"], 1)
+        self.assertEqual(drafts.pending_approvals(self.conn, self.t), [])
+
+    def test_rejected_bill_draft_can_be_edited_and_resubmitted(self):
+        item_id = self.item(stock=1000)
+        vendor_id = self.vendor()
+        draft = drafts.save_bill_draft(
+            self.conn, self.t, vendor_id, "2026-10-24", "VB-2", "27",
+            self.bill_items(item_id))
+        drafts.submit_bill_draft(self.conn, self.t, draft["id"])
+        rejected = drafts.reject_bill_draft(
+            self.conn, self.t, draft["id"], "Wrong vendor bill number")
+        self.assertEqual(rejected["status"], "rejected")
+        self.assertEqual(rejected["rejection_reason"], "Wrong vendor bill number")
+        updated = drafts.update_bill_draft(
+            self.conn, self.t, draft["id"], vendor_id, "2026-10-24", "VB-2A", "27",
+            self.bill_items(item_id))
+        self.assertEqual(updated["status"], "draft")
+        self.assertEqual(updated["rejection_reason"], "")
+
+    def test_journal_draft_lifecycle_and_balance_validation(self):
+        cash = db.account_id(self.conn, self.t, "1000")
+        rent = db.account_id(self.conn, self.t, "6000")
+        lines = [{"account_id": rent, "debit": 50000, "credit": 0},
+                 {"account_id": cash, "debit": 0, "credit": 50000}]
+        draft = drafts.save_journal_draft(
+            self.conn, self.t, "2026-10-24", "October rent", lines)
+        self.assertTrue(draft["draft_no"].startswith("DRAFT-JV-"))
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) c FROM journal_entry").fetchone()["c"], 0)
+        with self.assertRaises(acc.AccountingError) as ctx:
+            drafts.save_journal_draft(
+                self.conn, self.t, "2026-10-24", "Unbalanced", [
+                    {"account_id": rent, "debit": 100, "credit": 0},
+                    {"account_id": cash, "debit": 0, "credit": 99}])
+        self.assertEqual(ctx.exception.code, "UNBALANCED")
+        drafts.submit_journal_draft(self.conn, self.t, draft["id"])
+        posted = drafts.approve_journal_draft(self.conn, self.t, draft["id"])
+        self.assertEqual(posted["status"], "posted")
+        self.assertIsNotNone(posted["posted_entry_id"])
+        balances = {a["code"]: a for a in acc.account_balances(self.conn, self.t, "2026-10-26")}
+        self.assertEqual(balances["6000"]["balance"], 50000)
+        self.assertEqual(balances["1000"]["balance"], -50000)
+
+    def test_invoice_approval_queue_and_approve_posts(self):
+        item_id = self.item(stock=5000)
+        draft = acc.save_invoice_draft(
+            self.conn, self.t, self.cust, "2026-10-24", "27",
+            [{"item_id": item_id, "qty": 1000}])
+        submitted = drafts.submit_invoice_draft(self.conn, self.t, draft["id"])
+        self.assertEqual(submitted["approval_status"], "pending")
+        queue = drafts.pending_approvals(self.conn, self.t)
+        self.assertEqual(len(queue), 1)
+        self.assertEqual(queue[0]["kind"], "invoice")
+        posted = drafts.approve_invoice_draft(self.conn, self.t, draft["id"])
+        self.assertEqual(posted["status"], "posted")
+        self.assertEqual(posted["approval_status"], "approved")
+        self.assertEqual(drafts.pending_approvals(self.conn, self.t), [])
+
+    def test_drafts_are_tenant_scoped(self):
+        item_id = self.item(stock=1000)
+        vendor_id = self.vendor()
+        draft = drafts.save_bill_draft(
+            self.conn, self.t, vendor_id, "2026-10-24", "VB-3", "27",
+            self.bill_items(item_id))
+        other = db.create_tenant(self.conn, "Other Co", "other")
+        with self.assertRaises(acc.AccountingError) as ctx:
+            drafts.submit_bill_draft(self.conn, other, draft["id"])
+        self.assertEqual(ctx.exception.code, "DRAFT_NOT_FOUND")
+        self.assertEqual(drafts.list_bill_drafts(self.conn, other), [])
+
+
+class TestPostedCorrections(Base):
+    def vendor(self, name="Correction Vendor"):
+        vid = db.new_id()
+        self.conn.execute(
+            "INSERT INTO vendor (id, tenant_id, name, state_code, created_at)"
+            " VALUES (?,?,?,?,?)", (vid, self.t, name, "27", db.now()))
+        return vid
+
+    def bill(self, vendor_id, item_id, qty=5000, price=4000):
+        return acc.create_bill(
+            self.conn, self.t, vendor_id, "2026-10-24", "VB-CORR", "27",
+            [{"item_id": item_id, "qty": qty, "unit_price": price}])
+
+    def test_void_posted_invoice_restores_stock_and_reverses_journal(self):
+        item_id = self.item(stock=10000)
+        inv = self.invoice([{"item_id": item_id, "qty": 2000}])
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0], 8000)
+        voided = acc.void_posted_invoice(self.conn, self.t, inv["id"], "Duplicate invoice")
+        self.assertEqual(voided["status"], "void")
+        self.assertEqual(voided["void_reason"], "Duplicate invoice")
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0], 10000)
+        entry = self.conn.execute(
+            "SELECT status FROM journal_entry WHERE id=?", (inv["journal_entry_id"],)).fetchone()
+        self.assertEqual(entry["status"], "reversed")
+        reversals = self.conn.execute(
+            "SELECT COUNT(*) c FROM journal_entry WHERE tenant_id=? AND source_type='reversal'",
+            (self.t,)).fetchone()["c"]
+        self.assertEqual(reversals, 1)
+        self.assertIsNotNone(self.conn.execute(
+            "SELECT 1 FROM audit_log WHERE tenant_id=? AND action='invoice.void'",
+            (self.t,)).fetchone())
+
+    def test_replace_posted_invoice_links_new_number_and_balances(self):
+        item_id = self.item(stock=10000)
+        old = self.invoice([{"item_id": item_id, "qty": 2000}])
+        new = acc.replace_posted_invoice(
+            self.conn, self.t, old["id"], self.cust, "2026-10-24", "27",
+            [{"item_id": item_id, "qty": 3000}], "Quantity was entered wrong")
+        self.assertEqual(new["status"], "posted")
+        self.assertNotEqual(new["invoice_no"], old["invoice_no"])
+        self.assertEqual(new["replaces_id"], old["id"])
+        self.assertEqual(new["approval_status"], "approved")
+        old_row = self.conn.execute(
+            "SELECT status, void_reason FROM invoice WHERE id=?", (old["id"],)).fetchone()
+        self.assertEqual(old_row["status"], "void")
+        self.assertEqual(old_row["void_reason"], "Quantity was entered wrong")
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0], 7000)
+        totals = self.conn.execute(
+            "SELECT COALESCE(SUM(debit_paise),0) d, COALESCE(SUM(credit_paise),0) c"
+            " FROM journal_line WHERE tenant_id=?", (self.t,)).fetchone()
+        self.assertEqual(totals["d"], totals["c"])
+        self.assertIsNotNone(self.conn.execute(
+            "SELECT 1 FROM audit_log WHERE tenant_id=? AND action='invoice.replace'",
+            (self.t,)).fetchone())
+
+    def test_replace_posted_invoice_blocked_by_receipt(self):
+        item_id = self.item(stock=10000)
+        inv = self.invoice([{"item_id": item_id, "qty": 2000}])
+        acc.record_payment(
+            self.conn, self.t, "receipt", self.cust, "2026-10-24", 5000,
+            allocations=[{"doc_type": "invoice", "doc_id": inv["id"], "amount": 5000}])
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_posted_invoice(
+                self.conn, self.t, inv["id"], self.cust, "2026-10-24", "27",
+                [{"item_id": item_id, "qty": 2000}], "No longer needed")
+        self.assertEqual(ctx.exception.code, "INVOICE_HAS_PAYMENTS")
+
+    def test_void_posted_bill_removes_stock_and_reverses(self):
+        item_id = self.item(stock=10000)
+        vendor_id = self.vendor()
+        bill = self.bill(vendor_id, item_id, qty=5000, price=4000)
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0], 15000)
+        voided = acc.void_posted_bill(self.conn, self.t, bill["id"], "Wrong vendor bill")
+        self.assertEqual(voided["status"], "void")
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0], 10000)
+        self.assertEqual(self.conn.execute(
+            "SELECT status FROM journal_entry WHERE id=?", (bill["journal_entry_id"],)
+        ).fetchone()["status"], "reversed")
+
+    def test_replace_posted_bill_updates_stock_and_links_old(self):
+        item_id = self.item(stock=10000)
+        vendor_id = self.vendor()
+        old = self.bill(vendor_id, item_id, qty=5000, price=4000)
+        new = acc.replace_posted_bill(
+            self.conn, self.t, old["id"], vendor_id, "2026-10-24", "VB-CORR-2", "27",
+            [{"item_id": item_id, "qty": 7000, "unit_price": 4500}],
+            "Supplier bill quantity corrected")
+        self.assertEqual(new["status"], "posted")
+        self.assertEqual(new["replaces_id"], old["id"])
+        self.assertEqual(new["vendor_bill_no"], "VB-CORR-2")
+        self.assertEqual(self.conn.execute(
+            "SELECT status FROM bill WHERE id=?", (old["id"],)).fetchone()["status"], "void")
+        self.assertEqual(self.conn.execute(
+            "SELECT stock_milli FROM item WHERE id=?", (item_id,)).fetchone()[0], 17000)
+        totals = self.conn.execute(
+            "SELECT COALESCE(SUM(debit_paise),0) d, COALESCE(SUM(credit_paise),0) c"
+            " FROM journal_line WHERE tenant_id=?", (self.t,)).fetchone()
+        self.assertEqual(totals["d"], totals["c"])
+
+    def test_replace_posted_bill_blocked_when_stock_consumed(self):
+        item_id = self.item(stock=10000)
+        vendor_id = self.vendor()
+        bill = self.bill(vendor_id, item_id, qty=5000, price=4000)
+        self.conn.execute("UPDATE item SET stock_milli=1000 WHERE id=?", (item_id,))
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_posted_bill(
+                self.conn, self.t, bill["id"], vendor_id, "2026-10-24", "VB-X", "27",
+                [{"item_id": item_id, "qty": 5000, "unit_price": 4000}], "Correct it")
+        self.assertEqual(ctx.exception.code, "BILL_STOCK_CONSUMED")
+
+    def test_void_posted_payment_restores_outstanding(self):
+        item_id = self.item(stock=10000)
+        inv = self.invoice([{"item_id": item_id, "qty": 2000}])
+        self.assertEqual(acc.invoice_outstanding(self.conn, self.t, inv["id"]), 23600)
+        pay = acc.record_payment(
+            self.conn, self.t, "receipt", self.cust, "2026-10-24", 10000,
+            allocations=[{"doc_type": "invoice", "doc_id": inv["id"], "amount": 10000}])
+        self.assertEqual(acc.invoice_outstanding(self.conn, self.t, inv["id"]), 13600)
+        voided = acc.void_posted_payment(self.conn, self.t, pay["id"], "Wrong bank account")
+        self.assertEqual(voided["status"], "void")
+        self.assertEqual(acc.invoice_outstanding(self.conn, self.t, inv["id"]), 23600)
+        self.assertEqual(self.conn.execute(
+            "SELECT status FROM journal_entry WHERE id=?", (pay["journal_entry_id"],)
+        ).fetchone()["status"], "reversed")
+
+    def test_replace_posted_payment_keeps_allocations_and_links_old(self):
+        item_id = self.item(stock=10000)
+        inv = self.invoice([{"item_id": item_id, "qty": 2000}])
+        old = acc.record_payment(
+            self.conn, self.t, "receipt", self.cust, "2026-10-24", 10000,
+            allocations=[{"doc_type": "invoice", "doc_id": inv["id"], "amount": 10000}])
+        new = acc.replace_posted_payment(
+            self.conn, self.t, old["id"], "2026-10-24", 12000, "upi",
+            reference="UPI-CORR", reason="Amount entered short")
+        self.assertEqual(new["status"], "posted")
+        self.assertEqual(new["replaces_id"], old["id"])
+        self.assertEqual(new["amount_paise"], 12000)
+        self.assertEqual(new["mode"], "upi")
+        self.assertEqual(self.conn.execute(
+            "SELECT status FROM payment WHERE id=?", (old["id"],)).fetchone()["status"], "void")
+        alloc = self.conn.execute(
+            "SELECT COALESCE(SUM(amount_paise),0) a FROM payment_allocation"
+            " WHERE payment_id=?", (new["id"],)).fetchone()["a"]
+        self.assertEqual(alloc, 10000)
+        self.assertEqual(acc.invoice_outstanding(self.conn, self.t, inv["id"]), 13600)
+
+    def test_replace_posted_payment_rejects_amount_below_allocations(self):
+        item_id = self.item(stock=10000)
+        inv = self.invoice([{"item_id": item_id, "qty": 2000}])
+        old = acc.record_payment(
+            self.conn, self.t, "receipt", self.cust, "2026-10-24", 10000,
+            allocations=[{"doc_type": "invoice", "doc_id": inv["id"], "amount": 10000}])
+        with self.assertRaises(acc.AccountingError) as ctx:
+            acc.replace_posted_payment(
+                self.conn, self.t, old["id"], "2026-10-24", 5000, "bank",
+                reason="Trying to reduce below allocation")
+        self.assertEqual(ctx.exception.code, "OVER_ALLOCATION")
+        self.assertEqual(self.conn.execute(
+            "SELECT status FROM payment WHERE id=?", (old["id"],)).fetchone()["status"], "posted")
 
 
 if __name__ == "__main__":

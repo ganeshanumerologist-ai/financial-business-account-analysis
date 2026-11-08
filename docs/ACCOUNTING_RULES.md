@@ -350,6 +350,29 @@ A mismatch is surfaced with the exact difference and candidate causes. It is **n
 4. Reversals are subject to the same period rules — you cannot reverse into a locked period without reopening it.
 5. Correction of opening balances uses a dedicated adjustment entry, not a re-import.
 
+### 11a. Posted-document correction (Build 0.20)
+
+1. A posted invoice, bill, receipt, vendor payment or opening balance is never edited in place and
+   never deleted.
+2. Correction is **reversal + replacement** in one transaction: reverse the original journal,
+   restore or undo the stock effect, mark the original document `void` with a reason, and post a
+   fresh document linked through `replaces_id`.
+3. The original document number and row remain visible in history. The replacement gets a new
+   number; numbers are never reused.
+4. Replacement is refused when posted payments or credit/debit notes already reference the
+   document. A bill whose purchased stock has already been sold or consumed is refused with
+   `BILL_STOCK_CONSUMED`; a debit note is the correct partial correction.
+5. Payment replacement carries the old allocations forward by default; a caller may supply a new
+   allocation list instead.
+6. Opening-balance correction reverses the old opening journal and posts the replacement in one
+   transaction, with audit action `opening_balance.replace`.
+7. Draft bills and draft journals live in their own tables and have no ledger, stock, payable,
+   receivable or GST effect until posted.
+8. Approval is an optional maker-checker layer. A pending draft is locked against editing; only a
+   user with `document.approve` can approve or reject it.
+9. GST outputs remain working aids. A correction updates the books; it does not file or revise a GST
+   return.
+
 ---
 
 ## 12. Test obligations (release gate)

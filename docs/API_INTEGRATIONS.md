@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.9 |
-| Date | 2026-11-06 |
-| Status | **No external provider is connected; internal imports, reports and analytics API are implemented through Build 0.19** |
+| Version | 2.0 |
+| Date | 2026-11-08 |
+| Status | **No external provider is connected; internal imports, reports and analytics API are implemented through Build 0.20** |
 | Policy | No paid APIs, no credentials, no fabrication |
 
 > Current state: **0 external integrations configured. 0 provider credentials stored. 0 outbound API calls made by the product.** Manual CSV/`.xlsx` import and the internal session-authenticated analytics/Power BI export surface are implemented; everything below labelled planned still needs external access, credentials or owner decisions.
@@ -141,6 +141,14 @@
 | `/reports/wip`, `/reports/production-consumption`, `/reports/yield` | Build 0.19 R-602, R-603 and R-604 production-register reports; `report.view` |
 | `/reports/consolidated` | Build 0.19 R-1004 read-only owner/admin consolidation; intercompany-flagged journals excluded from combined totals; `report.view` |
 | `/export/expiry.csv`, `/export/project-costing.csv`, `/export/wip.csv`, `/export/production-consumption.csv`, `/export/yield.csv`, `/export/cost-centre.csv`, `/export/dimension-pnl.csv`, `/export/consolidated.csv` | Build 0.19 CSV exports; session + `report.export`; exact decimal strings and three-decimal quantities; no external service |
+| `/invoices/<id>/edit`, `/invoices/<id>/submit`, `/invoices/<id>/approve`, `/invoices/<id>/reject`, `/invoices/<id>/withdraw` | Build 0.20 draft invoice editing and optional maker-checker; edit is allowed only while `status='draft'` and `approval_status` is not `pending`; approve/reject require `document.approve` |
+| `/invoices/<id>/replace`, `/invoices/<id>/void-posted` | Build 0.20 audit-safe posted invoice correction/void; reverse journal, restore stock, mark old `void`, post linked replacement |
+| `/bills/drafts`, `/bills/drafts/<id>`, `/bills/drafts/<id>/post`, `/bills/drafts/<id>/reject`, `/bills/drafts/<id>/void` | Build 0.20 draft purchase-bill lifecycle; no ledger, stock, payable or GST effect before posting |
+| `/journals/drafts`, `/journals/drafts/<id>`, `/journals/drafts/<id>/post`, `/journals/drafts/<id>/reject`, `/journals/drafts/<id>/void` | Build 0.20 draft journal lifecycle; no ledger effect before posting |
+| `/bills/<id>/replace`, `/bills/<id>/void` | Build 0.20 audit-safe posted bill correction/void; blocked with `BILL_STOCK_CONSUMED` when stock has already been sold or consumed |
+| `/receipts/<id>`, `/receipts/<id>/replace`, `/receipts/<id>/void` | Build 0.20 receipt and vendor-payment detail, correction and void; allocations carry forward by default |
+| `/approvals` | Build 0.20 pending approval queue; requires `document.approve`; single optional maker-checker step |
+| `/opening-balance/replace` | Build 0.20 direct opening-balance correction; reverses the old opening journal and posts a replacement in one transaction |
 
 There is still no external BI token API. The session-authenticated JSON analytics API remains the
 only machine-readable external surface, and it exposes actuals only.

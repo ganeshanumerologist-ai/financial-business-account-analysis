@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.9 |
-| Date | 2026-11-06 |
-| Status | Implemented through Build 0.19 (additive schema) |
+| Version | 2.0 |
+| Date | 2026-11-08 |
+| Status | Implemented through Build 0.20 (additive schema) |
 | Phase 1 engine | SQLite (WAL mode) via SQLAlchemy 2.x |
 | Production target | PostgreSQL 16+ (schema must remain compatible) |
 
@@ -718,3 +718,89 @@ CREATE INDEX ix_production_order_tenant_date ON production_order (tenant_id, ord
 - No existing table, column, index, view, cached total or historical row is removed or rewritten.
 - The demo seed does not create dimensions, batches or production orders; those registers start
   empty for every business.
+
+## 27. Build 0.20 correction, draft and approval schema (2026-11-08)
+
+### 27.1 New draft tables
+
+```sql
+CREATE TABLE bill_draft (
+  id INTEGER PRIMARY KEY,
+  tenant_id INTEGER NOT NULL REFERENCES tenant(id),
+  draft_no TEXT NOT NULL,
+  vendor_id INTEGER NOT NULL REFERENCES party(id),
+  bill_date TEXT NOT NULL,
+  due_date TEXT,
+  vendor_bill_no TEXT,
+  notes TEXT,
+  round_to_rupee INTEGER NOT NULL DEFAULT 0,
+  approval_status TEXT NOT NULL DEFAULT 'draft',
+  submitted_at TEXT,
+  approved_by INTEGER REFERENCES user(id),
+  approved_at TEXT,
+  rejection_reason TEXT,
+  posted_bill_id INTEGER REFERENCES bill(id),
+  created_by INTEGER NOT NULL REFERENCES user(id),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE bill_draft_line (
+  id INTEGER PRIMARY KEY,
+  draft_id INTEGER NOT NULL REFERENCES bill_draft(id),
+  item_id INTEGER REFERENCES item(id),
+  description TEXT NOT NULL,
+  qty_milli INTEGER NOT NULL,
+  rate_paise INTEGER NOT NULL,
+  gst_rate_bp INTEGER NOT NULL,
+  line_no INTEGER NOT NULL
+);
+
+CREATE TABLE journal_draft (
+  id INTEGER PRIMARY KEY,
+  tenant_id INTEGER NOT NULL REFERENCES tenant(id),
+  draft_no TEXT NOT NULL,
+  entry_date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  approval_status TEXT NOT NULL DEFAULT 'draft',
+  submitted_at TEXT,
+  approved_by INTEGER REFERENCES user(id),
+  approved_at TEXT,
+  rejection_reason TEXT,
+  posted_entry_id INTEGER REFERENCES journal_entry(id),
+  created_by INTEGER NOT NULL REFERENCES user(id),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE journal_draft_line (
+  id INTEGER PRIMARY KEY,
+  draft_id INTEGER NOT NULL REFERENCES journal_draft(id),
+  account_id INTEGER NOT NULL REFERENCES account(id),
+  debit_paise INTEGER NOT NULL DEFAULT 0,
+  credit_paise INTEGER NOT NULL DEFAULT 0,
+  dimension_id INTEGER REFERENCES dimension(id),
+  line_no INTEGER NOT NULL
+);
+```
+
+### 27.2 Additive columns
+
+| Table | Columns |
+|---|---|
+| `invoice` | `approval_status`, `submitted_at`, `approved_by`, `approved_at`, `rejection_reason`, `replaces_id`, `void_reason`, `voided_at`, `voided_by` |
+| `bill` | `replaces_id`, `void_reason`, `voided_at`, `voided_by` |
+| `payment` | `status`, `replaces_id`, `void_reason`, `voided_at`, `voided_by` |
+
+All columns are nullable or defaulted. Old rows are not backfilled or rewritten. New tables use
+`CREATE TABLE IF NOT EXISTS`; new columns use the existing additive `COLUMN_MIGRATIONS` path.
+
+### 27.3 Semantics
+
+- A draft bill or journal is invisible to the ledger, stock, payables, receivables and GST totals
+  until posted. Posting writes the normal journal and marks `posted_bill_id` or `posted_entry_id`.
+- `approval_status='pending'` locks the draft against edits. Owner/admin hold `document.approve`.
+- A posted correction marks the original row `void`, writes the reversal journal, and links the
+  replacement through `replaces_id`. The original row and its number remain in history.
+- `payment.status` is `posted` or `void`. Outstanding and allocation queries ignore non-posted
+  payments.
+- `backup.TABLES` includes the four new draft tables, so backup verification compares their row
+  counts.

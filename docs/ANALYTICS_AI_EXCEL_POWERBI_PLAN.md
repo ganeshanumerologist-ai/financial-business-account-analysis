@@ -35,8 +35,10 @@
 > CSV export.
 > Coverage is now **66 of 66**. Build 0.19 adds R-508 expiry/batch, R-601 to R-605 costing and
 > production, R-902 department/branch P&L and R-1004 consolidation, plus additive dimension,
-> cost-centre-budget, batch and production-order registers. Saved dashboards, EN/HI and the
-> ~150-template library are still Phase B.
+> cost-centre-budget, batch and production-order registers. Build 0.20 adds audit-safe correction
+> of posted invoices, bills, receipts and vendor payments, draft purchase bills and journals, an
+> optional maker-checker queue and direct opening-balance correction. Saved dashboards, EN/HI and
+> the ~150-template library are still Phase B.
 
 ---
 

@@ -24,7 +24,7 @@ from . import bank as bank_mod
 from . import bi as bi_mod
 from . import budgeting as budget_mod
 from . import charting
-from . import db, diagnostics, money, security
+from . import db, diagnostics, drafts as drafts_mod, money, security
 from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
 from . import insights as insights_mod
@@ -34,7 +34,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.19"
+APP_VERSION = "0.20"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -436,6 +436,9 @@ NAV = [
                 ("entries/cash", "led", "Cash Entry"),
                 ("entries/bank", "bank", "Bank Entry"),
                 ("entries/journal", "led", "Journal Entry"),
+            ]),
+            ("Review", [
+                ("approvals", "inv", "Approval Queue"),
             ]),
         ],
     },
@@ -1811,6 +1814,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_invoices(conn, user, tenant, sess))
             if path == "/invoices/new":
                 return self._send(self.page_invoice_new(conn, user, tenant, sess))
+            if re.fullmatch(r"/invoices/[0-9a-f]{32}/edit", path):
+                return self._send(self.page_invoice_edit(conn, user, tenant, sess,
+                                                         path.split("/")[2]))
+            if re.fullmatch(r"/invoices/[0-9a-f]{32}/replace", path):
+                return self._send(self.page_invoice_replace(conn, user, tenant, sess,
+                                                            path.split("/")[2]))
             if re.fullmatch(r"/invoices/[0-9a-f]{32}/print", path):
                 body, status = self.page_invoice_print(conn, user, tenant,
                                                        path.split("/")[2])
@@ -1957,6 +1966,9 @@ class Handler(BaseHTTPRequestHandler):
                                                                path.rsplit("/", 1)[1], q))
             if path == "/receipts":
                 return self._send(self.page_receipts(conn, user, tenant, sess))
+            if re.fullmatch(r"/receipts/[0-9a-f]{32}", path):
+                return self._send(self.page_payment_detail(conn, user, tenant, sess,
+                                                           path.rsplit("/", 1)[1]))
             if path == "/credit-notes":
                 return self._send(self.page_credit_notes(conn, user, tenant))
             if path == "/debit-notes":
@@ -1965,6 +1977,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_bills(conn, user, tenant, sess))
             if path == "/bills/new":
                 return self._send(self.page_bill_new(conn, user, tenant, sess))
+            if re.fullmatch(r"/bills/drafts/[0-9a-f]{32}/edit", path):
+                return self._send(self.page_bill_draft_edit(conn, user, tenant, sess,
+                                                            path.split("/")[3]))
+            if re.fullmatch(r"/bills/[0-9a-f]{32}/replace", path):
+                return self._send(self.page_bill_replace(conn, user, tenant, sess,
+                                                         path.split("/")[2]))
             if re.fullmatch(r"/bills/[0-9a-f]{32}", path):
                 return self._send(self.page_bill_detail(conn, user, tenant, sess,
                                                         path.rsplit("/", 1)[1]))
@@ -1977,6 +1995,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_daybook(conn, user, tenant, q))
             if path == "/journal":
                 return self._send(self.page_journal(conn, user, tenant, sess, q))
+            if re.fullmatch(r"/journal/drafts/[0-9a-f]{32}/edit", path):
+                return self._send(self.page_journal_draft_edit(conn, user, tenant, sess,
+                                                                path.split("/")[3]))
+            if path == "/approvals":
+                return self._send(self.page_approvals(conn, user, tenant, sess))
             if re.fullmatch(r"/entries/(cash|bank|journal)", path):
                 mode = path.rsplit("/", 1)[1]
                 return self._send(self.page_journal(conn, user, tenant, sess, q, mode=mode))
@@ -2135,10 +2158,44 @@ class Handler(BaseHTTPRequestHandler):
             invoice_void = re.fullmatch(r"/invoices/([0-9a-f]{32})/void", path)
             if invoice_void:
                 return self._void_draft_invoice(conn, user, tenant, form, invoice_void.group(1))
+            invoice_edit = re.fullmatch(r"/invoices/([0-9a-f]{32})/edit", path)
+            if invoice_edit:
+                return self._update_invoice_draft(conn, user, tenant, sess, form,
+                                                  invoice_edit.group(1))
+            invoice_replace = re.fullmatch(r"/invoices/([0-9a-f]{32})/replace", path)
+            if invoice_replace:
+                return self._replace_posted_invoice(conn, user, tenant, sess, form,
+                                                    invoice_replace.group(1))
+            invoice_void_posted = re.fullmatch(r"/invoices/([0-9a-f]{32})/void-posted", path)
+            if invoice_void_posted:
+                return self._void_posted_invoice(conn, user, tenant, form,
+                                                 invoice_void_posted.group(1))
+            invoice_submit = re.fullmatch(r"/invoices/([0-9a-f]{32})/submit", path)
+            if invoice_submit:
+                return self._submit_invoice_draft(conn, user, tenant, form, invoice_submit.group(1))
+            invoice_approve = re.fullmatch(r"/invoices/([0-9a-f]{32})/approve", path)
+            if invoice_approve:
+                return self._approve_invoice_draft(conn, user, tenant, form,
+                                                   invoice_approve.group(1))
+            invoice_reject = re.fullmatch(r"/invoices/([0-9a-f]{32})/reject", path)
+            if invoice_reject:
+                return self._reject_invoice_draft(conn, user, tenant, form, invoice_reject.group(1))
+            invoice_withdraw = re.fullmatch(r"/invoices/([0-9a-f]{32})/withdraw", path)
+            if invoice_withdraw:
+                return self._withdraw_invoice_draft(conn, user, tenant, form,
+                                                    invoice_withdraw.group(1))
             if path == "/invoices":
                 return self._create_invoice(conn, user, tenant, sess, form)
             if path == "/receipts":
                 return self._create_payment(conn, user, tenant, sess, form)
+            payment_replace = re.fullmatch(r"/receipts/([0-9a-f]{32})/replace", path)
+            if payment_replace:
+                return self._replace_posted_payment(conn, user, tenant, sess, form,
+                                                    payment_replace.group(1))
+            payment_void = re.fullmatch(r"/receipts/([0-9a-f]{32})/void", path)
+            if payment_void:
+                return self._void_posted_payment(conn, user, tenant, form,
+                                                 payment_void.group(1))
             if path == "/credit-notes":
                 return self._create_credit_note(conn, user, tenant, sess, form)
             if path == "/debit-notes":
@@ -2151,10 +2208,70 @@ class Handler(BaseHTTPRequestHandler):
                 return self._bank_match(conn, user, tenant, sess, form)
             if path == "/bank-recon/unmatch":
                 return self._bank_unmatch(conn, user, tenant, sess, form)
+            if path == "/bills/drafts":
+                return self._create_bill_draft(conn, user, tenant, sess, form)
+            bill_draft_update = re.fullmatch(r"/bills/drafts/([0-9a-f]{32})/update", path)
+            if bill_draft_update:
+                return self._update_bill_draft(conn, user, tenant, sess, form,
+                                               bill_draft_update.group(1))
+            bill_draft_submit = re.fullmatch(r"/bills/drafts/([0-9a-f]{32})/submit", path)
+            if bill_draft_submit:
+                return self._submit_bill_draft(conn, user, tenant, form, bill_draft_submit.group(1))
+            bill_draft_post = re.fullmatch(r"/bills/drafts/([0-9a-f]{32})/post", path)
+            if bill_draft_post:
+                return self._post_bill_draft(conn, user, tenant, form, bill_draft_post.group(1))
+            bill_draft_approve = re.fullmatch(r"/bills/drafts/([0-9a-f]{32})/approve", path)
+            if bill_draft_approve:
+                return self._approve_bill_draft(conn, user, tenant, form,
+                                                bill_draft_approve.group(1))
+            bill_draft_reject = re.fullmatch(r"/bills/drafts/([0-9a-f]{32})/reject", path)
+            if bill_draft_reject:
+                return self._reject_bill_draft(conn, user, tenant, form,
+                                               bill_draft_reject.group(1))
+            bill_draft_void = re.fullmatch(r"/bills/drafts/([0-9a-f]{32})/void", path)
+            if bill_draft_void:
+                return self._void_bill_draft(conn, user, tenant, form, bill_draft_void.group(1))
+            bill_replace = re.fullmatch(r"/bills/([0-9a-f]{32})/replace", path)
+            if bill_replace:
+                return self._replace_posted_bill(conn, user, tenant, sess, form,
+                                                 bill_replace.group(1))
+            bill_void = re.fullmatch(r"/bills/([0-9a-f]{32})/void", path)
+            if bill_void:
+                return self._void_posted_bill(conn, user, tenant, form, bill_void.group(1))
             if path == "/bills":
                 return self._create_bill(conn, user, tenant, sess, form)
             if path == "/vendors":
                 return self._create_vendor(conn, user, tenant, sess, form)
+            if path == "/journal/drafts":
+                return self._create_journal_draft(conn, user, tenant, sess, form)
+            journal_draft_update = re.fullmatch(r"/journal/drafts/([0-9a-f]{32})/update", path)
+            if journal_draft_update:
+                return self._update_journal_draft(conn, user, tenant, sess, form,
+                                                  journal_draft_update.group(1))
+            journal_draft_submit = re.fullmatch(r"/journal/drafts/([0-9a-f]{32})/submit", path)
+            if journal_draft_submit:
+                return self._submit_journal_draft(conn, user, tenant, form,
+                                                  journal_draft_submit.group(1))
+            journal_draft_post = re.fullmatch(r"/journal/drafts/([0-9a-f]{32})/post", path)
+            if journal_draft_post:
+                return self._post_journal_draft(conn, user, tenant, form,
+                                                journal_draft_post.group(1))
+            journal_draft_approve = re.fullmatch(r"/journal/drafts/([0-9a-f]{32})/approve", path)
+            if journal_draft_approve:
+                return self._approve_journal_draft(conn, user, tenant, form,
+                                                   journal_draft_approve.group(1))
+            journal_draft_reject = re.fullmatch(r"/journal/drafts/([0-9a-f]{32})/reject", path)
+            if journal_draft_reject:
+                return self._reject_journal_draft(conn, user, tenant, form,
+                                                  journal_draft_reject.group(1))
+            journal_draft_void = re.fullmatch(r"/journal/drafts/([0-9a-f]{32})/void", path)
+            if journal_draft_void:
+                return self._void_journal_draft(conn, user, tenant, form,
+                                                journal_draft_void.group(1))
+            if path == "/approvals/approve":
+                return self._approve_request(conn, user, tenant, form)
+            if path == "/approvals/reject":
+                return self._reject_request(conn, user, tenant, form)
             if path == "/journal":
                 return self._create_journal(conn, user, tenant, sess, form)
             if path == "/journal/edit":
@@ -2195,6 +2312,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._bulk_opening_import(conn, user, tenant, sess, form)
             if path == "/opening-balance":
                 return self._set_opening_balance(conn, user, tenant, form)
+            if path == "/opening-balance/replace":
+                return self._replace_opening_balance(conn, user, tenant, form)
             if path == "/bank-accounts":
                 return self._create_bank_account(conn, user, tenant, form)
             if path == "/customers":
@@ -2322,6 +2441,16 @@ class Handler(BaseHTTPRequestHandler):
         expense_html = (charting.container("dash-expense", 300) if expense_has_data
                         else charting.empty("No posted expense actuals in this fiscal year yet."))
         dash_chart_script = charting.render(dash_charts)
+        pending_count = 0
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            pending_count = drafts_mod.count_pending_approvals(conn, tenant["id"])
+        except security.AuthError:
+            pass
+        approval_note = ""
+        if pending_count:
+            approval_note = (f'<p class="small"><a class="badge warn" href="/approvals">'
+                             f'{pending_count} document(s) waiting for approval</a></p>')
 
         body = f"""
 <div class="kpis">
@@ -2352,6 +2481,7 @@ class Handler(BaseHTTPRequestHandler):
       <tr><td>Overdue payable (60+ days)</td><td class="num">{money.fmt(d["overdue_payable"])}</td></tr>
       <tr><td>Invoices posted this FY</td><td class="num">{d["invoice_count"]}</td></tr>
     </table>
+    {approval_note}
     <a class="btn" href="/invoices/new">Create invoice</a>
     <a class="btn ghost" href="/bills/new" style="margin-left:6px">Record bill</a>
   </div>
@@ -2469,6 +2599,410 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 </script>"""
         return layout("New invoice", body, "invoices", user, tenant)
 
+    def page_invoice_edit(self, conn, user, tenant, sess, invoice_id: str) -> str:
+        inv = conn.execute(
+            "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
+            " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant["id"])).fetchone()
+        if not inv:
+            return layout("Not found", '<div class="card pad">Invoice not found.</div>',
+                          "invoices", user, tenant)
+        if inv["status"] != "draft":
+            return layout("Cannot edit", '<div class="card pad"><div class="err">Only a draft '
+                          'invoice can be edited. Posted invoices are corrected with a credit '
+                          'note or reversal.</div>'
+                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back</a></div>',
+                          "invoices", user, tenant)
+        approval = inv["approval_status"] if "approval_status" in inv.keys() else "draft"
+        if approval == "pending":
+            return layout("Approval pending", '<div class="card pad"><div class="err">This draft '
+                          'is waiting for approval. Withdraw or reject it before editing.</div>'
+                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back</a></div>',
+                          "invoices", user, tenant)
+        customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
+                                 (tenant["id"],)).fetchall()
+        items = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name",
+                             (tenant["id"],)).fetchall()
+        lines = conn.execute("SELECT * FROM invoice_line WHERE invoice_id=? ORDER BY rowid",
+                             (invoice_id,)).fetchall()
+        c_opts = "".join(
+            f'<option value="{c["id"]}"{" selected" if c["id"] == inv["customer_id"] else ""}>'
+            f'{esc(c["name"])} ({esc(c["state_code"])})</option>' for c in customers)
+        i_opts = "".join(
+            f'<option value="{i["id"]}">{esc(i["name"])} &mdash; '
+            f'{money.fmt(i["sale_price_paise"])} @ {i["tax_rate_bp"]/100:.0f}%</option>'
+            for i in items)
+        rows = ""
+        for line in lines:
+            selected = "".join(
+                f'<option value="{i["id"]}"{" selected" if i["id"] == line["item_id"] else ""}>'
+                f'{esc(i["name"])}</option>' for i in items)
+            rows += f"""<tr>
+  <td><select name="item_id">{selected}</select></td>
+  <td><input name="qty" value="{line['qty_milli']/1000:.3f}" inputmode="decimal"></td>
+  <td><input name="price" value="{money.to_str(line['unit_price_paise'])}" inputmode="decimal"></td>
+  <td><input name="discount" value="{money.to_str(line['discount_paise'])}" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+</tr>"""
+        if not rows:
+            rows = f"""<tr><td><select name="item_id">{i_opts}</select></td>
+  <td><input name="qty" value="1" inputmode="decimal"></td>
+  <td><input name="price" placeholder="auto" inputmode="decimal"></td>
+  <td><input name="discount" value="0" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td></tr>"""
+        rejection = ""
+        if approval == "rejected" and inv["rejection_reason"]:
+            rejection = (f'<div class="err">Rejected: {esc(inv["rejection_reason"])}</div>')
+        body = f"""
+<div class="notice">Editing draft <b>{esc(inv["invoice_no"])}</b>. A draft has no journal,
+stock movement or tax-invoice number. Saving keeps the same draft number.</div>
+{rejection}
+<form method="post" action="/invoices/{esc(invoice_id)}/edit">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="card pad sect">
+  <div class="row c4">
+    <div class="field"><label>Invoice date</label><input type="date" name="invoice_date" value="{esc(inv['invoice_date'])}" required></div>
+    <div class="field"><label>Customer</label><select name="customer_id">{c_opts}</select></div>
+    <div class="field"><label>Place of supply (state code)</label><input name="place_of_supply" value="{esc(inv['place_of_supply_state'])}" maxlength="2"></div>
+    <div class="field"><label>Draft</label><input value="{esc(inv['invoice_no'])}" disabled></div>
+  </div>
+</div>
+<div class="card sect">
+<table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit price</th><th>Discount</th><th></th></tr></thead>
+<tbody id="lines">{rows}</tbody></table>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
+</div>
+<button class="btn" type="submit">Save draft</button>
+<a class="btn ghost" href="/invoices/{esc(invoice_id)}" style="margin-left:8px">Cancel</a>
+<script>
+const tpl = document.querySelector('#lines tr').outerHTML;
+function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
+</script>
+</form>"""
+        return layout(f'Edit {inv["invoice_no"]}', body, "invoices", user, tenant)
+
+    def page_invoice_replace(self, conn, user, tenant, sess, invoice_id: str) -> str:
+        inv = conn.execute(
+            "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
+            " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant["id"])).fetchone()
+        if not inv:
+            return layout("Not found", '<div class="card pad">Invoice not found.</div>',
+                          "invoices", user, tenant)
+        try:
+            acct._assert_invoice_replaceable(conn, tenant["id"], inv)
+        except acct.AccountingError as e:
+            return layout("Cannot correct invoice",
+                          f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back</a></div>',
+                          "invoices", user, tenant)
+        customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
+                                 (tenant["id"],)).fetchall()
+        items = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name",
+                             (tenant["id"],)).fetchall()
+        lines = conn.execute("SELECT * FROM invoice_line WHERE invoice_id=? ORDER BY rowid",
+                             (invoice_id,)).fetchall()
+        c_opts = "".join(
+            f'<option value="{c["id"]}"{" selected" if c["id"] == inv["customer_id"] else ""}>'
+            f'{esc(c["name"])} ({esc(c["state_code"])})</option>' for c in customers)
+        i_opts = "".join(
+            f'<option value="{i["id"]}">{esc(i["name"])} &mdash; '
+            f'{money.fmt(i["sale_price_paise"])} @ {i["tax_rate_bp"]/100:.0f}%</option>'
+            for i in items)
+        rows = ""
+        for line in lines:
+            selected = "".join(
+                f'<option value="{i["id"]}"{" selected" if i["id"] == line["item_id"] else ""}>'
+                f'{esc(i["name"])}</option>' for i in items)
+            rows += f"""<tr>
+  <td><select name="item_id">{selected}</select></td>
+  <td><input name="qty" value="{line['qty_milli']/1000:.3f}" inputmode="decimal"></td>
+  <td><input name="price" value="{money.to_str(line['unit_price_paise'])}" inputmode="decimal"></td>
+  <td><input name="discount" value="{money.to_str(line['discount_paise'])}" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+</tr>"""
+        if not rows:
+            rows = f"""<tr><td><select name="item_id">{i_opts}</select></td>
+  <td><input name="qty" value="1" inputmode="decimal"></td>
+  <td><input name="price" placeholder="auto" inputmode="decimal"></td>
+  <td><input name="discount" value="0" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td></tr>"""
+        body = f"""
+<div class="notice">Correcting posted invoice <b>{esc(inv["invoice_no"])}</b>.
+Saving reverses its journal, restores stock, marks it void, and posts a new invoice with a fresh
+INV number. Both versions stay in the audit trail.</div>
+<form method="post" action="/invoices/{esc(invoice_id)}/replace">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="card pad sect">
+  <div class="row c4">
+    <div class="field"><label>Invoice date</label><input type="date" name="invoice_date" value="{esc(inv['invoice_date'])}" required></div>
+    <div class="field"><label>Customer</label><select name="customer_id">{c_opts}</select></div>
+    <div class="field"><label>Place of supply (state code)</label><input name="place_of_supply" value="{esc(inv['place_of_supply_state'])}" maxlength="2"></div>
+    <div class="field"><label>Original</label><input value="{esc(inv['invoice_no'])}" disabled></div>
+  </div>
+</div>
+<div class="card sect">
+<table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit price</th><th>Discount</th><th></th></tr></thead>
+<tbody id="lines">{rows}</tbody></table>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
+</div>
+<div class="card pad sect">
+  <div class="field"><label>Why are you correcting it?</label>
+  <input name="reason" required maxlength="200" placeholder="e.g. Wrong quantity / wrong customer"></div>
+</div>
+<button class="btn" type="submit">Reverse and post corrected invoice</button>
+<a class="btn ghost" href="/invoices/{esc(invoice_id)}" style="margin-left:8px">Cancel</a>
+<script>
+const tpl = document.querySelector('#lines tr').outerHTML;
+function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
+</script>
+</form>"""
+        return layout(f'Correct {inv["invoice_no"]}', body, "invoices", user, tenant)
+
+    def page_bill_draft_edit(self, conn, user, tenant, sess, draft_id: str) -> str:
+        draft = conn.execute(
+            "SELECT d.*, v.name AS vendor_name FROM bill_draft d JOIN vendor v ON v.id=d.vendor_id"
+            " WHERE d.id=? AND d.tenant_id=?", (draft_id, tenant["id"])).fetchone()
+        if not draft:
+            return layout("Not found", '<div class="card pad">Bill draft not found.</div>',
+                          "bills", user, tenant)
+        if draft["status"] in ("posted", "void"):
+            return layout("Cannot edit", '<div class="card pad"><div class="err">This bill draft '
+                          'has already been posted or voided.</div>'
+                          f'<a class="btn ghost" href="/bills">Back to bills</a></div>',
+                          "bills", user, tenant)
+        vendors = conn.execute("SELECT * FROM vendor WHERE tenant_id=? ORDER BY name",
+                               (tenant["id"],)).fetchall()
+        items = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name",
+                             (tenant["id"],)).fetchall()
+        lines = drafts_mod.bill_draft_lines(conn, tenant["id"], draft_id)
+        v_opts = "".join(
+            f'<option value="{v["id"]}"{" selected" if v["id"] == draft["vendor_id"] else ""}>'
+            f'{esc(v["name"])} ({esc(v["state_code"])})</option>' for v in vendors)
+        rows = ""
+        for line in lines:
+            selected = "".join(
+                f'<option value="{i["id"]}"{" selected" if i["id"] == line["item_id"] else ""}>'
+                f'{esc(i["name"])}</option>' for i in items)
+            rows += f"""<tr>
+  <td><select name="item_id">{selected}</select></td>
+  <td><input name="qty" value="{line['qty_milli']/1000:.3f}" inputmode="decimal"></td>
+  <td><input name="price" value="{money.to_str(line['unit_price_paise'])}" inputmode="decimal"></td>
+  <td><input name="discount" value="{money.to_str(line['discount_paise'])}" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+</tr>"""
+        if not rows:
+            i_opts = "".join(f'<option value="{i["id"]}">{esc(i["name"])}</option>' for i in items)
+            rows = f"""<tr><td><select name="item_id">{i_opts}</select></td>
+  <td><input name="qty" value="1" inputmode="decimal"></td>
+  <td><input name="price" placeholder="auto (cost)" inputmode="decimal"></td>
+  <td><input name="discount" value="0" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td></tr>"""
+        can_approve = True
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+        except security.AuthError:
+            can_approve = False
+        status = draft["status"]
+        pending = status == "pending"
+        rejection = ""
+        if status == "rejected" and draft["rejection_reason"]:
+            rejection = f'<div class="err">Rejected: {esc(draft["rejection_reason"])}</div>'
+        actions = ""
+        if not pending:
+            actions = f"""<button class="btn" type="submit">Save draft</button>
+<button class="btn ghost" type="submit" name="action" value="submit" style="margin-left:8px">Submit for approval</button>"""
+            if can_approve:
+                actions += f'<button class="btn ghost" type="submit" name="action" value="post" style="margin-left:8px">Post now</button>'
+        actions += f'<a class="btn ghost" href="/bills" style="margin-left:8px">Cancel</a>'
+        approval_actions = ""
+        if pending:
+            approval_actions = f"""
+<div class="card pad sect"><h2 style="margin-bottom:8px">Waiting for approval</h2>
+<p class="small muted">This draft cannot be edited until it is approved or rejected.</p>
+<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+<form method="post" action="/bills/drafts/{esc(draft_id)}/approve">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn" type="submit">Approve &amp; post</button></form>
+<form method="post" action="/bills/drafts/{esc(draft_id)}/reject" style="display:flex;gap:8px;align-items:end">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field"><label>Rejection reason</label><input name="reason" required maxlength="200"></div>
+<button class="btn ghost" type="submit">Reject</button></form>
+</div></div>"""
+        body = f"""
+<div class="notice">Draft <b>{esc(draft["draft_no"])}</b> &mdash; no journal, stock movement,
+payable or input-tax effect exists until it is posted.</div>
+{rejection}
+{approval_actions}
+<form method="post" action="/bills/drafts/{esc(draft_id)}/update">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="card pad sect">
+<div class="row c4">
+<div class="field"><label>Bill date</label><input type="date" name="bill_date" value="{esc(draft['bill_date'])}" required></div>
+<div class="field"><label>Vendor</label><select name="vendor_id">{v_opts}</select></div>
+<div class="field"><label>Vendor bill no</label><input name="vendor_bill_no" value="{esc(draft['vendor_bill_no'] or '')}" maxlength="60"></div>
+<div class="field"><label>Place of supply</label><input name="place_of_supply" value="{esc(draft['place_of_supply_state'])}" maxlength="2"></div>
+</div></div>
+<div class="card sect"><table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit cost</th><th>Discount</th><th></th></tr></thead>
+<tbody id="lines">{rows}</tbody></table>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div></div>
+{actions}
+<script>
+const tpl = document.querySelector('#lines tr').outerHTML;
+function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
+</script>
+</form>
+<form method="post" action="/bills/drafts/{esc(draft_id)}/void" style="margin-top:12px">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field"><label>Void reason</label><input name="reason" required maxlength="200"></div>
+<button class="btn ghost" type="submit">Void draft</button></form>"""
+        return layout(f'Edit {draft["draft_no"]}', body, "bills", user, tenant)
+
+    def page_journal_draft_edit(self, conn, user, tenant, sess, draft_id: str) -> str:
+        draft = conn.execute(
+            "SELECT * FROM journal_draft WHERE id=? AND tenant_id=?",
+            (draft_id, tenant["id"])).fetchone()
+        if not draft:
+            return layout("Not found", '<div class="card pad">Journal draft not found.</div>',
+                          "entries/journal", user, tenant)
+        if draft["status"] in ("posted", "void"):
+            return layout("Cannot edit", '<div class="card pad"><div class="err">This journal draft '
+                          'has already been posted or voided.</div>'
+                          '<a class="btn ghost" href="/journal">Back to journal</a></div>',
+                          "entries/journal", user, tenant)
+        accounts = conn.execute(
+            "SELECT * FROM account WHERE tenant_id=? AND status='active' AND is_postable=1"
+            " ORDER BY code", (tenant["id"],)).fetchall()
+        account_by_id = {a["id"]: a for a in accounts}
+        dimensions = conn.execute(
+            "SELECT * FROM dimension WHERE tenant_id=? AND active=1 ORDER BY kind, name",
+            (tenant["id"],)).fetchall()
+        lines = drafts_mod.journal_draft_lines(conn, tenant["id"], draft_id)
+        def account_options(selected=""):
+            return '<option value="">Choose account</option>' + "".join(
+                f'<option value="{a["id"]}"{" selected" if a["id"] == selected else ""}>'
+                f'{esc(a["code"])} {esc(a["name"])}</option>' for a in accounts)
+        def dimension_options(selected=""):
+            return '<option value="">Unallocated</option>' + "".join(
+                f'<option value="{d["id"]}"{" selected" if d["id"] == selected else ""}>'
+                f'{esc(d["kind"].title())}: {esc(d["name"])}</option>' for d in dimensions)
+        row_count = max(len(lines) + 2, 4)
+        rows = ""
+        for i in range(row_count):
+            if i < len(lines):
+                line = lines[i]
+                chosen = line["account_id"] if line["account_id"] in account_by_id else ""
+                chosen_dim = line["dimension_id"] or ""
+                debit = money.to_str(line["debit_paise"]) if line["debit_paise"] else ""
+                credit = money.to_str(line["credit_paise"]) if line["credit_paise"] else ""
+            else:
+                chosen = chosen_dim = debit = credit = ""
+            rows += (f'<tr><td><select name="account_id">{account_options(chosen)}</select></td>'
+                     f'<td><select name="dimension_id">{dimension_options(chosen_dim)}</select></td>'
+                     f'<td><input name="debit" value="{debit}" inputmode="decimal" placeholder="0.00"></td>'
+                     f'<td><input name="credit" value="{credit}" inputmode="decimal" placeholder="0.00"></td></tr>')
+        can_approve = True
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+        except security.AuthError:
+            can_approve = False
+        pending = draft["status"] == "pending"
+        rejection = ""
+        if draft["status"] == "rejected" and draft["rejection_reason"]:
+            rejection = f'<div class="err">Rejected: {esc(draft["rejection_reason"])}</div>'
+        actions = ""
+        if not pending:
+            actions = ('<button class="btn" type="submit">Save draft</button>'
+                       '<button class="btn ghost" type="submit" name="action" value="submit"'
+                       ' style="margin-left:8px">Submit for approval</button>')
+            if can_approve:
+                actions += ('<button class="btn ghost" type="submit" name="action" value="post"'
+                            ' style="margin-left:8px">Post now</button>')
+        actions += '<a class="btn ghost" href="/journal" style="margin-left:8px">Cancel</a>'
+        approval_actions = ""
+        if pending:
+            approval_actions = f"""
+<div class="card pad sect"><h2 style="margin-bottom:8px">Waiting for approval</h2>
+<p class="small muted">This draft cannot be edited until it is approved or rejected.</p>
+<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+<form method="post" action="/journal/drafts/{esc(draft_id)}/approve">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn" type="submit">Approve &amp; post</button></form>
+<form method="post" action="/journal/drafts/{esc(draft_id)}/reject" style="display:flex;gap:8px;align-items:end">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field"><label>Rejection reason</label><input name="reason" required maxlength="200"></div>
+<button class="btn ghost" type="submit">Reject</button></form>
+</div></div>"""
+        body = f"""
+<div class="notice">Draft <b>{esc(draft["draft_no"])}</b> &mdash; no ledger entry exists until
+it is posted. Debits and credits must still balance exactly.</div>
+{rejection}
+{approval_actions}
+<form method="post" action="/journal/drafts/{esc(draft_id)}/update">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="card pad sect">
+<div class="row c3">
+<div class="field"><label>Date</label><input type="date" name="entry_date" value="{esc(draft['entry_date'])}" required></div>
+<div class="field" style="grid-column:span 2"><label>Narration</label>
+<input name="narration" value="{esc(draft['narration'])}" required maxlength="200"></div>
+</div></div>
+<div class="card sect table-wrap"><table>
+<thead><tr><th style="width:42%">Account</th><th>Project / cost centre</th><th>Debit</th><th>Credit</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<div class="card pad sect">
+<label class="small"><input type="checkbox" name="is_intercompany" value="1"
+ {"checked" if draft["is_intercompany"] else ""}> Intercompany entry (excluded from consolidation totals)</label>
+</div>
+{actions}
+</form>
+<form method="post" action="/journal/drafts/{esc(draft_id)}/void" style="margin-top:12px">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field"><label>Void reason</label><input name="reason" required maxlength="200"></div>
+<button class="btn ghost" type="submit">Void draft</button></form>"""
+        return layout(f'Edit {draft["draft_no"]}', body, "entries/journal", user, tenant)
+
+    def page_approvals(self, conn, user, tenant, sess) -> str:
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    '<a class="btn ghost" href="/">Back to dashboard</a></div>')
+            return layout("Approvals", body, "", user, tenant)
+        rows = drafts_mod.pending_approvals(conn, tenant["id"])
+        trs = ""
+        for r in rows:
+            kind_label = {"bill": "Purchase bill", "journal": "Journal",
+                          "invoice": "Sales invoice"}.get(r["kind"], r["kind"])
+            edit_link = ""
+            if r["kind"] == "bill":
+                edit_link = f'/bills/drafts/{r["id"]}/edit'
+            elif r["kind"] == "journal":
+                edit_link = f'/journal/drafts/{r["id"]}/edit'
+            elif r["kind"] == "invoice":
+                edit_link = f'/invoices/{r["id"]}'
+            trs += f"""<tr><td>{kind_label}</td>
+<td><a href="{edit_link}">{esc(r["no"])}</a></td><td>{esc(r["date"])}</td>
+<td>{esc(r["party"])}</td><td class="num">{money.fmt(r["total"])}</td>
+<td><form method="post" action="/approvals/approve" style="display:inline">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="kind" value="{esc(r["kind"])}">
+<input type="hidden" name="id" value="{esc(r["id"])}">
+<button class="btn small" type="submit">Approve &amp; post</button></form></td>
+<td><form method="post" action="/approvals/reject" style="display:flex;gap:6px">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="kind" value="{esc(r["kind"])}">
+<input type="hidden" name="id" value="{esc(r["id"])}">
+<input name="reason" required maxlength="200" placeholder="Reason" style="min-width:120px">
+<button class="btn ghost small" type="submit">Reject</button></form></td></tr>"""
+        trs = trs or '<tr><td colspan="7" class="empty">No documents are waiting for approval.</td></tr>'
+        body = f"""
+<div class="sect-head"><div><h2>Approval queue</h2>
+<div class="small muted">Maker-checker: submitted drafts stay unposted until an owner or admin approves them.</div></div>
+<a class="btn ghost" href="/">Back to dashboard</a></div>
+<div class="card"><table>
+<thead><tr><th>Type</th><th>Document</th><th>Date</th><th>Party / narration</th>
+<th class="num">Amount</th><th>Approve</th><th>Reject</th></tr></thead>
+<tbody>{trs}</tbody></table></div>"""
+        return layout("Approvals", body, "", user, tenant)
+
     def page_invoice_detail(self, conn, user, tenant, sess, invoice_id: str) -> str:
         inv = conn.execute("SELECT i.*, c.name, c.state_code FROM invoice i JOIN customer c ON c.id=i.customer_id"
                            " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant["id"])).fetchone()
@@ -2499,14 +3033,68 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         receipt_form = ""
         credit_form = ""
         draft_actions = ""
+        approval = inv["approval_status"] if "approval_status" in inv.keys() else "draft"
+        can_approve = True
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+        except security.AuthError:
+            can_approve = False
+        can_replace = can_void_posted = False
+        try:
+            security.require(conn, user["id"], tenant["id"], "invoice.create")
+            can_replace = True
+        except security.AuthError:
+            pass
+        try:
+            security.require(conn, user["id"], tenant["id"], "invoice.void")
+            can_void_posted = True
+        except security.AuthError:
+            pass
+        replaceable = False
+        if not is_draft and not is_void:
+            try:
+                acct._assert_invoice_replaceable(conn, tenant["id"], inv)
+                replaceable = True
+            except acct.AccountingError:
+                replaceable = False
         if is_draft:
-            draft_actions = f"""
+            if approval == "pending":
+                approve_form = ""
+                if can_approve:
+                    approve_form = f"""
+<form method="post" action="/invoices/{esc(invoice_id)}/approve">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn" type="submit">Approve &amp; post</button></form>
+<form method="post" action="/invoices/{esc(invoice_id)}/reject" style="display:flex;gap:8px;align-items:end">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field"><label>Rejection reason</label><input name="reason" required maxlength="200"></div>
+<button class="btn ghost" type="submit">Reject</button></form>"""
+                draft_actions = f"""
+<div class="card pad sect"><h2 style="margin-bottom:12px">Waiting for approval</h2>
+<p class="small muted">This draft is locked while an owner or admin reviews it.</p>
+<div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+{approve_form}
+<form method="post" action="/invoices/{esc(invoice_id)}/withdraw">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn ghost" type="submit">Withdraw</button></form>
+</div></div>"""
+            else:
+                rejection = ""
+                if approval == "rejected" and inv["rejection_reason"]:
+                    rejection = f'<div class="err">Rejected: {esc(inv["rejection_reason"])}</div>'
+                draft_actions = f"""
 <div class="card pad sect"><h2 style="margin-bottom:12px">Draft actions</h2>
+{rejection}
 <p class="small muted">Posting is the only step that creates accounting records. Voiding does not post anything.</p>
 <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+<a class="btn ghost" href="/invoices/{esc(invoice_id)}/edit">Edit draft</a>
 <form method="post" action="/invoices/{esc(invoice_id)}/post">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <button class="btn" type="submit">Post draft</button>
+</form>
+<form method="post" action="/invoices/{esc(invoice_id)}/submit">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<button class="btn ghost" type="submit">Submit for approval</button>
 </form>
 <form method="post" action="/invoices/{esc(invoice_id)}/void" style="display:flex;gap:8px;align-items:end">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
@@ -2559,6 +3147,29 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <button class="btn ghost" type="submit">Post credit note</button>
 </form></div>"""
 
+        posted_actions = ""
+        if not is_draft and not is_void:
+            parts = []
+            if replaceable and can_replace:
+                parts.append(
+                    f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}/replace">'
+                    f'Correct posted invoice</a>')
+            if can_void_posted:
+                parts.append(
+                    f'<form method="post" action="/invoices/{esc(invoice_id)}/void-posted"'
+                    f' style="display:flex;gap:8px;align-items:end">'
+                    f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                    f'<div class="field"><label>Void reason</label>'
+                    f'<input name="reason" required maxlength="200"></div>'
+                    f'<button class="btn ghost" type="submit">Void posted invoice</button></form>')
+            if parts:
+                note = ("Correcting reverses the posted journal and posts a new invoice. "
+                        "Voiding reverses the journal and restores stock. Nothing is deleted.")
+                posted_actions = (f'<div class="card pad sect"><h2 style="margin-bottom:8px">'
+                                  f'Correction</h2><p class="small muted">{note}</p>'
+                                  f'<div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">'
+                                  f'{"".join(parts)}</div></div>')
+
         if is_draft:
             footer = ('<div class="card pad small muted">Draft only. No journal entry, no stock movement '
                       'and no tax-invoice number exist yet. Posting assigns the next INV number and '
@@ -2568,8 +3179,8 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
                       'no stock movement and no tax-invoice number. Voided drafts are retained for audit.</div>')
         else:
             footer = (f'<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> '
-                      f'posted on {esc(je["posted_at"][:10])}. Posted entries are immutable; '
-                      f'corrections use a credit note or reversal.</div>')
+                      f'posted on {esc(je["posted_at"][:10])}. Corrections reverse this journal and '
+                      f'post a replacement; the original and its reversal stay in the audit trail.</div>')
 
         print_link = ("" if is_draft or is_void else
                       f'<a class="btn" href="/invoices/{esc(invoice_id)}/print" style="margin-left:8px">Print / PDF</a>')
@@ -2590,6 +3201,7 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 {draft_actions}
 {receipt_form}
 {credit_form}
+{posted_actions}
 {footer}"""
         return layout(f'Invoice {inv["invoice_no"]}', body, "invoices", user, tenant)
 
@@ -2725,34 +3337,46 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 
     def page_receipts(self, conn, user, tenant, sess) -> str:
         rows = conn.execute(
-            "SELECT p.*, c.name FROM payment p JOIN customer c ON c.id=p.party_id"
-            " WHERE p.tenant_id=? AND p.direction='receipt' ORDER BY p.payment_date DESC,"
-            " p.voucher_no DESC LIMIT 100", (tenant["id"],)).fetchall()
+            "SELECT p.*, COALESCE(c.name, v.name, '(deleted)') AS party_name"
+            " FROM payment p"
+            " LEFT JOIN customer c ON p.party_type='customer' AND c.id=p.party_id"
+            " LEFT JOIN vendor v ON p.party_type='vendor' AND v.id=p.party_id"
+            " WHERE p.tenant_id=? ORDER BY p.payment_date DESC, p.voucher_no DESC LIMIT 200",
+            (tenant["id"],)).fetchall()
         trs = ""
         for r in rows:
             alloc = conn.execute(
                 "SELECT COALESCE(SUM(amount_paise),0) a FROM payment_allocation WHERE payment_id=?",
                 (r["id"],)).fetchone()["a"]
-            trs += (f'<tr><td>{esc(r["voucher_no"])}</td><td>{esc(r["payment_date"])}</td>'
-                    f'<td>{esc(r["name"])}</td><td>{esc(r["mode"])}</td>'
+            status = ('<span class="badge bad">Void</span>' if r["status"] == "void"
+                      else '<span class="badge ok">Posted</span>')
+            trs += (f'<tr><td><a href="/receipts/{esc(r["id"])}">{esc(r["voucher_no"])}</a></td>'
+                    f'<td>{esc(r["payment_date"])}</td>'
+                    f'<td>{esc(r["direction"].title())}</td>'
+                    f'<td>{esc(r["party_name"])}</td><td>{esc(r["mode"])}</td>'
                     f'<td>{esc(r["reference"] or "")}</td>'
                     f'<td class="num">{money.fmt(r["amount_paise"])}</td>'
                     f'<td class="num">{money.fmt(alloc)}</td>'
-                    f'<td class="num">{money.fmt(r["amount_paise"] - alloc)}</td></tr>')
-        trs = trs or '<tr><td colspan="8" class="empty">No receipts yet</td></tr>'
+                    f'<td class="num">{money.fmt(r["amount_paise"] - alloc)}</td>'
+                    f'<td>{status}</td></tr>')
+        trs = trs or '<tr><td colspan="10" class="empty">No receipts or payments yet</td></tr>'
         customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
                                  (tenant["id"],)).fetchall()
+        vendors = conn.execute("SELECT * FROM vendor WHERE tenant_id=? ORDER BY name",
+                               (tenant["id"],)).fetchall()
         c_opts = "".join(f'<option value="{c["id"]}">{esc(c["name"])}</option>' for c in customers)
+        v_opts = "".join(f'<option value="{v["id"]}">{esc(v["name"])}</option>' for v in vendors)
         ar = acct.receivable_ageing(conn, tenant["id"])
         body = f"""
 <div class="kpis">
   {kpi("Receivable outstanding", money.fmt(ar["grand_total"]), f'{len(ar["rows"])} open invoice(s)')}
   {kpi("Overdue 60+ days", money.fmt(ar["totals"]["61-90"] + ar["totals"]["90+"]), "needs follow-up")}
+  {kpi("Vouchers listed", str(len(rows)), "receipts and vendor payments")}
 </div>
+<div class="card sect"><table>
+<thead><tr><th>Voucher</th><th>Date</th><th>Type</th><th>Party</th><th>Mode</th><th>Ref</th><th class="num">Amount</th><th class="num">Allocated</th><th class="num">On account</th><th>Status</th></tr></thead>
+<tbody>{trs}</tbody></table></div>
 <div class="grid2">
-  <div class="card"><table>
-  <thead><tr><th>Voucher</th><th>Date</th><th>Customer</th><th>Mode</th><th>Ref</th><th class="num">Amount</th><th class="num">Allocated</th><th class="num">On account</th></tr></thead>
-  <tbody>{trs}</tbody></table></div>
   <div class="card pad"><h2 style="margin-bottom:6px">Advance receipt</h2>
   <p class="small muted" style="margin:0 0 12px">To settle a specific invoice, open the invoice and use <b>Receive payment</b>.</p>
   <form method="post" action="/receipts">
@@ -2765,9 +3389,113 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
   <div class="field"><label>Reference</label><input name="reference" maxlength="60"></div></div>
   <div class="field"><label>Notes</label><input name="notes" maxlength="200"></div>
   <button class="btn" type="submit">Record receipt</button></form></div>
+  <div class="card pad"><h2 style="margin-bottom:6px">Vendor payment</h2>
+  <p class="small muted" style="margin:0 0 12px">To settle a specific bill, open the bill and use <b>Pay this bill</b>.</p>
+  <form method="post" action="/receipts">
+  <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+  <input type="hidden" name="direction" value="payment">
+  <div class="field"><label>Vendor</label><select name="vendor_id">{v_opts}</select></div>
+  <div class="row c2"><div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+  <div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option><option value="card">Card</option></select></div></div>
+  <div class="row c2"><div class="field"><label>Amount</label><input name="amount" placeholder="0.00" inputmode="decimal"></div>
+  <div class="field"><label>Reference</label><input name="reference" maxlength="60"></div></div>
+  <div class="field"><label>Notes</label><input name="notes" maxlength="200"></div>
+  <button class="btn" type="submit">Record payment</button></form></div>
 </div>
-<p class="small muted" style="margin-top:14px">Receipts post Dr Cash/Bank, Cr Accounts Receivable with the customer tagged, so the customer statement and the control account always agree. <a href="/export/receipts.csv">Export CSV</a></p>"""
-        return layout("Receipts", body, "receipts", user, tenant)
+<p class="small muted" style="margin-top:14px">Receipts post Dr Cash/Bank, Cr Accounts Receivable with the customer tagged. Vendor payments post Dr Accounts Payable, Cr Cash/Bank. Open a voucher to correct or void it. <a href="/export/receipts.csv">Export CSV</a></p>"""
+        return layout("Receipts &amp; payments", body, "receipts", user, tenant)
+
+    def page_payment_detail(self, conn, user, tenant, sess, payment_id: str) -> str:
+        p = conn.execute(
+            "SELECT * FROM payment WHERE id=? AND tenant_id=?", (payment_id, tenant["id"])
+        ).fetchone()
+        if not p:
+            return layout("Not found", '<div class="card pad">Receipt or payment not found.</div>',
+                          "receipts", user, tenant)
+        party_table = "customer" if p["party_type"] == "customer" else "vendor"
+        party = conn.execute(
+            f"SELECT * FROM {party_table} WHERE id=? AND tenant_id=?",
+            (p["party_id"], tenant["id"])).fetchone()
+        party_name = party["name"] if party else "(deleted)"
+        allocations = conn.execute(
+            "SELECT a.*, CASE a.doc_type WHEN 'invoice' THEN i.invoice_no"
+            " WHEN 'bill' THEN b.bill_no ELSE '' END AS doc_no"
+            " FROM payment_allocation a"
+            " LEFT JOIN invoice i ON a.doc_type='invoice' AND i.id=a.doc_id"
+            " LEFT JOIN bill b ON a.doc_type='bill' AND b.id=a.doc_id"
+            " WHERE a.tenant_id=? AND a.payment_id=? ORDER BY a.rowid",
+            (tenant["id"], payment_id)).fetchall()
+        alloc_total = sum(int(a["amount_paise"]) for a in allocations)
+        alloc_rows = "".join(
+            f'<tr><td>{esc(a["doc_type"].replace("_", " ").title())}</td>'
+            f'<td>{esc(a["doc_no"] or a["doc_id"])}</td>'
+            f'<td class="num">{money.fmt(a["amount_paise"])}</td></tr>' for a in allocations)
+        alloc_rows = alloc_rows or '<tr><td colspan="3" class="empty">Not allocated to any document</td></tr>'
+        direction_label = "Receipt" if p["direction"] == "receipt" else "Payment"
+        status_badge = ('<span class="badge ok">Posted</span>' if p["status"] == "posted"
+                        else '<span class="badge bad">Void</span>')
+        replaced_by = conn.execute(
+            "SELECT id, voucher_no FROM payment WHERE tenant_id=? AND replaces_id=?",
+            (tenant["id"], payment_id)).fetchone()
+        replacement_note = ""
+        if replaced_by:
+            replacement_note = (f'<p class="small muted">Replaced by '
+                                f'<a href="/receipts/{esc(replaced_by["id"])}">'
+                                f'{esc(replaced_by["voucher_no"])}</a>.</p>')
+        if p["replaces_id"]:
+            old = conn.execute("SELECT id, voucher_no FROM payment WHERE id=?",
+                               (p["replaces_id"],)).fetchone()
+            if old:
+                replacement_note += (f'<p class="small muted">This voucher replaces '
+                                     f'<a href="/receipts/{esc(old["id"])}">{esc(old["voucher_no"])}</a>.</p>')
+        if p["status"] == "posted":
+            edit_card = f"""
+<div class="card pad sect"><h2 style="margin-bottom:8px">Correct this {direction_label.lower()}</h2>
+<p class="small muted" style="margin:0 0 12px">Saving reverses the old journal and records a new
+voucher. The party and direction stay fixed. Existing allocations are carried forward; the new
+amount cannot be less than {money.fmt(alloc_total)} already allocated.</p>
+<form method="post" action="/receipts/{esc(payment_id)}/replace">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="row c4">
+  <div class="field"><label>Date</label><input type="date" name="payment_date" value="{esc(p['payment_date'])}" required></div>
+  <div class="field"><label>Amount</label><input name="amount" value="{money.to_str(p['amount_paise'])}" inputmode="decimal" required></div>
+  <div class="field"><label>Mode</label><select name="mode">
+    {''.join(f'<option value="{m}"{" selected" if p["mode"] == m else ""}>{m.title()}</option>' for m in ('bank','cash','upi','cheque','card'))}
+  </select></div>
+  <div class="field"><label>Reference</label><input name="reference" value="{esc(p['reference'] or '')}" maxlength="60"></div>
+</div>
+<div class="row c2">
+  <div class="field"><label>Notes</label><input name="notes" value="{esc(p['notes'] or '')}" maxlength="200"></div>
+  <div class="field"><label>Why are you correcting it?</label><input name="reason" required maxlength="200" placeholder="e.g. Wrong amount / wrong mode"></div>
+</div>
+<button class="btn" type="submit">Reverse and record corrected voucher</button>
+</form></div>"""
+            void_card = f"""
+<div class="card pad sect"><h2 style="margin-bottom:8px">Void without replacement</h2>
+<form method="post" action="/receipts/{esc(payment_id)}/void" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="field" style="min-width:280px"><label>Void reason</label><input name="reason" required maxlength="200"></div>
+<button class="btn ghost" type="submit">Void {direction_label.lower()}</button></form></div>"""
+        else:
+            edit_card = (f'<div class="card pad small muted">This voucher is void. Reason: '
+                         f'{esc(p["void_reason"] or "—")}.</div>')
+            void_card = ""
+        body = f"""
+<div class="sect-head"><div><h2>{esc(p["voucher_no"])} {status_badge}</h2>
+<div class="small muted">{direction_label} · {esc(p["payment_date"])} · {esc(party_name)}</div></div>
+<a class="btn ghost" href="/receipts">Back to receipts</a></div>
+<div class="kpis">
+  {kpi("Amount", money.fmt(p["amount_paise"]), f'{p["mode"].title()} voucher')}
+  {kpi("Allocated", money.fmt(alloc_total), f"{len(allocations)} document(s)")}
+  {kpi("Unallocated", money.fmt(p["amount_paise"] - alloc_total), "on account")}
+</div>
+{replacement_note}
+<div class="card sect"><table>
+<thead><tr><th>Document type</th><th>Document</th><th class="num">Allocated</th></tr></thead>
+<tbody>{alloc_rows}</tbody></table></div>
+{edit_card}
+{void_card}"""
+        return layout(f'{direction_label} {p["voucher_no"]}', body, "receipts", user, tenant)
 
     def page_credit_notes(self, conn, user, tenant) -> str:
         rows = conn.execute(
@@ -2824,17 +3552,35 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
                     f'<td class="num"><b>{money.fmt(r["total_paise"])}</b></td>'
                     f'<td class="num">{money.fmt(out)}</td><td><span class="badge {badge}">{status}</span></td></tr>')
         trs = trs or '<tr><td colspan="9" class="empty">No bills yet. Record your first purchase.</td></tr>'
+        draft_rows = ""
+        drafts = drafts_mod.list_bill_drafts(conn, tenant["id"],
+                                             ("draft", "pending", "rejected"))
+        for d in drafts:
+            label = {"draft": "Draft", "pending": "Pending approval",
+                     "rejected": "Rejected"}.get(d["status"], d["status"])
+            badge = "warn" if d["status"] in ("draft", "pending") else "bad"
+            draft_rows += (f'<tr><td><a href="/bills/drafts/{d["id"]}/edit">'
+                           f'{esc(d["draft_no"])}</a></td><td>{esc(d["bill_date"])}</td>'
+                           f'<td>{esc(d["vendor_name"])}</td>'
+                           f'<td class="num">{money.fmt(d["total_paise"])}</td>'
+                           f'<td><span class="badge {badge}">{esc(label)}</span></td></tr>')
+        draft_rows = draft_rows or ('<tr><td colspan="5" class="empty">No draft bills.</td></tr>')
         ap = acct.payable_ageing(conn, tenant["id"])
         body = f"""
 <div class="kpis">
   {kpi("Payable outstanding", money.fmt(ap["grand_total"]), f'{len(ap["rows"])} open bill(s)')}
   {kpi("Overdue 60+ days", money.fmt(ap["totals"]["61-90"] + ap["totals"]["90+"]), "to be paid")}
+  {kpi("Draft bills", str(len(drafts)), "not posted; no ledger or stock effect")}
 </div>
 <div class="sect-head"><h2>{len(rows)} bill(s)</h2>
 <div><a class="btn" href="/bills/new">New bill</a> <a class="btn ghost" href="/export/bills.csv">Export CSV</a></div></div>
 <div class="card"><table>
 <thead><tr><th>Bill</th><th>Vendor bill no</th><th>Date</th><th>Vendor</th><th class="num">Net</th><th class="num">GST</th><th class="num">Total</th><th class="num">Outstanding</th><th>Status</th></tr></thead>
-<tbody>{trs}</tbody></table></div>"""
+<tbody>{trs}</tbody></table></div>
+<div class="card sect"><div class="sect-head"><div><h2>Draft bills</h2>
+<div class="small muted">Drafts do not affect the ledger, stock, payables or input GST until posted.</div></div></div>
+<table><thead><tr><th>Draft</th><th>Date</th><th>Vendor</th><th class="num">Total</th><th>Status</th></tr></thead>
+<tbody>{draft_rows}</tbody></table></div>"""
         return layout("Bills", body, "bills", user, tenant)
 
     def page_bill_new(self, conn, user, tenant, sess, error: str = "") -> str:
@@ -2874,12 +3620,91 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <tbody id="lines">{rows}</tbody></table>
 <div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div></div>
 <button class="btn" type="submit">Post bill</button>
+<button class="btn ghost" type="submit" name="action" value="draft" style="margin-left:8px">Save as draft</button>
 <a class="btn ghost" href="/bills" style="margin-left:8px">Cancel</a>
+<div class="small muted" style="margin-top:8px">A draft does not post a journal, move stock, create a payable or claim input GST.</div>
 <script>
 const tpl = document.querySelector('#lines tr').outerHTML;
 function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
 </script>"""
         return layout("New bill", body, "bills", user, tenant)
+
+    def page_bill_replace(self, conn, user, tenant, sess, bill_id: str) -> str:
+        bill = conn.execute(
+            "SELECT b.*, v.name FROM bill b JOIN vendor v ON v.id=b.vendor_id"
+            " WHERE b.id=? AND b.tenant_id=?", (bill_id, tenant["id"])).fetchone()
+        if not bill:
+            return layout("Not found", '<div class="card pad">Bill not found.</div>',
+                          "bills", user, tenant)
+        try:
+            acct._assert_bill_replaceable(conn, tenant["id"], bill)
+        except acct.AccountingError as e:
+            return layout("Cannot correct bill",
+                          f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                          f'<a class="btn ghost" href="/bills/{esc(bill_id)}">Back</a></div>',
+                          "bills", user, tenant)
+        vendors = conn.execute("SELECT * FROM vendor WHERE tenant_id=? ORDER BY name",
+                               (tenant["id"],)).fetchall()
+        items = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name",
+                             (tenant["id"],)).fetchall()
+        lines = conn.execute("SELECT * FROM bill_line WHERE bill_id=? ORDER BY rowid",
+                             (bill_id,)).fetchall()
+        v_opts = "".join(
+            f'<option value="{v["id"]}"{" selected" if v["id"] == bill["vendor_id"] else ""}>'
+            f'{esc(v["name"])} ({esc(v["state_code"])})</option>' for v in vendors)
+        i_opts = "".join(
+            f'<option value="{i["id"]}">{esc(i["name"])} &mdash; cost '
+            f'{money.fmt(i["cost_paise"])} @ {i["tax_rate_bp"]/100:.0f}%</option>'
+            for i in items)
+        rows = ""
+        for line in lines:
+            selected = "".join(
+                f'<option value="{i["id"]}"{" selected" if i["id"] == line["item_id"] else ""}>'
+                f'{esc(i["name"])}</option>' for i in items)
+            rows += f"""<tr>
+  <td><select name="item_id">{selected}</select></td>
+  <td><input name="qty" value="{line['qty_milli']/1000:.3f}" inputmode="decimal"></td>
+  <td><input name="price" value="{money.to_str(line['unit_price_paise'])}" inputmode="decimal"></td>
+  <td><input name="discount" value="{money.to_str(line['discount_paise'])}" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+</tr>"""
+        if not rows:
+            rows = f"""<tr><td><select name="item_id">{i_opts}</select></td>
+  <td><input name="qty" value="1" inputmode="decimal"></td>
+  <td><input name="price" placeholder="auto (cost)" inputmode="decimal"></td>
+  <td><input name="discount" value="0" inputmode="decimal"></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td></tr>"""
+        body = f"""
+<div class="notice">Correcting posted bill <b>{esc(bill["bill_no"])}</b>.
+Saving reverses its journal, takes the purchased quantity back out of stock, marks it void, and
+posts a new bill with a fresh BILL number. Both versions stay in the audit trail.</div>
+<form method="post" action="/bills/{esc(bill_id)}/replace">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<div class="card pad sect">
+  <div class="row c4">
+    <div class="field"><label>Bill date</label><input type="date" name="bill_date" value="{esc(bill['bill_date'])}" required></div>
+    <div class="field"><label>Vendor</label><select name="vendor_id">{v_opts}</select></div>
+    <div class="field"><label>Vendor bill no</label><input name="vendor_bill_no" value="{esc(bill['vendor_bill_no'] or '')}" maxlength="60"></div>
+    <div class="field"><label>Place of supply</label><input name="place_of_supply" value="{esc(bill['place_of_supply_state'])}" maxlength="2"></div>
+  </div>
+</div>
+<div class="card sect">
+<table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit cost</th><th>Discount</th><th></th></tr></thead>
+<tbody id="lines">{rows}</tbody></table>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
+</div>
+<div class="card pad sect">
+  <div class="field"><label>Why are you correcting it?</label>
+  <input name="reason" required maxlength="200" placeholder="e.g. Wrong quantity / wrong rate"></div>
+</div>
+<button class="btn" type="submit">Reverse and post corrected bill</button>
+<a class="btn ghost" href="/bills/{esc(bill_id)}" style="margin-left:8px">Cancel</a>
+<script>
+const tpl = document.querySelector('#lines tr').outerHTML;
+function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
+</script>
+</form>"""
+        return layout(f'Correct {bill["bill_no"]}', body, "bills", user, tenant)
 
     def page_bill_detail(self, conn, user, tenant, sess, bill_id: str) -> str:
         bill = conn.execute("SELECT b.*, v.name, v.state_code FROM bill b JOIN vendor v ON v.id=b.vendor_id"
@@ -2940,6 +3765,46 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 <button class="btn ghost" type="submit">Post debit note</button>
 </form></div>"""
 
+        can_replace = can_void_posted = False
+        try:
+            security.require(conn, user["id"], tenant["id"], "bill.create")
+            can_replace = True
+        except security.AuthError:
+            pass
+        try:
+            security.require(conn, user["id"], tenant["id"], "bill.create")
+            can_void_posted = True
+        except security.AuthError:
+            pass
+        replaceable = False
+        if bill["status"] == "posted":
+            try:
+                acct._assert_bill_replaceable(conn, tenant["id"], bill)
+                replaceable = True
+            except acct.AccountingError:
+                replaceable = False
+        posted_actions = ""
+        if bill["status"] == "posted":
+            parts = []
+            if replaceable and can_replace:
+                parts.append(f'<a class="btn ghost" href="/bills/{esc(bill_id)}/replace">'
+                             f'Correct posted bill</a>')
+            if can_void_posted:
+                parts.append(
+                    f'<form method="post" action="/bills/{esc(bill_id)}/void"'
+                    f' style="display:flex;gap:8px;align-items:end">'
+                    f'<input type="hidden" name="_csrf" value="{esc(sess["csrf_token"])}">'
+                    f'<div class="field"><label>Void reason</label>'
+                    f'<input name="reason" required maxlength="200"></div>'
+                    f'<button class="btn ghost" type="submit">Void posted bill</button></form>')
+            if parts:
+                posted_actions = (
+                    '<div class="card pad sect"><h2 style="margin-bottom:8px">Correction</h2>'
+                    '<p class="small muted">Correcting reverses the journal, takes the purchased '
+                    'quantity back out of stock and posts a new bill. Voiding reverses the journal '
+                    'and removes the stock. Nothing is deleted.</p>'
+                    '<div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">'
+                    + "".join(parts) + '</div></div>')
         body = f"""
 <div class="sect-head"><div><h2>{esc(bill["bill_no"])}</h2>
 <div class="small muted">{esc(bill["bill_date"])} · {esc(bill["name"])} · vendor bill {esc(bill["vendor_bill_no"] or "—")}</div></div>
@@ -2956,7 +3821,8 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
 </tfoot></table></div>
 {pay_form}
 {debit_form}
-<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted. Bills are immutable; corrections use a debit note or reversal.</div>"""
+{posted_actions}
+<div class="card pad small muted">Journal entry <b>{esc(je["entry_no"])}</b> posted. Corrections reverse this journal and post a replacement; the original and its reversal stay in the audit trail.</div>"""
         return layout("Bill", body, "bills", user, tenant)
 
     def page_vendors(self, conn, user, tenant, sess) -> str:
@@ -3336,6 +4202,23 @@ entry is unbalanced, the whole correction is rejected and the original stays pos
                             f'<td class="num">{money.fmt(r["amount"])}</td>'
                             f'<td>{action}</td></tr>')
         recent_rows = recent_rows or '<tr><td colspan="5" class="empty">No manual entries yet.</td></tr>'
+        draft_rows = ""
+        for d in drafts_mod.list_journal_drafts(conn, tenant["id"],
+                                                 ("draft", "pending", "rejected")):
+            label = {"draft": "Draft", "pending": "Pending approval",
+                     "rejected": "Rejected"}.get(d["status"], d["status"])
+            badge = "warn" if d["status"] in ("draft", "pending") else "bad"
+            draft_rows += (f'<tr><td><a href="/journal/drafts/{d["id"]}/edit">'
+                           f'{esc(d["draft_no"])}</a></td><td>{esc(d["entry_date"])}</td>'
+                           f'<td>{esc(d["narration"])}</td>'
+                           f'<td><span class="badge {badge}">{esc(label)}</span></td></tr>')
+        draft_rows = draft_rows or ('<tr><td colspan="4" class="empty">No journal drafts.</td></tr>')
+        draft_card = f"""
+<div class="card sect"><div class="sect-head"><div><h2>Draft journals</h2>
+<div class="small muted">Drafts do not post to the ledger. Submit one for maker-checker approval or post it directly.</div></div></div>
+<div class="table-wrap"><table>
+<thead><tr><th>Draft</th><th>Date</th><th>Narration</th><th>Status</th></tr></thead>
+<tbody>{draft_rows}</tbody></table></div></div>"""
         recent_title = {"cash": "Recent cash entries", "bank": "Recent bank entries",
                         "journal": "Recent journal entries"}.get(mode, "Recent entries")
         recent_card = f"""
@@ -3372,10 +4255,12 @@ branch for the advanced reports. Leave it blank for unallocated lines.</div>
 </div>
 <div class="entry-actions">
 <button class="btn" type="submit">Post {esc(title.lower())}</button>
-<a class="btn ghost" href="/ledger">Back to ledger</a>
+<button class="btn ghost" type="submit" name="action" value="draft" style="margin-left:8px">Save as draft</button>
+<a class="btn ghost" href="/ledger" style="margin-left:8px">Back to ledger</a>
 </div>
-<p class="small muted" style="margin-top:12px">Debits must equal credits exactly. Posting is atomic: an unbalanced entry is rejected and nothing is written.</p>
+<p class="small muted" style="margin-top:12px">Debits must equal credits exactly. Posting is atomic: an unbalanced entry is rejected and nothing is written. A draft stays out of the ledger until it is posted.</p>
 </form>
+{draft_card}
 {recent_card}"""
         return layout(title, body, active, user, tenant)
 
@@ -4960,13 +5845,37 @@ the posted journals and audit log are the record.</p>
                 reverse_opening = (
                     f'<a class="btn ghost small" style="margin-top:10px" '
                     f'href="/journal?reverse={esc(opening_entry["id"])}">Reverse opening entry</a>')
+            edit_opening = ""
+            if can_manage and not is_archived:
+                edit_opening = f"""
+<details style="margin-top:12px">
+<summary style="cursor:pointer;font-weight:650">Edit opening balance</summary>
+<p class="small muted" style="margin:10px 0">Saving a correction reverses
+<b>{esc(opening_entry["entry_no"])}</b> and posts a new opening journal. Both versions stay in the
+audit trail; nothing is deleted.</p>
+<form method="post" action="/opening-balance/replace" style="margin-top:10px">
+<input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
+<input type="hidden" name="account_id" value="{esc(account_id)}">
+<div class="row c4">
+<div class="field"><label>Opening amount</label><input name="amount" inputmode="decimal" required value="{money.to_str(opening_amount)}"></div>
+<div class="field"><label>Balance</label><select name="side">
+<option value="debit"{' selected' if opening_side == 'Dr' else ''}>Debit (Dr)</option>
+<option value="credit"{' selected' if opening_side == 'Cr' else ''}>Credit (Cr)</option>
+</select></div>
+<div class="field"><label>As of</label><input type="date" name="as_of" required value="{esc(opening_entry['entry_date'])}"></div>
+<div class="field"><label>Why are you correcting it?</label><input name="reason" required maxlength="200" placeholder="e.g. Opening figure was wrong"></div>
+</div>
+<button class="btn small" type="submit">Save opening correction</button>
+</form>
+</details>"""
             opening_card = f"""
 <details class="card pad" style="margin-bottom:14px">
 <summary style="cursor:pointer;font-weight:650">Opening balance entry · {money.fmt(opening_amount)} {opening_side}</summary>
 <p class="small muted" style="margin:10px 0 0">Posted as <b>{esc(opening_entry["entry_no"])}</b> on
-{esc(opening_entry["entry_date"])} against Opening Balance Equity. To replace it, reverse that entry first;
-manual entries can be corrected with Edit; opening balances can be reversed.</p>
+{esc(opening_entry["entry_date"])} against Opening Balance Equity. You can correct it directly below;
+the original journal is reversed and a new one is posted.</p>
 {reverse_opening}
+{edit_opening}
 </details>"""
         elif is_opening_equity:
             opening_card = """
@@ -8842,6 +9751,25 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             return self._error_page(user, tenant, str(e), back)
         return self._redirect(f"{back}{'&' if '?' in back else '?'}opening=1")
 
+    def _replace_opening_balance(self, conn, user, tenant, form):
+        account_id = first(form, "account_id")
+        back = f"/ledger?account={account_id}" if account_id else "/ledger"
+        try:
+            security.require(conn, user["id"], tenant["id"], "account.manage")
+            amount = money.parse_amount(first(form, "amount"))
+            acct.replace_opening_balance(
+                conn, tenant["id"], account_id, first(form, "as_of"), amount,
+                first(form, "side"), first(form, "reason"), created_by=user["id"])
+        except security.AuthError as e:
+            body = (f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
+                    f'<a class="btn ghost" href="{esc(back)}">Back to ledger</a></div>')
+            return self._send(layout("Forbidden", body, "ledger", user, tenant), 403)
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, back)
+        except money.MoneyError as e:
+            return self._error_page(user, tenant, str(e), back)
+        return self._redirect(f"{back}{'&' if '?' in back else '?'}opening=1")
+
     def _create_bank_account(self, conn, user, tenant, form):
         try:
             security.require(conn, user["id"], tenant["id"], "account.manage")
@@ -9054,6 +9982,119 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         try:
             acct.void_draft_invoice(conn, tenant["id"], invoice_id, first(form, "reason"),
                                     created_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/invoices/{invoice_id}")
+        return self._redirect(f"/invoices/{invoice_id}")
+
+    def _replace_posted_invoice(self, conn, user, tenant, sess, form, invoice_id: str):
+        security.require(conn, user["id"], tenant["id"], "invoice.create")
+        item_ids = form.get("item_id") or []
+        qtys = form.get("qty") or []
+        prices = form.get("price") or []
+        discounts = form.get("discount") or []
+
+        def pick(seq, i):
+            return seq[i] if i < len(seq) else ""
+
+        lines = []
+        try:
+            for i, iid in enumerate(item_ids):
+                q = pick(qtys, i)
+                if not q or q.strip() in ("", "0", "0.0", "0.000"):
+                    continue
+                line = {"item_id": iid, "qty": money.parse_qty(q),
+                        "discount": money.parse_amount(pick(discounts, i) or "0")}
+                p = pick(prices, i).strip()
+                if p:
+                    line["unit_price"] = money.parse_amount(p)
+                lines.append(line)
+            if not lines:
+                raise acct.AccountingError("NO_ITEMS", "Add at least one line with a quantity.")
+            inv = acct.replace_posted_invoice(
+                conn, tenant["id"], invoice_id, first(form, "customer_id"),
+                first(form, "invoice_date"),
+                (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                first(form, "reason"), created_by=user["id"])
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/invoices/{invoice_id}/replace")
+        return self._redirect(f'/invoices/{inv["id"]}?corrected=1')
+
+    def _void_posted_invoice(self, conn, user, tenant, form, invoice_id: str):
+        security.require(conn, user["id"], tenant["id"], "invoice.void")
+        try:
+            acct.void_posted_invoice(conn, tenant["id"], invoice_id, first(form, "reason"),
+                                     created_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/invoices/{invoice_id}")
+        return self._redirect(f"/invoices/{invoice_id}?voided=1")
+
+    def _update_invoice_draft(self, conn, user, tenant, sess, form, invoice_id: str):
+        security.require(conn, user["id"], tenant["id"], "invoice.create")
+        item_ids = form.get("item_id") or []
+        qtys = form.get("qty") or []
+        prices = form.get("price") or []
+        discounts = form.get("discount") or []
+
+        def pick(seq, i):
+            return seq[i] if i < len(seq) else ""
+
+        lines = []
+        try:
+            for i, iid in enumerate(item_ids):
+                q = pick(qtys, i)
+                if not q or q.strip() in ("", "0", "0.0", "0.000"):
+                    continue
+                line = {"item_id": iid, "qty": money.parse_qty(q),
+                        "discount": money.parse_amount(pick(discounts, i) or "0")}
+                p = pick(prices, i).strip()
+                if p:
+                    line["unit_price"] = money.parse_amount(p)
+                lines.append(line)
+            if not lines:
+                raise acct.AccountingError("NO_ITEMS", "Add at least one line with a quantity.")
+            acct.update_invoice_draft(
+                conn, tenant["id"], invoice_id, first(form, "customer_id"),
+                first(form, "invoice_date"),
+                (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                created_by=user["id"])
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/invoices/{invoice_id}/edit")
+        return self._redirect(f"/invoices/{invoice_id}")
+
+    def _submit_invoice_draft(self, conn, user, tenant, form, invoice_id: str):
+        security.require(conn, user["id"], tenant["id"], "invoice.create")
+        try:
+            drafts_mod.submit_invoice_draft(conn, tenant["id"], invoice_id, submitted_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/invoices/{invoice_id}")
+        return self._redirect(f"/invoices/{invoice_id}")
+
+    def _approve_invoice_draft(self, conn, user, tenant, form, invoice_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.approve_invoice_draft(conn, tenant["id"], invoice_id, approved_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/invoices/{invoice_id}")
+        return self._redirect(f"/invoices/{invoice_id}")
+
+    def _reject_invoice_draft(self, conn, user, tenant, form, invoice_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.reject_invoice_draft(conn, tenant["id"], invoice_id,
+                                            first(form, "reason"), rejected_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/invoices/{invoice_id}")
+        return self._redirect(f"/invoices/{invoice_id}")
+
+    def _withdraw_invoice_draft(self, conn, user, tenant, form, invoice_id: str):
+        security.require(conn, user["id"], tenant["id"], "invoice.create")
+        try:
+            drafts_mod.withdraw_invoice_draft(conn, tenant["id"], invoice_id,
+                                              withdrawn_by=user["id"])
         except acct.AccountingError as e:
             return self._error_page(user, tenant, e.message, f"/invoices/{invoice_id}")
         return self._redirect(f"/invoices/{invoice_id}")
@@ -9280,6 +10321,14 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                                     created_by=user["id"])
                 return self._redirect(f"/bills/{bill_id}")
 
+            if first(form, "direction") == "payment" or first(form, "vendor_id"):
+                vendor_id = first(form, "vendor_id")
+                if not vendor_id:
+                    raise acct.AccountingError("VENDOR_REQUIRED", "Choose a vendor")
+                acct.record_payment(conn, tenant["id"], "payment", vendor_id, when, amount, mode,
+                                    [], reference=reference, notes=notes, created_by=user["id"])
+                return self._redirect("/receipts")
+
             customer_id = first(form, "customer_id")
             if not customer_id:
                 raise acct.AccountingError("CUSTOMER_REQUIRED", "Choose a customer")
@@ -9288,6 +10337,30 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             return self._redirect("/receipts")
         except (acct.AccountingError, money.MoneyError) as e:
             return self._error_page(user, tenant, getattr(e, "message", str(e)), back)
+
+    def _replace_posted_payment(self, conn, user, tenant, sess, form, payment_id: str):
+        security.require(conn, user["id"], tenant["id"], "payment.record")
+        try:
+            amount = money.parse_amount(first(form, "amount"))
+            acct.replace_posted_payment(
+                conn, tenant["id"], payment_id,
+                first(form, "payment_date") or date.today().isoformat(), amount,
+                first(form, "mode") or "bank", first(form, "reference"),
+                first(form, "notes"), allocations=None, reason=first(form, "reason"),
+                created_by=user["id"])
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/receipts/{payment_id}")
+        return self._redirect(f"/receipts/{payment_id}?corrected=1")
+
+    def _void_posted_payment(self, conn, user, tenant, form, payment_id: str):
+        security.require(conn, user["id"], tenant["id"], "payment.record")
+        try:
+            acct.void_posted_payment(conn, tenant["id"], payment_id, first(form, "reason"),
+                                     created_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/receipts/{payment_id}")
+        return self._redirect(f"/receipts/{payment_id}?voided=1")
 
     def _create_credit_note(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "credit_note.create")
@@ -9317,8 +10390,7 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             return self._error_page(user, tenant, getattr(e, "message", str(e)),
                                     f"/bills/{bill_id}")
 
-    def _create_bill(self, conn, user, tenant, sess, form):
-        security.require(conn, user["id"], tenant["id"], "bill.create")
+    def _bill_lines_from_form(self, form) -> list[dict]:
         item_ids = form.get("item_id") or []
         qtys = form.get("qty") or []
         prices = form.get("price") or []
@@ -9328,24 +10400,35 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             return seq[i] if i < len(seq) else ""
 
         lines = []
+        for i, iid in enumerate(item_ids):
+            q = pick(qtys, i)
+            if not q or q.strip() in ("", "0", "0.0", "0.000"):
+                continue
+            line = {"item_id": iid, "qty": money.parse_qty(q),
+                    "discount": money.parse_amount(pick(discounts, i) or "0")}
+            p = pick(prices, i).strip()
+            if p:
+                line["unit_price"] = money.parse_amount(p)
+            lines.append(line)
+        return lines
+
+    def _create_bill(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
         try:
-            for i, iid in enumerate(item_ids):
-                q = pick(qtys, i)
-                if not q or q.strip() in ("", "0", "0.0", "0.000"):
-                    continue
-                line = {"item_id": iid, "qty": money.parse_qty(q),
-                        "discount": money.parse_amount(pick(discounts, i) or "0")}
-                p = pick(prices, i).strip()
-                if p:
-                    line["unit_price"] = money.parse_amount(p)
-                lines.append(line)
+            lines = self._bill_lines_from_form(form)
         except money.MoneyError as e:
             return self._send(self.page_bill_new(conn, user, tenant, sess, str(e)), 400)
-
         if not lines:
             return self._send(self.page_bill_new(conn, user, tenant, sess,
                                                  "Add at least one line with a quantity."), 400)
         try:
+            if first(form, "action") == "draft":
+                draft = drafts_mod.save_bill_draft(
+                    conn, tenant["id"], first(form, "vendor_id"), first(form, "bill_date"),
+                    first(form, "vendor_bill_no"),
+                    (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                    round_to_rupee=first(form, "rounding") == "1", created_by=user["id"])
+                return self._redirect(f'/bills/drafts/{draft["id"]}/edit')
             bill = acct.create_bill(
                 conn, tenant["id"], first(form, "vendor_id"), first(form, "bill_date"),
                 first(form, "vendor_bill_no"),
@@ -9354,6 +10437,115 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         except acct.AccountingError as e:
             return self._send(self.page_bill_new(conn, user, tenant, sess, e.message), 400)
         return self._redirect(f'/bills/{bill["id"]}')
+
+    def _replace_posted_bill(self, conn, user, tenant, sess, form, bill_id: str):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
+        try:
+            lines = self._bill_lines_from_form(form)
+            if not lines:
+                raise acct.AccountingError("NO_ITEMS", "Add at least one line with a quantity.")
+            bill = acct.replace_posted_bill(
+                conn, tenant["id"], bill_id, first(form, "vendor_id"), first(form, "bill_date"),
+                first(form, "vendor_bill_no"),
+                (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                first(form, "reason"), created_by=user["id"])
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/bills/{bill_id}/replace")
+        return self._redirect(f'/bills/{bill["id"]}?corrected=1')
+
+    def _void_posted_bill(self, conn, user, tenant, form, bill_id: str):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
+        try:
+            acct.void_posted_bill(conn, tenant["id"], bill_id, first(form, "reason"),
+                                  created_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/bills/{bill_id}")
+        return self._redirect(f"/bills/{bill_id}?voided=1")
+
+    def _create_bill_draft(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
+        try:
+            lines = self._bill_lines_from_form(form)
+            if not lines:
+                raise acct.AccountingError("NO_ITEMS", "Add at least one line with a quantity.")
+            draft = drafts_mod.save_bill_draft(
+                conn, tenant["id"], first(form, "vendor_id"), first(form, "bill_date"),
+                first(form, "vendor_bill_no"),
+                (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                round_to_rupee=first(form, "rounding") == "1", created_by=user["id"])
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._send(self.page_bill_new(conn, user, tenant, sess,
+                                                 getattr(e, "message", str(e))), 400)
+        return self._redirect(f'/bills/drafts/{draft["id"]}/edit')
+
+    def _update_bill_draft(self, conn, user, tenant, sess, form, draft_id: str):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
+        action = first(form, "action")
+        back = f"/bills/drafts/{draft_id}/edit"
+        try:
+            lines = self._bill_lines_from_form(form)
+            if not lines:
+                raise acct.AccountingError("NO_ITEMS", "Add at least one line with a quantity.")
+            drafts_mod.update_bill_draft(
+                conn, tenant["id"], draft_id, first(form, "vendor_id"), first(form, "bill_date"),
+                first(form, "vendor_bill_no"),
+                (first(form, "place_of_supply") or tenant["state_code"])[:2], lines,
+                round_to_rupee=first(form, "rounding") == "1", created_by=user["id"])
+            if action == "submit":
+                drafts_mod.submit_bill_draft(conn, tenant["id"], draft_id, submitted_by=user["id"])
+            elif action == "post":
+                security.require(conn, user["id"], tenant["id"], "document.approve")
+                drafts_mod.post_bill_draft(conn, tenant["id"], draft_id, posted_by=user["id"])
+                return self._redirect("/bills")
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)), back)
+        return self._redirect(back)
+
+    def _submit_bill_draft(self, conn, user, tenant, form, draft_id: str):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
+        try:
+            drafts_mod.submit_bill_draft(conn, tenant["id"], draft_id, submitted_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/bills/drafts/{draft_id}/edit")
+        return self._redirect(f"/bills/drafts/{draft_id}/edit")
+
+    def _post_bill_draft(self, conn, user, tenant, form, draft_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.post_bill_draft(conn, tenant["id"], draft_id, posted_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/bills/drafts/{draft_id}/edit")
+        return self._redirect("/bills")
+
+    def _approve_bill_draft(self, conn, user, tenant, form, draft_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.approve_bill_draft(conn, tenant["id"], draft_id, approved_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/bills/drafts/{draft_id}/edit")
+        return self._redirect("/bills")
+
+    def _reject_bill_draft(self, conn, user, tenant, form, draft_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.reject_bill_draft(conn, tenant["id"], draft_id, first(form, "reason"),
+                                         rejected_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/bills/drafts/{draft_id}/edit")
+        return self._redirect(f"/bills/drafts/{draft_id}/edit")
+
+    def _void_bill_draft(self, conn, user, tenant, form, draft_id: str):
+        security.require(conn, user["id"], tenant["id"], "bill.create")
+        try:
+            drafts_mod.void_bill_draft(conn, tenant["id"], draft_id, first(form, "reason"),
+                                       voided_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/bills/drafts/{draft_id}/edit")
+        return self._redirect("/bills")
 
     def _bank_import(self, conn, user, tenant, sess, form):
         security.require(conn, user["id"], tenant["id"], "bank.reconcile")
@@ -9462,6 +10654,14 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         security.require(conn, user["id"], tenant["id"], "journal.post")
         try:
             lines = self._journal_lines_from_form(form)
+            if first(form, "action") == "draft":
+                draft = drafts_mod.save_journal_draft(
+                    conn, tenant["id"],
+                    first(form, "entry_date") or date.today().isoformat(),
+                    first(form, "narration") or "Manual journal", lines,
+                    is_intercompany=bool(first(form, "is_intercompany")),
+                    created_by=user["id"])
+                return self._redirect(f'/journal/drafts/{draft["id"]}/edit')
             entry_id = acct.post_journal(
                 conn, tenant["id"], first(form, "entry_date") or date.today().isoformat(),
                 first(form, "narration") or "Manual journal", lines, source_type="manual",
@@ -9473,6 +10673,88 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             return self._redirect("/daybook")
         except (acct.AccountingError, money.MoneyError) as e:
             return self._error_page(user, tenant, getattr(e, "message", str(e)), "/journal")
+
+    def _create_journal_draft(self, conn, user, tenant, sess, form):
+        security.require(conn, user["id"], tenant["id"], "journal.post")
+        try:
+            lines = self._journal_lines_from_form(form)
+            draft = drafts_mod.save_journal_draft(
+                conn, tenant["id"],
+                first(form, "entry_date") or date.today().isoformat(),
+                first(form, "narration") or "Manual journal", lines,
+                is_intercompany=bool(first(form, "is_intercompany")),
+                created_by=user["id"])
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)), "/journal")
+        return self._redirect(f'/journal/drafts/{draft["id"]}/edit')
+
+    def _update_journal_draft(self, conn, user, tenant, sess, form, draft_id: str):
+        security.require(conn, user["id"], tenant["id"], "journal.post")
+        action = first(form, "action")
+        back = f"/journal/drafts/{draft_id}/edit"
+        try:
+            lines = self._journal_lines_from_form(form)
+            drafts_mod.update_journal_draft(
+                conn, tenant["id"], draft_id,
+                first(form, "entry_date") or date.today().isoformat(),
+                first(form, "narration") or "Manual journal", lines,
+                is_intercompany=bool(first(form, "is_intercompany")),
+                created_by=user["id"])
+            if action == "submit":
+                drafts_mod.submit_journal_draft(conn, tenant["id"], draft_id,
+                                                submitted_by=user["id"])
+            elif action == "post":
+                security.require(conn, user["id"], tenant["id"], "document.approve")
+                drafts_mod.post_journal_draft(conn, tenant["id"], draft_id, posted_by=user["id"])
+                return self._redirect("/journal")
+        except (acct.AccountingError, money.MoneyError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)), back)
+        return self._redirect(back)
+
+    def _submit_journal_draft(self, conn, user, tenant, form, draft_id: str):
+        security.require(conn, user["id"], tenant["id"], "journal.post")
+        try:
+            drafts_mod.submit_journal_draft(conn, tenant["id"], draft_id, submitted_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/journal/drafts/{draft_id}/edit")
+        return self._redirect(f"/journal/drafts/{draft_id}/edit")
+
+    def _post_journal_draft(self, conn, user, tenant, form, draft_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.post_journal_draft(conn, tenant["id"], draft_id, posted_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/journal/drafts/{draft_id}/edit")
+        return self._redirect("/journal")
+
+    def _approve_journal_draft(self, conn, user, tenant, form, draft_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.approve_journal_draft(conn, tenant["id"], draft_id, approved_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/journal/drafts/{draft_id}/edit")
+        return self._redirect("/journal")
+
+    def _reject_journal_draft(self, conn, user, tenant, form, draft_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], "document.approve")
+            drafts_mod.reject_journal_draft(conn, tenant["id"], draft_id, first(form, "reason"),
+                                            rejected_by=user["id"])
+        except (security.AuthError, acct.AccountingError) as e:
+            return self._error_page(user, tenant, getattr(e, "message", str(e)),
+                                    f"/journal/drafts/{draft_id}/edit")
+        return self._redirect(f"/journal/drafts/{draft_id}/edit")
+
+    def _void_journal_draft(self, conn, user, tenant, form, draft_id: str):
+        security.require(conn, user["id"], tenant["id"], "journal.post")
+        try:
+            drafts_mod.void_journal_draft(conn, tenant["id"], draft_id, first(form, "reason"),
+                                          voided_by=user["id"])
+        except acct.AccountingError as e:
+            return self._error_page(user, tenant, e.message, f"/journal/drafts/{draft_id}/edit")
+        return self._redirect("/journal")
 
     def _edit_journal(self, conn, user, tenant, sess, form):
         entry_id = first(form, "entry_id")
@@ -9500,6 +10782,28 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             return self._redirect(f"{back}{'&' if '?' in back else '?'}edited=1")
         except (security.AuthError, acct.AccountingError, money.MoneyError) as e:
             return self._error_page(user, tenant, getattr(e, "message", str(e)), back)
+
+    def _approve_request(self, conn, user, tenant, form):
+        kind = first(form, "kind")
+        doc_id = first(form, "id")
+        if kind == "bill":
+            return self._approve_bill_draft(conn, user, tenant, form, doc_id)
+        if kind == "journal":
+            return self._approve_journal_draft(conn, user, tenant, form, doc_id)
+        if kind == "invoice":
+            return self._approve_invoice_draft(conn, user, tenant, form, doc_id)
+        return self._error_page(user, tenant, "Unknown approval type.", "/approvals")
+
+    def _reject_request(self, conn, user, tenant, form):
+        kind = first(form, "kind")
+        doc_id = first(form, "id")
+        if kind == "bill":
+            return self._reject_bill_draft(conn, user, tenant, form, doc_id)
+        if kind == "journal":
+            return self._reject_journal_draft(conn, user, tenant, form, doc_id)
+        if kind == "invoice":
+            return self._reject_invoice_draft(conn, user, tenant, form, doc_id)
+        return self._error_page(user, tenant, "Unknown approval type.", "/approvals")
 
     # ---------------- advanced operations & reports ----------------
     def _adv_notice(self, q) -> str:

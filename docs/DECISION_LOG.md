@@ -1043,3 +1043,35 @@ allocations.
   `RUN-2026-11-06-04`.
 - New CSV exports: expiry, project costing, WIP, production consumption, yield, cost centre,
   dimension P&L and consolidated summary. All use the existing session + `report.export` gate.
+
+## D-048 - Build 0.20 corrects posted documents by reversal and replacement, never by deletion
+
+**Date:** 2026-11-08. **Status:** accepted for Build 0.20.
+
+Users need to fix a wrong invoice, bill, receipt, payment or opening balance after it is posted. The
+build keeps the ledger append-only: a correction reverses the original journal, restores or undoes the
+stock effect, marks the original document `void` with a reason, and posts a fresh document linked to
+it through `replaces_id`. No posted row is deleted and no historical number is reused.
+
+- New additive tables: `bill_draft`, `bill_draft_line`, `journal_draft`, `journal_draft_line`.
+  New additive columns: invoice `approval_status`, `submitted_at`, `approved_by`, `approved_at`,
+  `rejection_reason`, `replaces_id`, `void_reason`, `voided_at`, `voided_by`; bill `replaces_id`,
+  `void_reason`, `voided_at`, `voided_by`; payment `status`, `replaces_id`, `void_reason`,
+  `voided_at`, `voided_by`.
+- Draft bills and journals live in their own tables and never touch the ledger, stock, payables,
+  receivables or tax invoices until posted. Posting reuses the existing accounting functions with
+  idempotency keys `bill-draft-{draft_id}` and `journal-draft-{draft_id}`.
+- Approval is an **optional maker-checker layer**. Pending drafts are locked against editing. The
+  additive `document.approve` permission is held by owner and admin; a pending invoice, bill or
+  journal can be approved, rejected with a reason, withdrawn or voided by an authorised user.
+- Invoice and bill replacement is blocked when posted payments or credit/debit notes already
+  reference the document. Bill replacement is also blocked when purchased stock has already been
+  sold or consumed (`BILL_STOCK_CONSUMED`); a debit note is the correct partial correction there.
+- Payment replacement reverses the old journal, marks the old voucher `void`, and carries the old
+  allocations forward by default; a caller may supply a new allocation list instead.
+- Opening-balance correction reverses the old opening journal and posts the replacement in one
+  transaction, with audit action `opening_balance.replace`.
+- GST output remains a working aid, not a filed return. The correction workflow changes the
+  underlying books only; it does not claim a revised GST filing.
+- The full suite passes **331 tests, OK**, 77.525 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-08-01`.

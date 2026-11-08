@@ -640,6 +640,80 @@ CREATE TABLE IF NOT EXISTS production_order (
     UNIQUE (tenant_id, order_no)
 );
 
+CREATE TABLE IF NOT EXISTS bill_draft (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    draft_no TEXT NOT NULL,
+    bill_date TEXT NOT NULL,
+    vendor_id TEXT NOT NULL REFERENCES vendor(id),
+    vendor_bill_no TEXT NOT NULL DEFAULT '',
+    place_of_supply_state TEXT NOT NULL,
+    sub_total_paise INTEGER NOT NULL DEFAULT 0,
+    tax_paise INTEGER NOT NULL DEFAULT 0,
+    round_off_paise INTEGER NOT NULL DEFAULT 0,
+    total_paise INTEGER NOT NULL DEFAULT 0,
+    round_to_rupee INTEGER NOT NULL DEFAULT 0 CHECK (round_to_rupee IN (0,1)),
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft','pending','approved','rejected','posted','void')),
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    submitted_at TEXT,
+    approved_by TEXT REFERENCES user(id),
+    approved_at TEXT,
+    rejection_reason TEXT NOT NULL DEFAULT '',
+    posted_bill_id TEXT REFERENCES bill(id),
+    UNIQUE (tenant_id, draft_no)
+);
+
+CREATE TABLE IF NOT EXISTS bill_draft_line (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    draft_id TEXT NOT NULL REFERENCES bill_draft(id),
+    item_id TEXT NOT NULL REFERENCES item(id),
+    description TEXT NOT NULL,
+    qty_milli INTEGER NOT NULL,
+    unit_price_paise INTEGER NOT NULL,
+    gross_paise INTEGER NOT NULL,
+    discount_paise INTEGER NOT NULL DEFAULT 0,
+    taxable_paise INTEGER NOT NULL,
+    tax_rate_bp INTEGER NOT NULL,
+    tax_paise INTEGER NOT NULL,
+    line_total_paise INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS journal_draft (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    draft_no TEXT NOT NULL,
+    entry_date TEXT NOT NULL,
+    narration TEXT NOT NULL,
+    is_intercompany INTEGER NOT NULL DEFAULT 0 CHECK (is_intercompany IN (0,1)),
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft','pending','approved','rejected','posted','void')),
+    created_by TEXT REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    submitted_at TEXT,
+    approved_by TEXT REFERENCES user(id),
+    approved_at TEXT,
+    rejection_reason TEXT NOT NULL DEFAULT '',
+    posted_entry_id TEXT REFERENCES journal_entry(id),
+    UNIQUE (tenant_id, draft_no)
+);
+
+CREATE TABLE IF NOT EXISTS journal_draft_line (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    draft_id TEXT NOT NULL REFERENCES journal_draft(id),
+    line_no INTEGER NOT NULL,
+    account_id TEXT NOT NULL REFERENCES account(id),
+    dimension_id TEXT REFERENCES dimension(id),
+    debit_paise INTEGER NOT NULL DEFAULT 0 CHECK (debit_paise >= 0),
+    credit_paise INTEGER NOT NULL DEFAULT 0 CHECK (credit_paise >= 0),
+    memo TEXT
+);
+
 CREATE INDEX IF NOT EXISTS ix_budget_tenant_period ON budget (tenant_id, period);
 CREATE INDEX IF NOT EXISTS ix_dimension_tenant_kind ON dimension (tenant_id, kind, active);
 CREATE INDEX IF NOT EXISTS ix_dimension_budget_tenant_period
@@ -671,6 +745,10 @@ CREATE INDEX IF NOT EXISTS ix_statement_share_tenant ON statement_share (tenant_
 CREATE INDEX IF NOT EXISTS ix_gstr2b_import_period ON gstr2b_import (tenant_id, period, status);
 CREATE INDEX IF NOT EXISTS ix_gstr2b_line_import ON gstr2b_line (import_id);
 CREATE INDEX IF NOT EXISTS ix_gstr2b_review_tenant ON gstr2b_review (tenant_id, status);
+CREATE INDEX IF NOT EXISTS ix_bill_draft_tenant_status ON bill_draft (tenant_id, status, bill_date);
+CREATE INDEX IF NOT EXISTS ix_bill_draft_line_draft ON bill_draft_line (draft_id);
+CREATE INDEX IF NOT EXISTS ix_journal_draft_tenant_status ON journal_draft (tenant_id, status, entry_date);
+CREATE INDEX IF NOT EXISTS ix_journal_draft_line_draft ON journal_draft_line (draft_id);
 """
 
 CHART = [
@@ -792,6 +870,33 @@ COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("is_intercompany", "INTEGER NOT NULL DEFAULT 0"),
     ],
     "journal_line": [("dimension_id", "TEXT")],
+    "invoice": [
+        ("approval_status", "TEXT NOT NULL DEFAULT 'draft'"),
+        ("submitted_at", "TEXT"),
+        ("approved_by", "TEXT"),
+        ("approved_at", "TEXT"),
+        ("rejection_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("replaces_id", "TEXT"),
+        ("void_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("voided_at", "TEXT"),
+        ("voided_by", "TEXT"),
+    ],
+    "bill_draft": [
+        ("round_to_rupee", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+    "bill": [
+        ("replaces_id", "TEXT"),
+        ("void_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("voided_at", "TEXT"),
+        ("voided_by", "TEXT"),
+    ],
+    "payment": [
+        ("status", "TEXT NOT NULL DEFAULT 'posted'"),
+        ("replaces_id", "TEXT"),
+        ("void_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("voided_at", "TEXT"),
+        ("voided_by", "TEXT"),
+    ],
     "tenant": [
         ("gstin", "TEXT NOT NULL DEFAULT ''"),
         ("address", "TEXT NOT NULL DEFAULT ''"),

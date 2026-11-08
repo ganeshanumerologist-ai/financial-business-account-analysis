@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.9 |
-| Date | 2026-11-06 |
-| Status | Draft for owner approval. The per-row status column below is the original full-scope baseline and is stale; current Build 0.19 evidence is in `docs/REQUIREMENTS_TRACEABILITY.md` section 27. |
+| Version | 2.0 |
+| Date | 2026-11-08 |
+| Status | Draft for owner approval. The per-row status column below is the original full-scope baseline and is stale; current Build 0.20 evidence is in `docs/REQUIREMENTS_TRACEABILITY.md` section 28. |
 | Source of truth | `docs/PROJECT_SPEC.md` (763 lines, SHA-256 `4556C714…`) |
 | Stack | Original Option A was Next.js + FastAPI; the delivered local prototype is standard-library Python + SQLite under D-007, with approved `openpyxl` for `.xlsx` workbooks |
 
@@ -14,8 +14,8 @@ Priority: **P0** = release-gate / must exist before any financial feature · **P
 
 > **Status note (2026-10-28):** This is the original full-scope requirements list. The `Status`
 > column has not been maintained row-by-row and must not be read as the current build state. See
-> `docs/REQUIREMENTS_TRACEABILITY.md` section 27 for the evidence-backed status through Build 0.19
-> and `docs/FEATURE_INVENTORY.md` section 27 for the honest implemented/partial/missing inventory.
+> `docs/REQUIREMENTS_TRACEABILITY.md` section 28 for the evidence-backed status through Build 0.20
+> and `docs/FEATURE_INVENTORY.md` section 28 for the honest implemented/partial/missing inventory.
 
 ## 1. Product requirements
 

@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.9 |
-| Date | 2026-11-06 |
-| Status | Implemented through Build 0.19 |
+| Version | 2.0 |
+| Date | 2026-11-08 |
+| Status | Implemented through Build 0.20 |
 | Decision | **Option A** — Next.js (TypeScript) + FastAPI (Python), approved 2026-10-24 (D-001) |
 
 ---
@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.19)
+## 11. Implementation status (current Build 0.20)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -801,3 +801,29 @@ tenant dimensions. The schema change is additive: four new tables and two nullab
 No table, index, cached total or historical row was removed or rewritten. The catalogue now shows
 **66 working, 0 partial and 0 planned**. The full suite passes **313 tests, OK**, 30.908 s, Python
 3.14.6, Windows, recorded as `RUN-2026-11-06-04`.
+
+## 25. Build 0.20: correction, draft and approval layers (2026-11-08)
+
+Build 0.20 adds the workflow around the ledger without weakening its append-only rules. Posted
+documents are corrected by **reversal + replacement**, never by deleting or rewriting a posted row.
+
+- `app/accounting.py` owns `void_posted_invoice`, `replace_posted_invoice`, `void_posted_bill`,
+  `replace_posted_bill`, `void_posted_payment`, `replace_posted_payment` and
+  `replace_opening_balance`. Each function runs in one transaction, writes the reversal journal,
+  restores or undoes the stock effect, marks the original document `void` with a reason, and links
+  the replacement through `replaces_id`.
+- `app/drafts.py` owns the optional maker-checker queue and the draft-bill/draft-journal lifecycle.
+  Drafts live in `bill_draft`, `bill_draft_line`, `journal_draft` and `journal_draft_line`; they
+  never touch the ledger, stock, payables, receivables or GST totals before posting.
+- Draft posting reuses the existing `create_bill` and `post_journal` paths with idempotency keys
+  `bill-draft-{draft_id}` and `journal-draft-{draft_id}`.
+- `document.approve` is additive and held by owner/admin. `/approvals` lists pending documents;
+  approve, reject with reason, withdraw and void are audited. Approval is optional, not mandatory.
+- Replacement guards prevent silent inconsistency: an invoice or bill referenced by posted payments
+  or credit/debit notes cannot be replaced; a bill whose stock has already been sold or consumed is
+  blocked with `BILL_STOCK_CONSUMED` and must be corrected by a debit note instead.
+- Opening-balance correction reverses the old opening journal and posts the replacement in one
+  transaction, with audit action `opening_balance.replace`.
+- The schema change is additive: four draft tables and additive approval/replacement/void columns.
+  No table, index, cached total or historical row is removed or rewritten. The full suite passes
+  **331 tests, OK**, 77.525 s, Python 3.14.6, Windows, recorded as `RUN-2026-11-08-01`.

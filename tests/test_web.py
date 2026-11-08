@@ -2225,6 +2225,356 @@ class WebTest(unittest.TestCase):
         conn.close()
 
 
+    def test_52_draft_approval_workflow_and_opening_replacement(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        item_id = db.new_id()
+        conn.execute(
+            "INSERT INTO item (id, tenant_id, sku, name, sale_price_paise, cost_paise,"
+            " tax_rate_bp, stock_milli, track_stock) VALUES (?,?,?,?,?,?,?,?,0)",
+            (item_id, self.tenant_id, "WEB-APPROVAL-1", "Approval service", 10000, 0, 1800, 0))
+        conn.close()
+
+        page = self.get("/vendors")[1]
+        token = self.csrf(page)
+        status, _, _ = self.post("/vendors", {
+            "_csrf": token, "name": "Approval Vendor", "phone": "", "state_code": "27",
+            "gstin": ""})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        vendor_id = conn.execute(
+            "SELECT id FROM vendor WHERE tenant_id=? AND name='Approval Vendor'",
+            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+
+        page = self.get("/bills/new")[1]
+        self.assertIn("Save as draft", page)
+        token = self.csrf(page)
+        status, body, final = self.post("/bills", {
+            "_csrf": token, "vendor_id": vendor_id, "bill_date": "2026-10-22",
+            "vendor_bill_no": "AP-1", "place_of_supply": "27",
+            "item_id": [item_id], "qty": ["2"], "price": ["10.00"],
+            "discount": ["0"], "rounding": "", "action": "draft"})
+        self.assertEqual(status, 200)
+        self.assertIn("Draft", body)
+        self.assertIn("no journal, stock movement", body)
+        match = re.search(r"/bills/drafts/([0-9a-f]{32})/edit$", final)
+        self.assertIsNotNone(match)
+        bill_draft_id = match.group(1)
+        self.assertIn("DRAFT-BILL-", body)
+
+        page = self.get(f"/bills/drafts/{bill_draft_id}/edit")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(f"/bills/drafts/{bill_draft_id}/submit",
+                                        {"_csrf": token})
+        self.assertEqual(status, 200)
+        self.assertIn("Waiting for approval", body)
+
+        status, approvals = self.get("/approvals")
+        self.assertEqual(status, 200)
+        self.assertIn("Approval queue", approvals)
+        self.assertIn("DRAFT-BILL-", approvals)
+        token = self.csrf(approvals)
+        status, body, final = self.post("/approvals/approve", {
+            "_csrf": token, "kind": "bill", "id": bill_draft_id})
+        self.assertEqual(status, 200)
+        self.assertIn("Bills", body)
+        self.assertNotIn("DRAFT-BILL-", body)
+        conn = db.connect(self.db_path)
+        draft = conn.execute("SELECT status, posted_bill_id FROM bill_draft WHERE id=?",
+                             (bill_draft_id,)).fetchone()
+        self.assertEqual(draft["status"], "posted")
+        self.assertIsNotNone(draft["posted_bill_id"])
+        conn.close()
+
+        page = self.get("/journal")[1]
+        self.assertIn("Save as draft", page)
+        token = self.csrf(page)
+        conn = db.connect(self.db_path)
+        cash = conn.execute("SELECT id FROM account WHERE tenant_id=? AND code='1000'",
+                            (self.tenant_id,)).fetchone()["id"]
+        rent = conn.execute("SELECT id FROM account WHERE tenant_id=? AND code='6000'",
+                            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+        status, body, final = self.post("/journal", {
+            "_csrf": token, "entry_date": "2026-10-22", "narration": "Approval rent",
+            "account_id": [rent, cash], "debit": ["100.00", "0"],
+            "credit": ["0", "100.00"], "action": "draft"})
+        self.assertEqual(status, 200)
+        match = re.search(r"/journal/drafts/([0-9a-f]{32})/edit$", final)
+        self.assertIsNotNone(match)
+        journal_draft_id = match.group(1)
+        page = self.get(f"/journal/drafts/{journal_draft_id}/edit")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(f"/journal/drafts/{journal_draft_id}/submit",
+                                        {"_csrf": token})
+        self.assertEqual(status, 200)
+        self.assertIn("Waiting for approval", body)
+        approvals = self.get("/approvals")[1]
+        token = self.csrf(approvals)
+        status, body, final = self.post("/approvals/approve", {
+            "_csrf": token, "kind": "journal", "id": journal_draft_id})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        journal_draft = conn.execute(
+            "SELECT status, posted_entry_id FROM journal_draft WHERE id=?",
+            (journal_draft_id,)).fetchone()
+        self.assertEqual(journal_draft["status"], "posted")
+        self.assertIsNotNone(journal_draft["posted_entry_id"])
+        conn.close()
+
+        page = self.get("/invoices/new")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/invoices", {
+            "_csrf": token, "customer_id": self.customer_id,
+            "invoice_date": "2026-10-22", "place_of_supply": "27",
+            "rounding": "", "item_id": [item_id], "qty": ["1"],
+            "price": ["100.00"], "discount": ["0"], "action": "draft"})
+        self.assertEqual(status, 200)
+        match = re.search(r"/invoices/([0-9a-f]{32})$", final)
+        self.assertIsNotNone(match)
+        invoice_id = match.group(1)
+        page = self.get(f"/invoices/{invoice_id}/edit")[1]
+        self.assertIn("Editing draft", page)
+        token = self.csrf(page)
+        status, body, final = self.post(f"/invoices/{invoice_id}/edit", {
+            "_csrf": token, "customer_id": self.customer_id,
+            "invoice_date": "2026-10-22", "place_of_supply": "27",
+            "item_id": [item_id], "qty": ["2"], "price": ["100.00"],
+            "discount": ["0"]})
+        self.assertEqual(status, 200)
+        self.assertIn("Draft - not posted", body)
+        page = self.get(f"/invoices/{invoice_id}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(f"/invoices/{invoice_id}/submit", {"_csrf": token})
+        self.assertEqual(status, 200)
+        self.assertIn("Waiting for approval", body)
+        approvals = self.get("/approvals")[1]
+        token = self.csrf(approvals)
+        status, body, final = self.post("/approvals/approve", {
+            "_csrf": token, "kind": "invoice", "id": invoice_id})
+        self.assertEqual(status, 200)
+        self.assertIn("Invoice total", body)
+        conn = db.connect(self.db_path)
+        invoice = conn.execute(
+            "SELECT status, approval_status, invoice_no FROM invoice WHERE id=?",
+            (invoice_id,)).fetchone()
+        self.assertEqual(invoice["status"], "posted")
+        self.assertEqual(invoice["approval_status"], "approved")
+        self.assertTrue(invoice["invoice_no"].startswith("INV-"))
+        conn.close()
+
+        status, page = self.get("/ledger")
+        token = self.csrf(page)
+        status, body, final = self.post("/accounts", {
+            "_csrf": token, "code": "6060", "name": "Approval opening expense",
+            "type": "expense"})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        account_id = conn.execute(
+            "SELECT id FROM account WHERE tenant_id=? AND code='6060'",
+            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+        page = self.get(f"/ledger?account={account_id}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/opening-balance", {
+            "_csrf": token, "account_id": account_id, "amount": "100.00",
+            "side": "debit", "as_of": "2026-04-01"})
+        self.assertEqual(status, 200)
+        self.assertIn("Edit opening balance", body)
+        token = self.csrf(body)
+        status, body, final = self.post("/opening-balance/replace", {
+            "_csrf": token, "account_id": account_id, "amount": "150.00",
+            "side": "debit", "as_of": "2026-04-01",
+            "reason": "Opening figure corrected"})
+        self.assertEqual(status, 200)
+        self.assertIn("Opening balance entry", body)
+        self.assertIn("\u20b9150.00 Dr", body)
+        conn = db.connect(self.db_path)
+        statuses = [r["status"] for r in conn.execute(
+            "SELECT status FROM journal_entry WHERE tenant_id=? AND source_type='opening'"
+            " AND source_id=? ORDER BY entry_no", (self.tenant_id, account_id)).fetchall()]
+        conn.close()
+        self.assertEqual(statuses, ["reversed", "posted"])
+
+    def test_53_posted_document_corrections(self):
+        self.login()
+        conn = db.connect(self.db_path)
+        item_id = db.new_id()
+        conn.execute(
+            "INSERT INTO item (id, tenant_id, sku, name, sale_price_paise, cost_paise,"
+            " tax_rate_bp, stock_milli, track_stock) VALUES (?,?,?,?,?,?,?,?,0)",
+            (item_id, self.tenant_id, "WEB-CORRECTION-1", "Correction service",
+             10000, 5000, 1800, 0))
+        conn.close()
+        page = self.get("/vendors")[1]
+        token = self.csrf(page)
+        self.post("/vendors", {"_csrf": token, "name": "Correction Vendor",
+                               "phone": "", "state_code": "27", "gstin": ""})
+        conn = db.connect(self.db_path)
+        vendor_id = conn.execute(
+            "SELECT id FROM vendor WHERE tenant_id=? AND name='Correction Vendor'",
+            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+
+        page = self.get("/invoices/new")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/invoices", {
+            "_csrf": token, "customer_id": self.customer_id,
+            "invoice_date": "2026-10-23", "place_of_supply": "27", "rounding": "",
+            "item_id": [item_id], "qty": ["1"], "price": ["100.00"],
+            "discount": ["0"], "action": "post"})
+        self.assertEqual(status, 200)
+        self.assertIn("Correct posted invoice", body)
+        match = re.search(r"/invoices/([0-9a-f]{32})", final)
+        self.assertIsNotNone(match)
+        old_invoice_id = match.group(1)
+
+        page = self.get(f"/invoices/{old_invoice_id}/replace")[1]
+        self.assertIn("Correcting posted invoice", page)
+        token = self.csrf(page)
+        status, body, final = self.post(f"/invoices/{old_invoice_id}/replace", {
+            "_csrf": token, "customer_id": self.customer_id,
+            "invoice_date": "2026-10-23", "place_of_supply": "27",
+            "item_id": [item_id], "qty": ["2"], "price": ["100.00"],
+            "discount": ["0"], "reason": "Quantity was entered wrong"})
+        self.assertEqual(status, 200)
+        self.assertIn("Invoice total", body)
+        match = re.search(r"/invoices/([0-9a-f]{32})", final)
+        self.assertIsNotNone(match)
+        new_invoice_id = match.group(1)
+        self.assertNotEqual(new_invoice_id, old_invoice_id)
+        conn = db.connect(self.db_path)
+        old = conn.execute("SELECT status, void_reason FROM invoice WHERE id=?",
+                           (old_invoice_id,)).fetchone()
+        new = conn.execute("SELECT status, replaces_id, total_paise FROM invoice WHERE id=?",
+                           (new_invoice_id,)).fetchone()
+        self.assertEqual(old["status"], "void")
+        self.assertEqual(old["void_reason"], "Quantity was entered wrong")
+        self.assertEqual(new["status"], "posted")
+        self.assertEqual(new["replaces_id"], old_invoice_id)
+        self.assertEqual(new["total_paise"], 23600)
+        conn.close()
+
+        page = self.get("/bills/new")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/bills", {
+            "_csrf": token, "vendor_id": vendor_id, "bill_date": "2026-10-23",
+            "vendor_bill_no": "CORR-1", "place_of_supply": "27", "rounding": "",
+            "item_id": [item_id], "qty": ["2"], "price": ["50.00"],
+            "discount": ["0"]})
+        self.assertEqual(status, 200)
+        match = re.search(r"/bills/([0-9a-f]{32})", final)
+        self.assertIsNotNone(match)
+        old_bill_id = match.group(1)
+        page = self.get(f"/bills/{old_bill_id}/replace")[1]
+        self.assertIn("Correcting posted bill", page)
+        token = self.csrf(page)
+        status, body, final = self.post(f"/bills/{old_bill_id}/replace", {
+            "_csrf": token, "vendor_id": vendor_id, "bill_date": "2026-10-23",
+            "vendor_bill_no": "CORR-2", "place_of_supply": "27",
+            "item_id": [item_id], "qty": ["3"], "price": ["60.00"],
+            "discount": ["0"], "reason": "Vendor bill was entered wrong"})
+        self.assertEqual(status, 200)
+        self.assertIn("Bill total", body)
+        match = re.search(r"/bills/([0-9a-f]{32})", final)
+        self.assertIsNotNone(match)
+        new_bill_id = match.group(1)
+        conn = db.connect(self.db_path)
+        old_bill = conn.execute("SELECT status, void_reason FROM bill WHERE id=?",
+                                (old_bill_id,)).fetchone()
+        new_bill = conn.execute("SELECT status, replaces_id, vendor_bill_no FROM bill WHERE id=?",
+                                (new_bill_id,)).fetchone()
+        self.assertEqual(old_bill["status"], "void")
+        self.assertEqual(old_bill["void_reason"], "Vendor bill was entered wrong")
+        self.assertEqual(new_bill["status"], "posted")
+        self.assertEqual(new_bill["replaces_id"], old_bill_id)
+        self.assertEqual(new_bill["vendor_bill_no"], "CORR-2")
+        conn.close()
+
+        page = self.get("/receipts")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/receipts", {
+            "_csrf": token, "direction": "receipt", "customer_id": self.customer_id,
+            "payment_date": "2026-10-23", "mode": "bank", "amount": "100.00",
+            "reference": "RCPT-CORR", "notes": ""})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        old_payment = conn.execute(
+            "SELECT id FROM payment WHERE tenant_id=? AND direction='receipt'"
+            " ORDER BY created_at DESC LIMIT 1", (self.tenant_id,)).fetchone()
+        conn.close()
+        old_payment_id = old_payment["id"]
+        page = self.get(f"/receipts/{old_payment_id}")[1]
+        self.assertIn("Correct this receipt", page)
+        token = self.csrf(page)
+        status, body, final = self.post(f"/receipts/{old_payment_id}/replace", {
+            "_csrf": token, "payment_date": "2026-10-23", "amount": "150.00",
+            "mode": "upi", "reference": "RCPT-CORR-2", "notes": "",
+            "reason": "Amount and mode were wrong"})
+        self.assertEqual(status, 200)
+        self.assertIn("Amount", body)
+        conn = db.connect(self.db_path)
+        old_pay = conn.execute("SELECT status, void_reason FROM payment WHERE id=?",
+                               (old_payment_id,)).fetchone()
+        new_pay = conn.execute(
+            "SELECT id, status, replaces_id, amount_paise, mode FROM payment"
+            " WHERE tenant_id=? AND replaces_id=?", (self.tenant_id, old_payment_id)).fetchone()
+        self.assertEqual(old_pay["status"], "void")
+        self.assertEqual(old_pay["void_reason"], "Amount and mode were wrong")
+        self.assertEqual(new_pay["status"], "posted")
+        self.assertEqual(new_pay["amount_paise"], 15000)
+        self.assertEqual(new_pay["mode"], "upi")
+        conn.close()
+
+        page = self.get(f"/receipts/{new_pay['id']}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(f"/receipts/{new_pay['id']}/void", {
+            "_csrf": token, "reason": "Duplicate advance"})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        self.assertEqual(conn.execute("SELECT status FROM payment WHERE id=?",
+                                      (new_pay["id"],)).fetchone()["status"], "void")
+        conn.close()
+
+        page = self.get("/invoices/new")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/invoices", {
+            "_csrf": token, "customer_id": self.customer_id,
+            "invoice_date": "2026-10-23", "place_of_supply": "27", "rounding": "",
+            "item_id": [item_id], "qty": ["1"], "price": ["25.00"],
+            "discount": ["0"], "action": "post"})
+        match = re.search(r"/invoices/([0-9a-f]{32})", final)
+        void_invoice_id = match.group(1)
+        page = self.get(f"/invoices/{void_invoice_id}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(f"/invoices/{void_invoice_id}/void-posted", {
+            "_csrf": token, "reason": "Cancelled sale"})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        self.assertEqual(conn.execute("SELECT status FROM invoice WHERE id=?",
+                                      (void_invoice_id,)).fetchone()["status"], "void")
+        conn.close()
+
+        page = self.get("/bills/new")[1]
+        token = self.csrf(page)
+        status, body, final = self.post("/bills", {
+            "_csrf": token, "vendor_id": vendor_id, "bill_date": "2026-10-23",
+            "vendor_bill_no": "VOID-1", "place_of_supply": "27", "rounding": "",
+            "item_id": [item_id], "qty": ["1"], "price": ["40.00"],
+            "discount": ["0"]})
+        match = re.search(r"/bills/([0-9a-f]{32})", final)
+        void_bill_id = match.group(1)
+        page = self.get(f"/bills/{void_bill_id}")[1]
+        token = self.csrf(page)
+        status, body, final = self.post(f"/bills/{void_bill_id}/void", {
+            "_csrf": token, "reason": "Duplicate purchase"})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        self.assertEqual(conn.execute("SELECT status FROM bill WHERE id=?",
+                                      (void_bill_id,)).fetchone()["status"], "void")
+        conn.close()
+
     def test_99_advanced_registers_and_reports(self):
         self.login()
         conn = db.connect(self.db_path)

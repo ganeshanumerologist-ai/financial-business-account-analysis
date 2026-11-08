@@ -2,15 +2,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.3 |
-| Date | 2026-11-06 |
+| Version | 1.4 |
+| Date | 2026-11-08 |
 | Purpose | Prove every requirement has a planned module, a test, and a documented status |
 | Source | `docs/PROJECT_SPEC.md` → `docs/REQUIREMENTS.md` → modules → tests |
 
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 27 (Build 0.19); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 28 (Build 0.20); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -498,3 +498,23 @@ accounting data.
 | Automatic allocation / elimination | **Not implemented** | no allocation, recharge, timesheet, intercompany matching or elimination engine; unallocated rows are explicit |
 | Batch allocation / cost layers | **Not implemented** | batch register is manual; no batch-wise stock valuation, FIFO or historical cost layers |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.19 |
+
+## 28. Status after posted corrections, drafts and approvals (Build 0.20, 2026-11-08)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Posted invoice correction | **Verified** | reverse journal, restore stock, mark old invoice `void`, post linked replacement; `test_53_posted_document_corrections` |
+| Posted invoice void | **Verified** | reverse journal, restore stock, mark void with reason; no row deleted |
+| Posted bill correction / void | **Verified with a stock guard** | reverse journal, undo stock receipt, mark old bill `void`, post linked replacement; blocked with `BILL_STOCK_CONSUMED` when stock has already been sold or consumed |
+| Posted receipt / vendor payment correction | **Verified** | reverse journal, mark old voucher `void`, record linked replacement; allocations carry forward by default |
+| Replacement dependency guard | **Verified** | invoice/bill replacement is refused when posted payments or credit/debit notes already reference the document |
+| Draft purchase bill | **Verified** | save, edit, post, reject and void; no ledger, stock, payable or GST effect before posting |
+| Draft journal | **Verified** | save, edit, post, reject and void; no ledger effect before posting |
+| Approval workflow | **Verified as optional** | `/approvals` requires `document.approve`; pending drafts are locked; approve, reject with reason, withdraw and void are audited |
+| Opening-balance correction | **Verified** | reverses the old opening journal and posts a replacement in one transaction; audit action `opening_balance.replace` |
+| Additive schema | **Verified** | four draft tables plus approval/replacement/void columns; no historical row rewritten |
+| Offline package 0.20 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.20.zip`; embedded runtime import and `/health` returned `ok` |
+| In-place posted editing | **Not implemented** | correction is always reversal + replacement; the original stays visible as void |
+| Automatic note creation | **Not implemented** | the user must raise a credit or debit note separately when replacement is blocked |
+| Multi-step approval routing | **Not implemented** | the queue is a single optional maker-checker step, not amount/department routing |
+| Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.20 |

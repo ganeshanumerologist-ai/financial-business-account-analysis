@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.19.** The latest application run is `RUN-2026-11-06-04` with
-> **313 tests, OK**, Python 3.14.6, Windows - see section 36. The table immediately below is the original
+> **Current status: Build 0.20.** The latest application run is `RUN-2026-11-08-01` with
+> **331 tests, OK**, Python 3.14.6, Windows - see section 37. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1719,3 +1719,31 @@ Run ID: `RUN-2026-11-06-03`.
   not a hidden allocation.
 - No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
   accounting review was run for Build 0.19.
+
+## 37. Build 0.20 verification - corrections, drafts and approvals (2026-11-08)
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-08-01` |
+| Full test suite | **331 tests, OK**, 77.525 s, Python 3.14.6, Windows |
+| New accounting tests | 9 `TestPostedCorrections` cases cover invoice, bill and payment void/replace, stock restore/undo, blocked replacement and opening-balance replacement |
+| New web tests | `test_53_posted_document_corrections` plus approval-workflow and opening-replacement HTTP flows |
+| Draft bills and journals | Save, update, post, reject and void tested; drafts never enter the ledger, stock, payables, receivables or GST totals before posting |
+| Approval queue | `/approvals` requires `document.approve`; pending documents are locked; approve, reject and withdraw tested |
+| Posted corrections | Old journal reversed, old document marked `void`, replacement linked by `replaces_id`; no posted row deleted |
+| Opening balance | Direct edit reverses the old opening journal and posts a replacement in one transaction |
+| Schema | Additive only: four draft tables and additive approval/replacement/void columns |
+| Backup coverage | `backup.TABLES` includes the new draft tables; persistent-table coverage test passes |
+| Offline package | Rebuilt as `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.20.zip`; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.20` |
+
+### 37.1 Honest limits
+
+- Corrections are **reversal + replacement**, not in-place editing of a posted row. The document
+  number changes and the original remains visible as void.
+- Replacement is refused when dependent documents exist (payments, credit/debit notes) or when bill
+  stock has already been consumed. A credit or debit note is the correct path in those cases.
+- Approval is optional. A business that does not enable maker-checker can still post directly.
+- GST outputs remain working aids. A correction updates the books; it does not file or revise a GST
+  return.
+- No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
+  accounting review was run for Build 0.20.

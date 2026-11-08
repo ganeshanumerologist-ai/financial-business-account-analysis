@@ -2,22 +2,22 @@
 
 Baseline inventory built from the governing specification, verified against the actual workspace.
 
-> **Current status is Build 0.19, not the empty baseline below.** Sections 1-13 preserve the
+> **Current status is Build 0.20, not the empty baseline below.** Sections 1-13 preserve the
 > original 2026-10-24 audit of an empty workspace so the starting point stays honest. The
 > implemented and verified features are recorded in the later build sections, most recently
-> **section 27 (advanced operational registers and 66/66 reports)**. Use section 27
+> **section 28 (posted corrections, drafts and approvals)**. Use section 28
 > for the current feature list, not the baseline table in this header.
 
 | Field | Value |
 |---|---|
 | Baseline inventory date | 2026-10-24 |
-| Current build | **0.19 (2026-11-06)** |
+| Current build | **0.20 (2026-11-08)** |
 | Spec source | `ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md` (763 lines) |
 | Specified features tracked | 142 tracked line items across 13 modules (counted from this file, not estimated) |
 | Status vocabulary | `NOT IMPLEMENTED` · `PARTIAL` · `IMPLEMENTED` · `VERIFIED` |
 
 > A feature only reaches `VERIFIED` when implementation + tests + documentation agree. Current
-> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-11-06-04` (313 tests, OK).
+> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-11-08-01` (331 tests, OK).
 
 ---
 
@@ -775,3 +775,31 @@ and documentation agree.
 - Production-order stock consumption, WIP journal posting or standard-costing engine.
 - Saved dashboards, full drill-down, filters and EN/HI labels.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.19.
+
+## 28. Status after posted corrections, drafts and approvals (Build 0.20, 2026-11-08)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Posted invoice correction | invoice detail | **Correct posted invoice** reverses the old journal, restores stock, marks the old invoice `void` and posts a linked replacement; `test_53_posted_document_corrections` |
+| Posted invoice void | invoice detail | **Void posted invoice** reverses the journal, restores stock and marks the invoice void with a reason; no row deleted |
+| Posted bill correction | bill detail | reverses the old journal, undoes the stock receipt, marks the old bill `void` and posts a linked replacement; blocked with `BILL_STOCK_CONSUMED` when stock has already been sold or consumed |
+| Posted bill void | bill detail | reverses the journal, undoes stock and marks the bill void with a reason |
+| Posted receipt / vendor payment correction | `/receipts/<id>` | reverses the old journal, marks the old voucher `void` and records a linked replacement; old allocations carry forward by default |
+| Posted receipt / vendor payment void | `/receipts/<id>` | reverses the journal and marks the voucher void with a reason |
+| Replacement guard | accounting layer | invoice/bill replacement is refused when posted payments or credit/debit notes already reference the document |
+| Draft purchase bill | `/bills/new`, bill list | save, edit, post, reject and void; `DRAFT-#####` number; no ledger, stock, payable or GST effect before posting |
+| Draft journal | `/entries/journal` | save, edit, post, reject and void; no ledger effect before posting |
+| Maker-checker approval queue | `/approvals` | optional pending queue for invoices, bills and journals; `document.approve` permission; approve, reject with reason, withdraw and void |
+| Draft lock | draft pages | a draft with `approval_status='pending'` cannot be edited until it is approved, rejected or withdrawn |
+| Opening-balance correction | `/ledger` | **Edit opening balance** reverses the old opening journal and posts a replacement in one transaction; audit action `opening_balance.replace` |
+| Additive schema | schema | `bill_draft`, `bill_draft_line`, `journal_draft`, `journal_draft_line` plus approval/replacement/void columns; no historical row rewritten |
+| Offline package 0.20 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.20.zip` | rebuilt after this batch; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.20` |
+
+### Still not implemented
+
+- In-place editing of a posted document row. Correction is always reversal + replacement.
+- Automatic credit/debit note creation during replacement; the user must raise the note separately.
+- Approval routing by amount, department or multi-step chain; the queue is a single optional maker-checker step.
+- Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.20.

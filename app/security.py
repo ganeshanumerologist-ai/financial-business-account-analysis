@@ -22,7 +22,7 @@ PERMISSIONS = {
     "report.view", "report.export", "backup.run", "statement.share", "gst.reconcile",
     "payment.record", "bill.create", "credit_note.create", "debit_note.create",
     "vendor.manage", "journal.post", "bank.reconcile", "account.manage",
-    "budget.manage", "stock.adjust",
+    "budget.manage", "stock.adjust", "document.approve",
 }
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {

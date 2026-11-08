@@ -470,3 +470,28 @@ The frontend receives **no** secrets — only a public API base URL.
   receipt and payment forms do not expose the selector. There is no allocation, recharge, timesheet,
   batch-costing or intercompany matching engine. The new pages have not had a penetration test or
   independent accounting review.
+
+## 23. Build 0.20 addendum - corrections, drafts and approvals
+
+- **New permission:** `document.approve` is additive and held by owner and admin. It gates
+  `/approvals` and the approve/reject actions. A user without it can still create and edit their own
+  drafts but cannot approve them.
+- **Tenant scope:** every draft, correction and approval query filters by the session tenant id.
+  A draft or posted document id from another tenant returns not-found, not a cross-tenant edit.
+- **Append-only history:** correction writes a reversal journal and marks the original document
+  `void`; it never deletes or rewrites the posted row. The replacement is linked through
+  `replaces_id`, so both documents remain auditable.
+- **Replacement guards:** an invoice or bill referenced by posted payments or credit/debit notes
+  cannot be replaced. A bill whose stock has already been sold or consumed is blocked with
+  `BILL_STOCK_CONSUMED`. These guards prevent a correction from silently breaking allocations or
+  driving stock negative.
+- **Draft isolation:** draft bills and journals live in separate tables and do not touch the ledger,
+  stock, payables, receivables or GST totals. Posting reuses the normal accounting functions with
+  idempotency keys, so a repeated post returns the same result instead of double-posting.
+- **Approval lock:** a draft with `approval_status='pending'` cannot be edited. Approve, reject with
+  reason, withdraw and void all write audit events.
+- **Opening balance:** direct edit reverses the old opening journal and posts the replacement in one
+  transaction. The old opening entry remains in the ledger as reversed history.
+- **Residual risk:** approval is a single optional step, not amount/department routing or a
+  multi-step chain. Replacement is refused rather than auto-creating a credit/debit note. The new
+  correction and approval pages have not had a penetration test or independent accounting review.
