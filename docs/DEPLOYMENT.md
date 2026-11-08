@@ -34,6 +34,36 @@ firebase deploy --only hosting --project financial-business-accounting
 Do not describe the Firebase URL as a permanent production accounting service
 until a persistent backend and a measured restore drill exist.
 
+## 0.1 Stable demo link on this PC (Build 0.20)
+
+For a 10-12 day review window the app runs on this Windows PC and is exposed
+through a Cloudflare quick tunnel. The link to share is:
+
+**`https://financial-business-accounting.web.app/app`**
+
+That Firebase page redirects to the current tunnel and then to `/login`. The
+landing page at `https://financial-business-accounting.web.app` uses the same
+tunnel.
+
+A watchdog keeps the link alive without daily manual work:
+
+| Piece | Purpose |
+|---|---|
+| `scripts/keep_public_link.ps1` | Checks the local app and tunnel; restarts either if unhealthy; reads the current tunnel URL; updates both Firebase HTML files; redeploys Firebase when the URL changed |
+| `scripts/run_public_watchdog.cmd` | Short no-quoting wrapper used by Task Scheduler and Startup |
+| Scheduled task `ARTHIVIO Public Link` | Runs every 5 minutes for the logged-in user |
+| Startup shortcut | Runs the watchdog immediately after sign-in |
+| `%TEMP%\opencode\arthivio-public-watchdog.log` | Last runs, URL changes and Firebase deploy result |
+
+The app uses `data/arthivio-trial.db` (synthetic data) on `127.0.0.1:8010`.
+Windows standby and hibernation timeouts were set to `0` on AC and battery so
+the PC does not sleep. The PC must stay powered on, signed in and online for the
+link to remain available. If the PC reboots, the Startup shortcut and the
+5-minute task restore the app, the tunnel and the Firebase redirect.
+
+This is still a **demo link, not permanent hosting**. A Render/Cloud Run/VPS
+deployment with a persistent disk is required for an always-on production URL.
+
 ## 1. One-click Render demo
 
 The repository contains `Dockerfile` and `render.yaml`. Render's free web
