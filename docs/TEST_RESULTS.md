@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.20.** The latest application run is `RUN-2026-11-08-01` with
-> **331 tests, OK**, Python 3.14.6, Windows - see section 37. The table immediately below is the original
+> **Current status: Build 0.21.** The latest application run is `RUN-2026-11-08-02` with
+> **332 tests, OK**, Python 3.14.6, Windows - see section 38. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1747,3 +1747,29 @@ Run ID: `RUN-2026-11-06-03`.
   return.
 - No real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent
   accounting review was run for Build 0.20.
+
+## 38. Build 0.21 verification - security headers, restore drill and load test (2026-11-08)
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-08-02` |
+| Full test suite | **332 tests, OK**, 42.347 s, Python 3.14.6, Windows |
+| Security headers | `Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy` on HTML, JSON, static and export responses |
+| HSTS | Added only when `X-Forwarded-Proto: https` or `ARTHIVIO_SECURE_COOKIES=1`; absent on plain local HTTP |
+| Secure cookies | Session, setup and theme cookies gain `Secure` behind HTTPS; `HttpOnly` and `SameSite=Lax` remain |
+| New test | `test_security_headers_and_secure_cookie` checks headers, conditional HSTS and the Secure session cookie |
+| Measured restore drill | `scripts/restore_drill.py` passed: backup 0.172 s, total restore + health + login + report 1.44 s, integrity and foreign keys OK, row counts matched |
+| Load test | `scripts/load_test.py` with 10 concurrent users and 3 page loops: **190 measured requests, 0 errors**, 9.00 s elapsed, 21.1 req/s, p50 83.4 ms, p95 1229.7 ms, p99 4810.8 ms |
+| Offline package | Rebuilt as `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.21.zip`; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.21` |
+
+### 38.1 Honest limits
+
+- The load test is a **single-machine, read-only smoke load**, not a production capacity test. It
+  does not prove behaviour under write contention, slow disks, WAN latency or sustained multi-hour
+  traffic.
+- The restore drill uses a **copy**, not an in-place production restore. It measures this machine's
+  RTO for a small trial database, not a large production database.
+- Security headers are defence in depth, not a substitute for an independent security review or
+  penetration test.
+- No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
+  review was run for Build 0.21.

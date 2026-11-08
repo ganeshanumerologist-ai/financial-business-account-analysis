@@ -495,3 +495,23 @@ The frontend receives **no** secrets — only a public API base URL.
 - **Residual risk:** approval is a single optional step, not amount/department routing or a
   multi-step chain. Replacement is refused rather than auto-creating a credit/debit note. The new
   correction and approval pages have not had a penetration test or independent accounting review.
+
+## 24. Build 0.21 addendum - public-surface hardening
+
+- **Response headers:** every HTML, JSON, static and export response sends a Content Security
+  Policy, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`,
+  `X-Frame-Options: DENY`, a restrictive `Permissions-Policy`, `Cross-Origin-Opener-Policy` and
+  `Cross-Origin-Resource-Policy`.
+- **CSP:** `default-src 'self'`; local scripts, styles, fonts and data images are allowed. Inline
+  styles and scripts remain allowed because the server-rendered pages use them; this is a
+  deliberate compatibility trade-off, not a claim that inline injection is impossible.
+- **HSTS:** sent only when the request is HTTPS (`X-Forwarded-Proto: https`) or the operator sets
+  `ARTHIVIO_SECURE_COOKIES=1`. Plain local HTTP does not get HSTS.
+- **Secure cookies:** session, first-run setup and theme cookies gain `Secure` behind HTTPS.
+  `HttpOnly` and `SameSite=Lax` remain on the session and setup cookies.
+- **Restore drill:** `scripts/restore_drill.py` verifies a copy of the backup, starts a second app
+  process against the copy, logs in and reads a report. It never restores over the live database.
+- **Load test:** `scripts/load_test.py` is read-only. It does not post financial documents.
+- **Residual risk:** headers and a smoke load test are not a penetration test or a production
+  capacity test. Inline script/style allowances reduce CSP strength. The app still has no
+  independent security review, WAF, DDoS protection, intrusion detection or production monitoring.

@@ -34,7 +34,7 @@ firebase deploy --only hosting --project financial-business-accounting
 Do not describe the Firebase URL as a permanent production accounting service
 until a persistent backend and a measured restore drill exist.
 
-## 0.1 Stable demo link on this PC (Build 0.20)
+## 0.1 Stable demo link on this PC (Build 0.21)
 
 For a 10-12 day review window the app runs on this Windows PC and is exposed
 through a Cloudflare quick tunnel. The link to share is:
@@ -55,6 +55,11 @@ A watchdog keeps the link alive without daily manual work:
 | Startup shortcut | Runs the watchdog immediately after sign-in |
 | `%TEMP%\opencode\arthivio-public-watchdog.log` | Last runs, URL changes and Firebase deploy result |
 
+The watchdog reads and writes the Firebase HTML as UTF-8. Earlier it used the
+Windows default code page, which double-encoded the middle dot, em dash, arrows
+and check marks each time the tunnel URL changed. Build 0.21 repairs the landing
+page and keeps its non-ASCII text intact on later updates.
+
 The app uses `data/arthivio-trial.db` (synthetic data) on `127.0.0.1:8010`.
 Windows standby and hibernation timeouts were set to `0` on AC and battery so
 the PC does not sleep. The PC must stay powered on, signed in and online for the
@@ -63,6 +68,12 @@ link to remain available. If the PC reboots, the Startup shortcut and the
 
 This is still a **demo link, not permanent hosting**. A Render/Cloud Run/VPS
 deployment with a persistent disk is required for an always-on production URL.
+
+Build 0.21 adds CSP and related security headers, conditional HSTS and Secure
+cookies behind HTTPS. The same build provides `scripts/restore_drill.py` for a
+measured copy-based restore and `scripts/load_test.py` for a read-only smoke
+load. Neither replaces an independent security review, penetration test or a
+production capacity test.
 
 ## 1. One-click Render demo
 

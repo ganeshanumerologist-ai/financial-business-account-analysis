@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 |
+| Version | 2.1 |
 | Date | 2026-11-08 |
-| Status | Implemented through Build 0.20 |
+| Status | Implemented through Build 0.21 |
 | Decision | **Option A** — Next.js (TypeScript) + FastAPI (Python), approved 2026-10-24 (D-001) |
 
 ---
@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.20)
+## 11. Implementation status (current Build 0.21)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -827,3 +827,25 @@ documents are corrected by **reversal + replacement**, never by deleting or rewr
 - The schema change is additive: four draft tables and additive approval/replacement/void columns.
   No table, index, cached total or historical row is removed or rewritten. The full suite passes
   **331 tests, OK**, 77.525 s, Python 3.14.6, Windows, recorded as `RUN-2026-11-08-01`.
+
+## 26. Build 0.21: public-surface hardening and measured recovery (2026-11-08)
+
+Build 0.21 does not change the accounting engine or the schema. It hardens the HTTP surface and
+adds two repeatable operational checks.
+
+- `Handler._security_headers()` is the single source of truth for HTML, JSON, static and export
+  responses. It sends CSP, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`,
+  `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`.
+- `Handler._is_https()` reads `X-Forwarded-Proto` (or `ARTHIVIO_SECURE_COOKIES=1`). HSTS is sent
+  only for HTTPS. `Handler._cookie_secure()` adds `Secure` to session, setup and theme cookies
+  behind HTTPS; local HTTP login still works.
+- `scripts/restore_drill.py` takes an online backup, verifies it, copies it to a scratch database,
+  starts a second app process against the copy, logs in and reads a report, then stops. It never
+  restores over the live database.
+- `scripts/load_test.py` runs read-only concurrent sessions against key pages and one CSV export.
+  It does not post financial documents.
+- On this machine: backup 0.172 s, total restore + health + login + report 1.44 s; 10 users x 3 page
+  loops = 190 requests, 0 errors, 21.1 req/s, p50 83.4 ms, p95 1229.7 ms.
+- The full suite passes **332 tests, OK**, 42.347 s, Python 3.14.6, Windows, recorded as
+  `RUN-2026-11-08-02`. These are single-machine measurements, not a production capacity or
+  penetration test.

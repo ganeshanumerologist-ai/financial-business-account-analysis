@@ -2,7 +2,7 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.20).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.21).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
 (purchase returns), day book, manual journals, bank reconciliation, cash book, bank book, GST
 summary, GSTR-1 working export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation
@@ -75,9 +75,10 @@ reverses the original journal and posts a replacement with a fresh document numb
 is marked void with a reason. It also adds **draft purchase bills and draft journals**, an optional
 **maker-checker approval queue** for pending invoices, bills and journals, and **direct opening-balance
 correction** that reverses the old opening journal and posts a replacement in one transaction.
-Saved dashboards, EN/HI labels, Power BI Service refresh/RLS and a generative AI provider remain
-planned. Covered by **331 automated tests that pass on this machine** (see
-`docs/TEST_RESULTS.md`, run `RUN-2026-11-08-01`).
+Build 0.21 adds **security response headers and Secure cookies behind HTTPS**, a **measured
+backup/restore drill** and a **read-only load test**. Saved dashboards, EN/HI labels, Power BI
+Service refresh/RLS and a generative AI provider remain planned. Covered by **332 automated tests
+that pass on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-11-08-02`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
 email delivery, ownership transfer, PostgreSQL and the Next.js front end are not built. GSTR-1,
@@ -154,7 +155,7 @@ Build a self-contained folder that needs no Python installation and no internet:
 .\.venv\Scripts\python.exe scripts\build_windows_portable.py --zip
 ```
 
-The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.20.zip`. It contains the
+The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.21.zip`. It contains the
 official Python 3.14.6 embeddable runtime, `openpyxl`, the app, and Windows launchers:
 
 - `Start ARTHIVIO.bat` starts the local server and opens the browser.

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.4 |
+| Version | 1.5 |
 | Date | 2026-11-08 |
 | Purpose | Prove every requirement has a planned module, a test, and a documented status |
 | Source | `docs/PROJECT_SPEC.md` → `docs/REQUIREMENTS.md` → modules → tests |
@@ -10,7 +10,7 @@
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 28 (Build 0.20); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 29 (Build 0.21); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -518,3 +518,18 @@ accounting data.
 | Automatic note creation | **Not implemented** | the user must raise a credit or debit note separately when replacement is blocked |
 | Multi-step approval routing | **Not implemented** | the queue is a single optional maker-checker step, not amount/department routing |
 | Mobile / accessibility / load / security review | **Not verified** | no real phone, screen-reader, contrast, cross-browser, 4K, load, penetration or independent accounting review for Build 0.20 |
+
+## 29. Status after security and reliability hardening (Build 0.21, 2026-11-08)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Security response headers | **Verified** | CSP, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` on HTML, JSON, static and export responses; `test_security_headers_and_secure_cookie` |
+| Conditional HSTS | **Verified** | sent only when `X-Forwarded-Proto: https` or `ARTHIVIO_SECURE_COOKIES=1`; absent on plain local HTTP |
+| Secure cookies | **Verified** | session, setup and theme cookies gain `Secure` behind HTTPS; `HttpOnly` and `SameSite=Lax` retained |
+| Measured restore drill | **Verified on this machine** | `scripts/restore_drill.py`: backup 0.172 s, total restore + health + login + report 1.44 s, integrity and foreign keys OK |
+| Read-only load test | **Verified on this machine** | `scripts/load_test.py`: 10 users, 3 page loops, 190 requests, 0 errors, 21.1 req/s, p50 83.4 ms, p95 1229.7 ms |
+| Offline package 0.21 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.21.zip`; embedded runtime import and `/health` returned `ok` |
+| Independent security review | **Not verified** | no third-party penetration test or security audit for Build 0.21 |
+| Production load test | **Not verified** | single-machine read-only smoke load only; no write contention, WAN latency or multi-hour traffic |
+| Large-database restore | **Not verified** | copy-based drill on a small trial database; no large production restore with measured RPO/RTO |
+| Mobile / accessibility / cross-browser / 4K | **Not verified** | no real phone, screen-reader, contrast, cross-browser or 4K review for Build 0.21 |

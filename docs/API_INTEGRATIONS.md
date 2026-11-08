@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 |
+| Version | 2.1 |
 | Date | 2026-11-08 |
-| Status | **No external provider is connected; internal imports, reports and analytics API are implemented through Build 0.20** |
+| Status | **No external provider is connected; internal imports, reports and analytics API are implemented through Build 0.21** |
 | Policy | No paid APIs, no credentials, no fabrication |
 
 > Current state: **0 external integrations configured. 0 provider credentials stored. 0 outbound API calls made by the product.** Manual CSV/`.xlsx` import and the internal session-authenticated analytics/Power BI export surface are implemented; everything below labelled planned still needs external access, credentials or owner decisions.

@@ -2678,6 +2678,38 @@ class WebTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("PRJ-WEB", body)
 
+    def test_security_headers_and_secure_cookie(self):
+        with urllib.request.urlopen(self.url("/health"), timeout=15) as r:
+            self.assertEqual(r.status, 200)
+            headers = r.headers
+            self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+            self.assertEqual(headers["X-Frame-Options"], "DENY")
+            self.assertEqual(headers["Referrer-Policy"], "same-origin")
+            self.assertEqual(headers["Permissions-Policy"],
+                             "camera=(), microphone=(), geolocation=()")
+            self.assertIn("default-src 'self'", headers["Content-Security-Policy"])
+            self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+            self.assertIsNone(headers.get("Strict-Transport-Security"))
+
+        req = urllib.request.Request(self.url("/health"),
+                                     headers={"X-Forwarded-Proto": "https"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            self.assertEqual(r.headers["Strict-Transport-Security"],
+                             "max-age=31536000; includeSubDomains")
+
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        body = urllib.parse.urlencode(
+            {"email": "owner@arthivio.test", "password": DEMO_PASSWORD}).encode()
+        req = urllib.request.Request(
+            self.url("/login"), data=body, method="POST",
+            headers={"X-Forwarded-Proto": "https"})
+        with opener.open(req, timeout=15):
+            pass
+        sid = [cookie for cookie in jar if cookie.name == "sid"]
+        self.assertTrue(sid)
+        self.assertTrue(sid[0].secure)
+
     def _account_id(self, code: str) -> str:
         conn = db.connect(self.db_path)
         tenant = conn.execute("SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()

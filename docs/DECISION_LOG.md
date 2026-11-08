@@ -1075,3 +1075,31 @@ it through `replaces_id`. No posted row is deleted and no historical number is r
   underlying books only; it does not claim a revised GST filing.
 - The full suite passes **331 tests, OK**, 77.525 s, Python 3.14.6, Windows, recorded in
   `docs/TEST_RESULTS.md` `RUN-2026-11-08-01`.
+
+## D-049 - Build 0.21 hardens the public surface and measures recovery
+
+**Date:** 2026-11-08. **Status:** accepted for Build 0.21.
+
+The demo is now reachable through a public tunnel, so the build adds defence-in-depth response
+headers, Secure cookies behind HTTPS, a measured restore drill and a read-only load test. None of
+these changes the accounting engine or the schema.
+
+- HTML, JSON, static and export responses now send `Content-Security-Policy`,
+  `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy`.
+- HSTS is sent only when the request arrives with `X-Forwarded-Proto: https` or the operator sets
+  `ARTHIVIO_SECURE_COOKIES=1`. Plain local HTTP does not get HSTS, so local login keeps working.
+- Session, first-run setup and theme cookies gain `Secure` behind HTTPS. `HttpOnly` and
+  `SameSite=Lax` remain.
+- `scripts/restore_drill.py` takes an online backup, verifies it, copies it to a scratch database,
+  starts a second app process against the copy, logs in and reads a report, then stops. On the
+  trial database: backup 0.172 s, total restore + health + login + report **1.44 s**, integrity and
+  foreign keys OK.
+- `scripts/load_test.py` runs read-only concurrent sessions against key pages. With 10 users and 3
+  page loops: **190 measured requests, 0 errors**, 21.1 req/s, p50 83.4 ms, p95 1229.7 ms.
+- The public-link watchdog now reads and writes the Firebase landing page as UTF-8, so repeated
+  tunnel-URL updates no longer double-encode the middle dot, em dash, arrows and check marks. The
+  landing page was repaired and redeployed.
+- These are single-machine measurements, not a production capacity test or a penetration test.
+- The full suite passes **332 tests, OK**, 42.347 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-08-02`.

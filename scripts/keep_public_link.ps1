@@ -2,7 +2,7 @@
 #
 # The app runs on this PC and is exposed through a Cloudflare quick tunnel.
 # A quick tunnel gets a new hostname when it restarts, so this watchdog:
-#   1. starts the local app if it is not healthy or is not Build 0.20,
+#   1. starts the local app if it is not healthy or is not Build 0.21,
 #   2. starts cloudflared if it is not running,
 #   3. reads the current public URL from the cloudflared log,
 #   4. updates firebase-public/index.html and redeploys Firebase when the URL changed.
@@ -25,7 +25,7 @@ $redirectFile = Join-Path $root 'firebase-public\app\index.html'
 $nodeExe = 'C:\Users\vicky\AppData\Local\Temp\opencode\node-v24.22.2-win-x64\node.exe'
 $firebaseCli = 'C:\Users\vicky\AppData\Local\Temp\opencode\firebase-tools-24\node_modules\firebase-tools\lib\bin\firebase.js'
 $project = 'financial-business-accounting'
-$version = 'ARTHIVIO/0.20'
+$version = 'ARTHIVIO/0.21'
 
 function Write-WatchLog([string]$message) {
     $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $message
@@ -114,7 +114,7 @@ function Update-Firebase([string]$oldUrl, [string]$newUrl) {
             Write-WatchLog "missing $file"
             continue
         }
-        $content = Get-Content $file -Raw
+        $content = Get-Content $file -Raw -Encoding UTF8
         $updated = [regex]::Replace($content, 'https://[a-z0-9-]+\.trycloudflare\.com', $newUrl)
         if ($updated -ne $content) {
             [System.IO.File]::WriteAllText($file, $updated, [System.Text.UTF8Encoding]::new($false))
@@ -213,14 +213,14 @@ if (-not $url) {
 }
 
 # 4. Landing page
-$content = Get-Content $indexFile -Raw
+$content = Get-Content $indexFile -Raw -Encoding UTF8
 $current = ([regex]::Matches($content, 'https://[a-z0-9-]+\.trycloudflare\.com') |
     Select-Object -First 1).Value
 if (-not $current) {
     Write-WatchLog 'landing page has no tunnel URL to replace'
     exit 1
 }
-$redirectContent = Get-Content $redirectFile -Raw
+$redirectContent = Get-Content $redirectFile -Raw -Encoding UTF8
 $redirectCurrent = ([regex]::Matches($redirectContent, 'https://[a-z0-9-]+\.trycloudflare\.com') |
     Select-Object -First 1).Value
 if ($current -ne $url -or $redirectCurrent -ne $url) {

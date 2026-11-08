@@ -2,22 +2,22 @@
 
 Baseline inventory built from the governing specification, verified against the actual workspace.
 
-> **Current status is Build 0.20, not the empty baseline below.** Sections 1-13 preserve the
+> **Current status is Build 0.21, not the empty baseline below.** Sections 1-13 preserve the
 > original 2026-10-24 audit of an empty workspace so the starting point stays honest. The
 > implemented and verified features are recorded in the later build sections, most recently
-> **section 28 (posted corrections, drafts and approvals)**. Use section 28
+> **section 29 (security headers, restore drill and load test)**. Use section 29
 > for the current feature list, not the baseline table in this header.
 
 | Field | Value |
 |---|---|
 | Baseline inventory date | 2026-10-24 |
-| Current build | **0.20 (2026-11-08)** |
+| Current build | **0.21 (2026-11-08)** |
 | Spec source | `ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md` (763 lines) |
 | Specified features tracked | 142 tracked line items across 13 modules (counted from this file, not estimated) |
 | Status vocabulary | `NOT IMPLEMENTED` · `PARTIAL` · `IMPLEMENTED` · `VERIFIED` |
 
 > A feature only reaches `VERIFIED` when implementation + tests + documentation agree. Current
-> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-11-08-01` (331 tests, OK).
+> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-11-08-02` (332 tests, OK).
 
 ---
 
@@ -803,3 +803,23 @@ and documentation agree.
 - Automatic credit/debit note creation during replacement; the user must raise the note separately.
 - Approval routing by amount, department or multi-step chain; the queue is a single optional maker-checker step.
 - Real phone/screen-reader/contrast/cross-browser/4K/load/penetration/accounting review for Build 0.20.
+
+## 29. Status after security and reliability hardening (Build 0.21, 2026-11-08)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Security response headers | every HTML/JSON/static/export response | CSP, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`; `test_security_headers_and_secure_cookie` |
+| Conditional HSTS | HTTPS requests only | `Strict-Transport-Security: max-age=31536000; includeSubDomains` when `X-Forwarded-Proto: https` or `ARTHIVIO_SECURE_COOKIES=1`; absent on plain local HTTP |
+| Secure cookies | login, setup and theme cookies | `Secure` added behind HTTPS; `HttpOnly` and `SameSite=Lax` retained |
+| Measured restore drill | `scripts/restore_drill.py` | backup 0.172 s, total restore + health + login + report 1.44 s, integrity/foreign keys OK, row counts matched |
+| Read-only load test | `scripts/load_test.py` | 10 users, 3 page loops, 190 requests, 0 errors, 21.1 req/s, p50 83.4 ms, p95 1229.7 ms |
+| Offline package 0.21 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.21.zip` | rebuilt after this batch; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.21` |
+
+### Still not implemented
+
+- Independent security review and penetration test.
+- Production-scale load test with write contention, WAN latency and multi-hour traffic.
+- In-place production restore with a large database and a measured RPO/RTO target.
+- Real phone/screen-reader/contrast/cross-browser/4K/accounting review for Build 0.21.

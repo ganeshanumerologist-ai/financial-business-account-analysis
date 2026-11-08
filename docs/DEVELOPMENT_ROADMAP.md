@@ -4,7 +4,7 @@
 |---|---|
 | Version | 1.1 |
 | Date | 2026-10-28 |
-| Status | In delivery; Build 0.20 verified, full Phase 6/8/10 gates remain |
+| Status | In delivery; Build 0.21 verified, full Phase 6/8/10 gates remain |
 | Rule | Each phase ends with a gate. No gate = no progression. |
 
 Effort bands are indicative for a single developer working part-time with AI assistance. They are **not commitments**.
@@ -171,7 +171,7 @@ A working, testable accounting core (Phases 1â€“3) is realistic in roughly **6â€
 
 ---
 
-## Current status - Build 0.20 (2026-11-08)
+## Current status - Build 0.21 (2026-11-08)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -197,6 +197,7 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.18 | R-204 unposted / draft entries with CSV export; audit-safe draft sales invoices (save draft, post draft, void with reason); drafts have no journal, stock or tax-invoice effect until posted; posting revalidates live stock and assigns the next INV number; print-page status fix; 58 of 66 working; 307 tests; offline package rebuilt as 0.18 | `RUN-2026-11-06-03` |
 | 0.19 | Advanced operational registers and the final eight report screens: R-508 expiry/batch, R-601 project costing, R-602 WIP, R-603 production consumption, R-604 yield/wastage, R-605 cost-centre performance, R-902 department/branch P&L and R-1004 consolidation; additive `dimension`, `dimension_budget`, `inventory_batch` and `production_order` tables; optional `journal_line.dimension_id` and `journal_entry.is_intercompany`; explicit unallocated rows and intercompany exclusion; 66 of 66 working; 313 tests; offline package rebuilt as 0.19 | `RUN-2026-11-06-04` |
 | 0.20 | Correction and review workflow: audit-safe correction/void of posted invoices, bills, receipts and vendor payments (reverse journal, restore/undo stock, mark old document void, post a fresh replacement linked through `replaces_id`); draft purchase bills and draft journals with posting, rejection and void; optional maker-checker approval queue for pending invoices, bills and journals; direct opening-balance correction that reverses the old opening journal and posts a replacement in one transaction; additive `bill_draft`, `bill_draft_line`, `journal_draft`, `journal_draft_line` tables and additive approval/replacement/void columns; 331 tests; offline package rebuilt as 0.20 | `RUN-2026-11-08-01` |
+| 0.21 | Security and reliability hardening: CSP, Permissions-Policy, cross-origin isolation headers and conditional HSTS on HTML/JSON/static/export responses; `Secure` session, setup and theme cookies behind HTTPS; measured copy-based restore drill (`scripts/restore_drill.py`); read-only load test (`scripts/load_test.py`); 332 tests; offline package rebuilt as 0.21 | `RUN-2026-11-08-02` |
 
 **Next:** run the single-user trial against the offline package, then finish analytics Phase B
 (saved dashboards, full drill-down, filters, EN/HI labels and the ~150-template library). Permanent

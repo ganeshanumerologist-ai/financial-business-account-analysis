@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 |
+| Version | 2.1 |
 | Date | 2026-11-08 |
-| Status | Implemented through Build 0.20 (additive schema) |
+| Status | Implemented through Build 0.21 (additive schema; 0.21 adds no schema change) |
 | Phase 1 engine | SQLite (WAL mode) via SQLAlchemy 2.x |
 | Production target | PostgreSQL 16+ (schema must remain compatible) |
 

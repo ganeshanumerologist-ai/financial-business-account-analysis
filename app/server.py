@@ -34,7 +34,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.20"
+APP_VERSION = "0.21"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -1528,7 +1528,7 @@ class Handler(BaseHTTPRequestHandler):
         acct.audit(conn, row["tenant_id"], row["user_id"], "auth.demo_login", "session",
                    meta={"mode": "loopback_autologin", "email": DEMO_EMAIL})
         return self._redirect("/", {
-            "Set-Cookie": f"sid={token}; HttpOnly; SameSite=Lax; Path=/",
+            "Set-Cookie": f"sid={token}; HttpOnly; SameSite=Lax; Path=/{self._cookie_secure()}",
             "Cache-Control": "no-store",
         })
 
@@ -1542,7 +1542,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _setup_cookie(self, token: str) -> str:
         return (f"setup_csrf={token}; HttpOnly; SameSite=Lax; Path=/; "
-                "Max-Age=3600")
+                f"Max-Age=3600{self._cookie_secure()}")
 
     def _setup_get(self, conn):
         if not security.first_run(conn):
@@ -1614,18 +1614,43 @@ class Handler(BaseHTTPRequestHandler):
                    "auth.session_created", "session",
                    meta={"mode": "first_run_setup"})
         return self._redirect("/", {
-            "Set-Cookie": f"sid={session_token}; HttpOnly; SameSite=Lax; Path=/",
+            "Set-Cookie": f"sid={session_token}; HttpOnly; SameSite=Lax; Path=/{self._cookie_secure()}",
             "Cache-Control": "no-store",
         })
+
+    def _is_https(self) -> bool:
+        proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+        return proto == "https" or os.environ.get("ARTHIVIO_SECURE_COOKIES") == "1"
+
+    def _cookie_secure(self) -> str:
+        return "; Secure" if self._is_https() else ""
+
+    def _security_headers(self) -> dict[str, str]:
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "same-origin",
+            "X-Frame-Options": "DENY",
+            "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+            "Cross-Origin-Opener-Policy": "same-origin",
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "Content-Security-Policy": (
+                "default-src 'self'; img-src 'self' data:; "
+                "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+                "font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+                "base-uri 'self'; form-action 'self'"
+            ),
+        }
+        if self._is_https():
+            headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return headers
 
     def _send(self, body: str, status: int = 200, headers: dict | None = None):
         data = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "same-origin")
-        self.send_header("X-Frame-Options", "DENY")
+        for k, v in self._security_headers().items():
+            self.send_header(k, v)
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -1635,6 +1660,8 @@ class Handler(BaseHTTPRequestHandler):
         h = {"Location": to}
         h.update(headers or {})
         self.send_response(303)
+        for k, v in self._security_headers().items():
+            self.send_header(k, v)
         for k, v in h.items():
             self.send_header(k, v)
         self.end_headers()
@@ -1658,7 +1685,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "public, max-age=31536000, immutable")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in self._security_headers().items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
@@ -1670,9 +1698,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "same-origin")
-        self.send_header("X-Frame-Options", "DENY")
+        for k, v in self._security_headers().items():
+            self.send_header(k, v)
         self.send_header("Vary", "Cookie")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
@@ -1781,7 +1808,7 @@ class Handler(BaseHTTPRequestHandler):
             requested_theme = (q.get("theme") or [None])[0]
             if requested_theme in LANDING_THEMES and (path == "/home" or (path == "/" and not sess)):
                 return self._redirect(path, {
-                    "Set-Cookie": f"ui_theme={requested_theme}; Path=/; Max-Age=31536000; SameSite=Lax",
+                    "Set-Cookie": f"ui_theme={requested_theme}; Path=/; Max-Age=31536000; SameSite=Lax{self._cookie_secure()}",
                     "Cache-Control": "no-store",
                 })
             landing_headers = {"Cache-Control": "no-cache", "Vary": "Cookie"}
@@ -2088,7 +2115,7 @@ class Handler(BaseHTTPRequestHandler):
                 token, _csrf = security.create_session(conn, user["id"], rows[0]["id"],
                                                        self.client_address[0])
                 acct.audit(conn, rows[0]["id"], user["id"], "auth.session_created", "session")
-                return self._redirect("/", {"Set-Cookie": f"sid={token}; HttpOnly; SameSite=Lax; Path=/"})
+                return self._redirect("/", {"Set-Cookie": f"sid={token}; HttpOnly; SameSite=Lax; Path=/{self._cookie_secure()}"})
 
             invite_match = re.fullmatch(r"/invite/([A-Za-z0-9_-]{20,})", path)
             if invite_match:
@@ -2109,7 +2136,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/logout":
                 security.revoke_session(conn, self._cookies().get("sid"))
-                return self._redirect("/login", {"Set-Cookie": "sid=; Max-Age=0; Path=/"})
+                return self._redirect("/login", {"Set-Cookie": f"sid=; Max-Age=0; Path=/{self._cookie_secure()}"})
 
             if path == "/settings":
                 return self._save_settings(conn, user, tenant, form)
@@ -8976,7 +9003,7 @@ Currency {esc(tenant['currency'])}. GSTIN, PIN code and IFSC are validated on sa
         conn.execute("UPDATE user SET theme=? WHERE id=?", (theme, user["id"]))
         acct.audit(conn, tenant["id"], user["id"], "user.theme_updated", "user", user["id"],
                    meta={"from": old, "to": theme})
-        cookie = f"ui_theme={theme}; Path=/; Max-Age=31536000; SameSite=Lax"
+        cookie = f"ui_theme={theme}; Path=/; Max-Age=31536000; SameSite=Lax{self._cookie_secure()}"
         return self._redirect("/settings?theme_saved=1", {"Set-Cookie": cookie})
 
     def _save_settings(self, conn, user, tenant, form):
@@ -10114,7 +10141,7 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
         sess_token, _csrf = security.create_session(conn, result["user_id"], result["tenant_id"],
                                                     self.client_address[0])
         acct.audit(conn, result["tenant_id"], result["user_id"], "auth.session_created", "session")
-        return self._redirect("/", {"Set-Cookie": f"sid={sess_token}; HttpOnly; SameSite=Lax; Path=/"})
+        return self._redirect("/", {"Set-Cookie": f"sid={sess_token}; HttpOnly; SameSite=Lax; Path=/{self._cookie_secure()}"})
 
     def _switch_business(self, conn, user, sess, form):
         tenant_id = first(form, "tenant_id")
@@ -11408,7 +11435,8 @@ This is a read-only working paper, not a filed consolidated statement.</p>"""
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in self._security_headers().items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
