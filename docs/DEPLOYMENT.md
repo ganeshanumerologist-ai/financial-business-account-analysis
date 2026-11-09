@@ -8,9 +8,11 @@
 | Field | Value |
 |---|---|
 | Firebase project | `financial-business-accounting` |
+| Project number | `124017954707` |
 | Hosting URL | `https://financial-business-accounting.web.app` |
-| Deployed files | `firebase-public/index.html` |
+| Deployed files | `firebase-public/index.html`, `firebase-public/app/index.html` |
 | Config | `firebase.json`, `.firebaserc` |
+| Last deploy | Build 0.22 static landing + `/app` redirect, 2026-11-09 |
 
 This release serves the **public ARTHIVIO landing page only**. Firebase Hosting
 is a static file host; it cannot run the Python HTTP server, SQLite database,
@@ -34,7 +36,7 @@ firebase deploy --only hosting --project financial-business-accounting
 Do not describe the Firebase URL as a permanent production accounting service
 until a persistent backend and a measured restore drill exist.
 
-## 0.1 Stable demo link on this PC (Build 0.21)
+## 0.1 Stable demo link on this PC (Build 0.22)
 
 For a 10-12 day review window the app runs on this Windows PC and is exposed
 through a Cloudflare quick tunnel. The link to share is:
@@ -74,6 +76,12 @@ cookies behind HTTPS. The same build provides `scripts/restore_drill.py` for a
 measured copy-based restore and `scripts/load_test.py` for a read-only smoke
 load. Neither replaces an independent security review, penetration test or a
 production capacity test.
+
+Build 0.22 adds saved analytics dashboards and five templates. The static
+Firebase landing and `/app` redirect were redeployed to project
+`financial-business-accounting` (number `124017954707`) on 2026-11-09. The
+full Python app still runs on this PC; Firebase continues to serve only the
+stable entry page and redirect.
 
 ## 1. One-click Render demo
 

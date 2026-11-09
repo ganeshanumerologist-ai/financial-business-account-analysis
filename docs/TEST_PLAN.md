@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.1 (active; Build 0.21) |
+| Version | 2.2 (active; Build 0.22) |
 | Date | 2026-11-08 |
-| Status | **Active; 332 automated tests execute on the local build** (see `docs/TEST_RESULTS.md` section 38) |
+| Status | **Active; 339 automated tests execute on the local build** (see `docs/TEST_RESULTS.md` section 39) |
 | Owner | Project owner (approval), OpenCode agent (authoring & execution) |
 | Data policy | Synthetic data only. No real bank credentials, no real customer financial data. |
 
@@ -456,3 +456,11 @@ public statement creation/print/revoke, backup integrity + restore, and Lighthou
   statements and GSTR-2B; dates and decimals survive, cached formula values are used, blank rows and
   trailing empty columns are dropped, oversized/malformed files fail visibly, and the existing
   preview/confirm rules still control posting (`tests/test_xlsx_import.py`, `test_web.test_45`).
+- `T-1051`: saved-dashboard configuration rejects an empty metric list, an unknown period, custom
+  dates without both ends, and a duplicate tenant name; create/list/get/delete is audited, private
+  dashboards stay hidden from other users, tenant dashboards are visible, and a second tenant cannot
+  read the dashboard (`tests/test_dashboards.py`).
+- `T-1052`: `/dashboards` lists saved dashboards, the five templates and the create form; a POST
+  creates a dashboard, renders its KPI cards with Hindi labels, links each KPI to the underlying
+  report, creates from the owner-monthly template, and deletes the dashboards through the CSRF-
+  protected form (`test_web.test_54`).

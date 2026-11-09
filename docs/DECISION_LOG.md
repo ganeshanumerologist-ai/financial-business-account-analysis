@@ -1103,3 +1103,28 @@ these changes the accounting engine or the schema.
 - These are single-machine measurements, not a production capacity test or a penetration test.
 - The full suite passes **332 tests, OK**, 42.347 s, Python 3.14.6, Windows, recorded in
   `docs/TEST_RESULTS.md` `RUN-2026-11-08-02`.
+
+## D-050 - Build 0.22 adds saved dashboards and a template library
+
+**Date:** 2026-11-08. **Status:** accepted for Build 0.22.
+
+Saved dashboards are a **configuration layer**, not a second accounting engine. A dashboard stores a
+name, visibility, period, metric keys, chart keys and a language. Every value is recomputed from
+posted journal rows through `analytics.overview` each time the dashboard is opened, so a saved
+dashboard can never hold a stale or invented authoritative total.
+
+- A new additive `saved_dashboard` table stores `tenant_id`, `name`, `description`, `config_json`,
+  `visibility`, `created_by`, `created_at` and `updated_at`. It is added to the backup table list.
+- Visibility is `private` (creator only) or `tenant` (every active member of the business). Deletion
+  is allowed for the creator or an owner/admin. Reads and writes always filter by `tenant_id`.
+- Five honest templates ship in `app/dashboards.py`: Owner monthly, Working capital, GST working
+  paper, Receivables follow-up and Full finance pack. A template only creates a private dashboard;
+  it does not post or cache anything.
+- Periods are fiscal year to date, this month, last month, this quarter or custom dates. Custom
+  dates require both ends and are validated.
+- The saved-dashboard surface has English and Hindi labels for headings, metric names, period names
+  and chart legends. This is not a full-application translation.
+- KPI cards link to the existing underlying report with the same dates. A dedicated line-level
+  transaction drill-down page and dimension filters remain planned for later Phase B increments.
+- The full suite passes **339 tests, OK**, 45.737 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` `RUN-2026-11-08-03`.

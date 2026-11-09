@@ -103,7 +103,7 @@ def main() -> int:
         fk = conn.execute("PRAGMA foreign_key_check").fetchall()
         counts = {}
         for table in ("tenant", "user", "journal_entry", "journal_line", "invoice",
-                      "bill", "payment", "audit_log"):
+                      "bill", "payment", "audit_log", "saved_dashboard"):
             counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
     finally:
         conn.close()

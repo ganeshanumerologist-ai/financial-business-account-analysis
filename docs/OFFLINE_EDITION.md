@@ -1,6 +1,6 @@
 # ARTHIVIO Offline Edition
 
-**Build 0.21. Single-user Windows package. No Python install, no internet, local SQLite.**
+**Build 0.22. Single-user Windows package. No Python install, no internet, local SQLite.**
 
 This document describes the offline package only. It is not permanent hosting, not a multi-user
 server, and not a substitute for an independent accounting or security review.
@@ -32,7 +32,7 @@ Build it from the repository with:
 Output:
 
 - `dist\ARTHIVIO-Offline\`
-- `dist\ARTHIVIO-Offline-0.21.zip`
+- `dist\ARTHIVIO-Offline-0.22.zip`
 
 The build downloads the Python embeddable ZIP once into `build-cache\`, copies `openpyxl` 3.1.5
 and `et_xmlfile`, and tests the embedded runtime before reporting success. The target machine does
@@ -165,11 +165,11 @@ deserves a verified backup and a restore drill.
 
 ---
 
-## 9. Verification performed for Build 0.21
+## 9. Verification performed for Build 0.22
 
 | Check | Result |
 |---|---|
-| Full test suite | **332 tests, OK**, 42.347 s, Python 3.14.6, Windows |
+| Full test suite | **339 tests, OK**, 45.737 s, Python 3.14.6, Windows |
 | Report tests | 45 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, R-204 draft entries, R-508 expiry, R-601 project costing, R-602 WIP, R-603 consumption, R-604 yield, R-605 cost centre, R-902 dimension P&L, R-1004 consolidation, credit-limit detection, malformed journal detection and tenant isolation |
 | Draft workflow tests | save draft, post draft, insufficient stock at posting, void with reason, idempotent post, receipt guard and draft-print block |
 | Correction workflow tests | 9 `TestPostedCorrections` cases plus the HTTP flow: invoice, bill and payment void/replace, stock restore/undo, blocked replacement and opening-balance replacement |
@@ -179,11 +179,12 @@ deserves a verified backup and a restore drill.
 | Load test | `scripts/load_test.py`: 10 users, 3 page loops, 190 requests, 0 errors, 21.1 req/s, p50 83.4 ms, p95 1229.7 ms |
 | Advanced web flow | dimension creation, cost-centre budget, batch creation, production-order creation, dimension-tagged journal posting, all eight new report pages and the project-costing CSV |
 | Report HTTP tests | 46 report pages and 41 CSV exports, OK |
-| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.21` |
-| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.21 Python/3.14.6` |
+| Saved dashboards | `tests/test_dashboards.py` (6 tests) and `test_web.test_54`: validation, CRUD, audit, private/shared visibility, tenant isolation, template creation, Hindi labels and CSRF delete |
+| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.22` |
+| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.22 Python/3.14.6` |
 | Package first run | Setup page rendered from the embedded runtime; owner creation covered by `test_first_run` |
 | External-drive backup | Local backup verified, copy hash matched, copy re-verified read-only (Build 0.14, unchanged code path) |
-| Package size | approximately 14.3 MB (ZIP); 31.6 MB extracted |
+| Package size | approximately 14.4 MB (ZIP); 31.7 MB extracted |
 | Package data reset | Smoke-test database and logs were kept outside the package; no test data was added to the built folder |
 
 Not verified in this build:

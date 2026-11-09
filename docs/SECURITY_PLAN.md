@@ -515,3 +515,23 @@ The frontend receives **no** secrets — only a public API base URL.
 - **Residual risk:** headers and a smoke load test are not a penetration test or a production
   capacity test. Inline script/style allowances reduce CSP strength. The app still has no
   independent security review, WAF, DDoS protection, intrusion detection or production monitoring.
+
+## 25. Build 0.22 addendum - saved-dashboard access control
+
+- **Permission:** every saved-dashboard page requires `report.view`, the same permission as the
+  analytics overview and report library.
+- **Tenant isolation:** every read and write filters by `tenant_id`. `get_dashboard` returns
+  `NOT_FOUND` for a dashboard that belongs to another tenant; `test_tenant_isolation` covers this.
+- **Visibility:** `private` dashboards are visible only to `created_by`. `tenant` dashboards are
+  visible to active members of the same business. The list query applies this rule.
+- **Deletion:** only the creator or an owner/admin can delete a dashboard. Other members receive a
+  `FORBIDDEN` error. `dashboard.created` and `dashboard.deleted` are written to `audit_log`.
+- **No cached totals:** `config_json` stores only metric keys, chart keys, period and language. A
+  dashboard cannot hold a stale or invented financial total; every value is recomputed through
+  `analytics.overview`.
+- **Input validation:** unknown metric/chart keys are dropped; an empty metric list, unknown period,
+  incomplete custom dates and inverted dates are rejected. Names are trimmed and length-limited.
+- **CSRF:** the create and delete forms use the existing session `_csrf` token. No new unauthenticated
+  route is added.
+- **Residual risk:** a `tenant` dashboard name and description are visible to every member of that
+  business. The feature is not a substitute for an independent access-control review.

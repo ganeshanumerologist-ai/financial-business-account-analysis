@@ -22,6 +22,7 @@ TABLES = [
     "gstr2b_import", "gstr2b_line", "gstr2b_review", "budget", "stock_adjustment",
     "dimension", "dimension_budget", "inventory_batch", "production_order",
     "bill_draft", "bill_draft_line", "journal_draft", "journal_draft_line",
+    "saved_dashboard",
 ]
 # `session` is ephemeral and `backup_run` changes when this backup is recorded;
 # neither is compared for row counts. Every other persistent table must be listed.

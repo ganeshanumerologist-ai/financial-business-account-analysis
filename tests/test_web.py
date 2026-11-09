@@ -2710,6 +2710,59 @@ class WebTest(unittest.TestCase):
         self.assertTrue(sid)
         self.assertTrue(sid[0].secure)
 
+    def test_54_saved_dashboards(self):
+        self.login()
+        status, page = self.get("/dashboards")
+        self.assertEqual(status, 200)
+        self.assertIn("Saved dashboards", page)
+        self.assertIn("Dashboard templates", page)
+        self.assertIn("Create a dashboard", page)
+        self.assertIn("Owner monthly", page)
+        token = self.csrf(page)
+
+        status, body, final = self.post("/dashboards", {
+            "_csrf": token,
+            "name": "Web owner view",
+            "visibility": "private",
+            "period": "this_month",
+            "language": "hi",
+            "metrics": ["revenue_paise", "net_profit_paise"],
+            "charts": ["monthly"],
+            "description": "HTTP test dashboard",
+        })
+        self.assertEqual(status, 200)
+        first_id = re.search(r"/dashboards/([0-9a-f]{32})", final).group(1)
+        self.assertIn("Web owner view", body)
+        self.assertIn("आय", body)
+        self.assertIn("शुद्ध लाभ", body)
+
+        status, page = self.get("/dashboards")
+        self.assertIn("Web owner view", page)
+        token = self.csrf(page)
+
+        status, body, final = self.post("/dashboards", {
+            "_csrf": token,
+            "template": "owner_monthly",
+            "name": "Web template view",
+            "visibility": "private",
+        })
+        self.assertEqual(status, 200)
+        second_id = re.search(r"/dashboards/([0-9a-f]{32})", final).group(1)
+        self.assertIn("Web template view", body)
+        self.assertIn("Revenue", body)
+
+        status, page = self.get("/dashboards")
+        self.assertIn("Web template view", page)
+        token = self.csrf(page)
+        for dashboard_id in (first_id, second_id):
+            status, body, final = self.post(
+                f"/dashboards/{dashboard_id}/delete", {"_csrf": token})
+            self.assertEqual(status, 200)
+            self.assertIn("Saved dashboards", body)
+        status, page = self.get("/dashboards")
+        self.assertNotIn("Web owner view", page)
+        self.assertNotIn("Web template view", page)
+
     def _account_id(self, code: str) -> str:
         conn = db.connect(self.db_path)
         tenant = conn.execute("SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()

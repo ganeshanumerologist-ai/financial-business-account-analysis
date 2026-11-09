@@ -2,22 +2,22 @@
 
 Baseline inventory built from the governing specification, verified against the actual workspace.
 
-> **Current status is Build 0.21, not the empty baseline below.** Sections 1-13 preserve the
+> **Current status is Build 0.22, not the empty baseline below.** Sections 1-13 preserve the
 > original 2026-10-24 audit of an empty workspace so the starting point stays honest. The
 > implemented and verified features are recorded in the later build sections, most recently
-> **section 29 (security headers, restore drill and load test)**. Use section 29
+> **section 30 (saved dashboards and template library)**. Use section 30
 > for the current feature list, not the baseline table in this header.
 
 | Field | Value |
 |---|---|
 | Baseline inventory date | 2026-10-24 |
-| Current build | **0.21 (2026-11-08)** |
+| Current build | **0.22 (2026-11-08)** |
 | Spec source | `ARTHIVIO_OpenCode_Master_Build_Prompt_WITH_RULES.md` (763 lines) |
 | Specified features tracked | 142 tracked line items across 13 modules (counted from this file, not estimated) |
 | Status vocabulary | `NOT IMPLEMENTED` · `PARTIAL` · `IMPLEMENTED` · `VERIFIED` |
 
 > A feature only reaches `VERIFIED` when implementation + tests + documentation agree. Current
-> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-11-08-02` (332 tests, OK).
+> evidence is in `docs/TEST_RESULTS.md` run `RUN-2026-11-08-03` (339 tests, OK).
 
 ---
 
@@ -823,3 +823,27 @@ and documentation agree.
 - Production-scale load test with write contention, WAN latency and multi-hour traffic.
 - In-place production restore with a large database and a measured RPO/RTO target.
 - Real phone/screen-reader/contrast/cross-browser/4K/accounting review for Build 0.21.
+
+## 30. Status after saved dashboards and template library (Build 0.22, 2026-11-08)
+
+### Implemented and verified
+
+| Feature | Where | Evidence |
+|---|---|---|
+| Saved dashboards | `/dashboards`, `/dashboards/<id>` | named configuration of metric keys, chart keys, period and language; private or tenant-shared; creator or owner/admin can delete |
+| Template library | `app/dashboards.py` | Owner monthly, Working capital, GST working paper, Receivables follow-up and Full finance pack |
+| Additive schema | `saved_dashboard` | tenant/name uniqueness, `config_json`, `visibility`, `created_by`, timestamps; added to `backup.TABLES` |
+| Dashboard charts | saved dashboard page | monthly revenue/expense bars plus profit line, expense-composition pie, top customer/vendor tables; ECharts vendored locally |
+| KPI report links | saved dashboard page | each KPI opens its registered `drilldown` report with the same `from`/`to` dates |
+| EN/HI labels | saved-dashboard surface | English and Hindi headings, metric names, period names and chart legends |
+| Actuals-only rule | `analytics.overview` | no estimate or forecast enters a saved dashboard; every value is recomputed from posted journal rows |
+| Tests | `tests/test_dashboards.py`, `tests/test_web.py` | 6 unit tests plus `test_54_saved_dashboards`; full suite **339 tests, OK**, 45.737 s |
+| Offline package 0.22 | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.22.zip` | rebuilt after this batch; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.22` |
+
+### Still not implemented
+
+- Dedicated line-level transaction drill-down page (KPI cards currently open the underlying report).
+- Dimension, party and account filters on saved dashboards.
+- Hindi labels outside the saved-dashboard surface.
+- The full ~150-template library; five starting templates are live.
+- Independent security review, production load test, large-database restore drill and real-device/accessibility review.

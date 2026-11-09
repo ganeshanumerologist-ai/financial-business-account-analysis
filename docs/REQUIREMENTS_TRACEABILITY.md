@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.5 |
+| Version | 1.6 |
 | Date | 2026-11-08 |
 | Purpose | Prove every requirement has a planned module, a test, and a documented status |
 | Source | `docs/PROJECT_SPEC.md` → `docs/REQUIREMENTS.md` → modules → tests |
@@ -10,7 +10,7 @@
 Status: **NS** = Not started · **IP** = In progress · **DONE** (requires passing tests) · **BLOCKED**
 
 > The early baseline rows show **NS** because they record the empty starting point. Current
-> evidence-backed status is in section 29 (Build 0.21); the matrix exists so progress cannot be claimed
+> evidence-backed status is in section 30 (Build 0.22); the matrix exists so progress cannot be claimed
 > without evidence.
 
 ---
@@ -533,3 +533,24 @@ accounting data.
 | Production load test | **Not verified** | single-machine read-only smoke load only; no write contention, WAN latency or multi-hour traffic |
 | Large-database restore | **Not verified** | copy-based drill on a small trial database; no large production restore with measured RPO/RTO |
 | Mobile / accessibility / cross-browser / 4K | **Not verified** | no real phone, screen-reader, contrast, cross-browser or 4K review for Build 0.21 |
+
+## 30. Status after saved dashboards and template library (Build 0.22, 2026-11-08)
+
+| Requirement area | Status | Evidence |
+|---|---|---|
+| Saved dashboards | **Verified** | `/dashboards` and `/dashboards/<id>`; named private or tenant-shared configuration of metrics, charts, period and language |
+| Dashboard template library | **Verified** | five templates in `app/dashboards.py`: Owner monthly, Working capital, GST working paper, Receivables follow-up, Full finance pack |
+| Additive schema | **Verified** | `saved_dashboard` table; no destructive migration; added to `backup.TABLES` |
+| Tenant isolation | **Verified** | every read/write filters `tenant_id`; `test_tenant_isolation` |
+| Audit trail | **Verified** | `dashboard.created` and `dashboard.deleted` rows in `audit_log`; `test_create_list_get_delete_and_audit` |
+| Actuals-only dashboards | **Verified** | every value comes from `analytics.overview`; no estimate or forecast |
+| EN/HI labels | **Verified on the saved-dashboard surface** | English/Hindi headings, metric names, period names and chart legends; not a full-app translation |
+| Dashboard tests | **Verified** | `tests/test_dashboards.py` (6 tests) and `test_54_saved_dashboards`; full suite **339 tests, OK**, 45.737 s |
+| Offline package 0.22 | **Verified on this machine** | `dist\ARTHIVIO-Offline`, `dist\ARTHIVIO-Offline-0.22.zip`; embedded runtime import and `/health` returned `ok` |
+| Line-level drill-down | **Not verified** | KPI cards open the underlying report with the same dates; a dedicated transaction-level drill-down page is pending |
+| Dimension/party filters | **Not verified** | not yet available on saved dashboards |
+| Full template library | **Not verified** | five starting templates are live; the ~150-template library is not built |
+| Independent security review | **Not verified** | no third-party penetration test or security audit for Build 0.22 |
+| Production load test | **Not verified** | single-machine read-only smoke load only |
+| Large-database restore | **Not verified** | copy-based drill on a small trial database |
+| Mobile / accessibility / cross-browser / 4K | **Not verified** | no real phone, screen-reader, contrast, cross-browser or 4K review for Build 0.22 |

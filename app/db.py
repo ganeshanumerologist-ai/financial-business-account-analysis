@@ -477,6 +477,19 @@ CREATE TABLE IF NOT EXISTS member_invite (
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','revoked','expired'))
 );
 
+CREATE TABLE IF NOT EXISTS saved_dashboard (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenant(id),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    config_json TEXT NOT NULL,
+    visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private','tenant')),
+    created_by TEXT NOT NULL REFERENCES user(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (tenant_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS statement_share (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenant(id),
@@ -742,6 +755,8 @@ CREATE INDEX IF NOT EXISTS ix_audit_tenant_time ON audit_log (tenant_id, created
 CREATE INDEX IF NOT EXISTS ix_session_token ON session (token_hash);
 CREATE INDEX IF NOT EXISTS ix_member_invite_tenant ON member_invite (tenant_id, status, expires_at);
 CREATE INDEX IF NOT EXISTS ix_statement_share_tenant ON statement_share (tenant_id, party_type, party_id);
+CREATE INDEX IF NOT EXISTS ix_saved_dashboard_tenant_user
+    ON saved_dashboard (tenant_id, created_by, updated_at);
 CREATE INDEX IF NOT EXISTS ix_gstr2b_import_period ON gstr2b_import (tenant_id, period, status);
 CREATE INDEX IF NOT EXISTS ix_gstr2b_line_import ON gstr2b_line (import_id);
 CREATE INDEX IF NOT EXISTS ix_gstr2b_review_tenant ON gstr2b_review (tenant_id, status);

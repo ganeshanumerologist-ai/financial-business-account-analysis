@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.21.** The latest application run is `RUN-2026-11-08-02` with
-> **332 tests, OK**, Python 3.14.6, Windows - see section 38. The table immediately below is the original
+> **Current status: Build 0.22.** The latest application run is `RUN-2026-11-08-03` with
+> **339 tests, OK**, Python 3.14.6, Windows - see section 39. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1773,3 +1773,30 @@ Run ID: `RUN-2026-11-06-03`.
   penetration test.
 - No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
   review was run for Build 0.21.
+
+## 39. Build 0.22 verification - saved dashboards and template library (2026-11-08)
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-08-03` |
+| Full test suite | **339 tests, OK**, 45.737 s, Python 3.14.6, Windows |
+| New unit tests | `tests/test_dashboards.py`: 6 tests for validation, create/list/get/delete, audit rows, template library, private/shared visibility, tenant isolation and period resolution |
+| New HTTP test | `test_54_saved_dashboards` creates and renders a saved dashboard with Hindi metric labels, creates from the owner-monthly template, and deletes both dashboards |
+| Schema | Additive `saved_dashboard` table with tenant/name uniqueness, `private`/`tenant` visibility and a creator; added to backup table coverage |
+| Pages | `/dashboards` lists saved dashboards and five templates and hosts the create form; `/dashboards/<id>` renders the selected KPI cards, monthly chart, expense chart, top customer/vendor tables and report links |
+| Actuals rule | Every value comes from `analytics.overview`; no estimate or forecast enters a saved dashboard |
+| Language | English and Hindi labels for saved-dashboard headings, metric names, period names and chart legends |
+| Offline package | Rebuilt as `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.22.zip`; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.22` |
+
+### 39.1 Honest limits
+
+- Saved dashboards store configuration only. They never post, edit or cache an authoritative total;
+  opening a dashboard recomputes every number from posted journal rows.
+- A KPI card links to the underlying report with the same dates. A dedicated line-level transaction
+  drill-down page is still pending.
+- Dimension, party and account filters are not yet available on saved dashboards.
+- Hindi labels cover the saved-dashboard surface only. The rest of the application remains English.
+- Private dashboards are visible only to their creator; `tenant` dashboards are visible to every
+  active member of the same business. Deletion is limited to the creator or an owner/admin.
+- No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
+  review was run for Build 0.22.

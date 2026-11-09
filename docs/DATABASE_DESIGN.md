@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.1 |
+| Version | 2.2 |
 | Date | 2026-11-08 |
-| Status | Implemented through Build 0.21 (additive schema; 0.21 adds no schema change) |
+| Status | Implemented through Build 0.22 (additive schema; 0.22 adds `saved_dashboard`) |
 | Phase 1 engine | SQLite (WAL mode) via SQLAlchemy 2.x |
 | Production target | PostgreSQL 16+ (schema must remain compatible) |
 
@@ -804,3 +804,40 @@ All columns are nullable or defaulted. Old rows are not backfilled or rewritten.
   payments.
 - `backup.TABLES` includes the four new draft tables, so backup verification compares their row
   counts.
+
+## 28. Build 0.22 saved dashboards: one additive table (2026-11-08)
+
+Build 0.22 adds **one additive table**. No existing column, table or historical row is rewritten.
+
+```sql
+CREATE TABLE saved_dashboard (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenant(id),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  config_json TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'private'
+    CHECK (visibility IN ('private','tenant')),
+  created_by TEXT NOT NULL REFERENCES user(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (tenant_id, name)
+);
+
+CREATE INDEX ix_saved_dashboard_tenant_user
+  ON saved_dashboard (tenant_id, created_by, updated_at);
+```
+
+### 28.1 Semantics
+
+- `config_json` stores only the dashboard configuration: period preset, optional custom dates,
+  metric keys, chart keys and language. It never stores a computed total.
+- `visibility='private'` is visible only to `created_by`; `visibility='tenant'` is visible to every
+  active member of the same business. All queries filter by `tenant_id`.
+- A tenant-wide unique name prevents ambiguous dashboard links. Creating a duplicate name returns a
+  clear error.
+- Deletion is limited to the creator or an owner/admin. `dashboard.created` and `dashboard.deleted`
+  are written to `audit_log`.
+- `backup.TABLES` includes `saved_dashboard`, so backup verification compares its row count.
+- Old databases gain the table through the existing `CREATE TABLE IF NOT EXISTS` schema path; no
+  migration or backfill is required.

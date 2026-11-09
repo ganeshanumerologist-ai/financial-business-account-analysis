@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.1 |
+| Version | 2.2 |
 | Date | 2026-11-08 |
-| Status | Implemented through Build 0.21 |
+| Status | Implemented through Build 0.22 |
 | Decision | **Option A** — Next.js (TypeScript) + FastAPI (Python), approved 2026-10-24 (D-001) |
 
 ---
@@ -188,7 +188,7 @@ Ledger schema details beyond the outline, tax/GST rules, offline sync protocol, 
 
 ---
 
-## 11. Implementation status (current Build 0.21)
+## 11. Implementation status (current Build 0.22)
 
 | Module | Responsibility | State |
 |---|---|---|
@@ -849,3 +849,25 @@ adds two repeatable operational checks.
 - The full suite passes **332 tests, OK**, 42.347 s, Python 3.14.6, Windows, recorded as
   `RUN-2026-11-08-02`. These are single-machine measurements, not a production capacity or
   penetration test.
+
+## 27. Build 0.22: saved dashboards and the template library (2026-11-08)
+
+Build 0.22 adds a configuration layer on top of the existing analytics semantic layer. It does not
+change the accounting engine or any existing report formula.
+
+- `app/dashboards.py` owns the template library, label dictionary, config validation, period
+  resolution and CRUD. A dashboard stores only `config_json`; it never stores a computed total.
+- `saved_dashboard` is an additive table with `tenant_id`, `name`, `description`, `config_json`,
+  `visibility`, `created_by`, `created_at` and `updated_at`. A tenant-wide unique name prevents
+  ambiguous links. `visibility` is `private` or `tenant`.
+- `Handler.page_dashboards()` renders the list, five template cards and the create form.
+  `Handler.page_saved_dashboard()` calls `analytics.overview` for the resolved period and renders
+  the selected KPI cards, monthly bar/line chart, expense-composition pie and top customer/vendor
+  tables. Each KPI links to its registered `drilldown` report with the same dates.
+- English and Hindi labels live in `dashboards.LABELS`. This is a saved-dashboard surface
+  translation, not a full application i18n layer.
+- Reads and writes always filter by `tenant_id`. Private dashboards are visible only to the creator;
+  tenant dashboards are visible to every active member. Deletion is limited to the creator or an
+  owner/admin. `dashboard.created` and `dashboard.deleted` are audited.
+- The full suite passes **339 tests, OK**, 45.737 s, Python 3.14.6, Windows, recorded as
+  `RUN-2026-11-08-03`. A dedicated line-level drill-down page and dimension filters remain planned.

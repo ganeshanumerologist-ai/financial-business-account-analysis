@@ -24,6 +24,7 @@ from . import bank as bank_mod
 from . import bi as bi_mod
 from . import budgeting as budget_mod
 from . import charting
+from . import dashboards as dashboards_mod
 from . import db, diagnostics, drafts as drafts_mod, money, security
 from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
@@ -34,7 +35,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.21"
+APP_VERSION = "0.22"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -470,6 +471,7 @@ NAV = [
             ("Analysis", [
                 ("reports/library", "rep", "Report Library"),
                 ("reports/analytics", "rep", "Analytics Overview"),
+                ("dashboards", "dash", "Saved Dashboards"),
             ]),
             ("Financial statements", [
                 ("reports/trial-balance", "rep", "Trial Balance"),
@@ -1884,6 +1886,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(self.page_bs(conn, user, tenant, q))
             if path == "/reports/library":
                 return self._send(self.page_report_library(conn, user, tenant, q))
+            if path == "/dashboards":
+                return self._send(self.page_dashboards(conn, user, tenant, sess, q))
+            if re.fullmatch(r"/dashboards/[0-9a-f]{32}", path):
+                try:
+                    body = self.page_saved_dashboard(conn, user, tenant, sess,
+                                                     path.rsplit("/", 1)[1], q)
+                except dashboards_mod.DashboardError as e:
+                    return self._error_page(user, tenant, e.message, "/dashboards")
+                return self._send(body)
             if path == "/reports/analytics":
                 return self._send(self.page_analytics(conn, user, tenant, q))
             if path == "/reports/cash-flow":
@@ -2142,6 +2153,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._save_settings(conn, user, tenant, form)
             if path == "/preferences/theme":
                 return self._save_theme(conn, user, tenant, form)
+            if path == "/dashboards":
+                return self._create_dashboard(conn, user, tenant, form)
+            dash_delete = re.fullmatch(r"/dashboards/([0-9a-f]{32})/delete", path)
+            if dash_delete:
+                return self._delete_dashboard(conn, user, tenant, form,
+                                              dash_delete.group(1))
 
             if path == "/switch":
                 return self._switch_business(conn, user, sess, form)
@@ -8556,6 +8573,313 @@ aid, not a promise. It is kept visually separate from actuals and is never mixed
 review. They are not proof of fraud, error or intent.</p>"""
         return layout("Anomaly digest", body, "reports/anomaly-digest", user, tenant)
 
+    def page_dashboards(self, conn, user, tenant, sess, q) -> str:
+        security.require(conn, user["id"], tenant["id"], dashboards_mod.PERMISSION)
+        csrf = esc(sess["csrf_token"])
+        saved = dashboards_mod.list_dashboards(conn, tenant["id"], user["id"])
+        templates = dashboards_mod.templates()
+
+        def period_label(config: dict) -> str:
+            key = config.get("period", "fiscal_ytd")
+            if key == "custom":
+                return f'{config.get("from", "")} to {config.get("to", "")}'
+            return {
+                "fiscal_ytd": "Fiscal year to date",
+                "this_month": "This month",
+                "last_month": "Last month",
+                "this_quarter": "This quarter",
+            }.get(key, key)
+
+        saved_cards = "".join(
+            f'<div class="card pad">'
+            f'<div class="sect-head"><h2><a href="/dashboards/{esc(d["id"])}">{esc(d["name"])}</a></h2>'
+            f'<span class="badge neutral">{esc("Shared" if d["visibility"] == "tenant" else "Private")}</span></div>'
+            f'<p class="small muted" style="margin:0 0 6px">{esc(d.get("description") or "")}</p>'
+            f'<p class="small muted" style="margin:0 0 10px">{len(d["config"]["metrics"])} metric(s) · '
+            f'{len(d["config"]["charts"])} chart(s) · {esc(period_label(d["config"]))}</p>'
+            f'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+            f'<a class="btn small" href="/dashboards/{esc(d["id"])}">Open</a>'
+            f'<form method="post" action="/dashboards/{esc(d["id"])}/delete" style="margin:0" '
+            f'onsubmit="return confirm(\'Delete this dashboard?\')">'
+            f'<input type="hidden" name="_csrf" value="{csrf}">'
+            f'<button class="btn ghost small" type="submit">Delete</button></form>'
+            f'</div></div>'
+            for d in saved) or (
+            '<div class="card pad"><p class="small muted" style="margin:0">'
+            'No saved dashboards yet. Create one below or start from a template.</p></div>')
+
+        template_cards = "".join(
+            f'<div class="card pad">'
+            f'<div class="sect-head"><h2>{esc(tpl["name"])}</h2>'
+            f'<span class="badge neutral">{len(tpl["config"]["metrics"])} metrics</span></div>'
+            f'<p class="small muted" style="margin:0 0 10px">{esc(tpl["description"])}</p>'
+            f'<form method="post" action="/dashboards" style="margin:0">'
+            f'<input type="hidden" name="_csrf" value="{csrf}">'
+            f'<input type="hidden" name="template" value="{esc(tpl["key"])}">'
+            f'<input type="hidden" name="name" value="{esc(tpl["name"])}">'
+            f'<input type="hidden" name="visibility" value="private">'
+            f'<button class="btn small" type="submit">Use template</button></form></div>'
+            for tpl in templates)
+
+        default_metrics = {"revenue_paise", "expense_paise", "net_profit_paise",
+                           "cash_and_bank_paise", "receivable_paise", "payable_paise"}
+        default_charts = {"monthly", "expense_breakdown"}
+        metric_checks = "".join(
+            f'<label style="display:flex;gap:6px;align-items:center;font-size:13px">'
+            f'<input type="checkbox" name="metrics" value="{esc(m["key"])}"'
+            f'{" checked" if m["key"] in default_metrics else ""}> {esc(m["label"])}</label>'
+            for m in analytics_mod.METRICS)
+        chart_checks = "".join(
+            f'<label style="display:flex;gap:6px;align-items:center;font-size:13px">'
+            f'<input type="checkbox" name="charts" value="{esc(key)}"'
+            f'{" checked" if key in default_charts else ""}> {esc(label)}</label>'
+            for key, label in (
+                ("monthly", "Monthly revenue and expenses"),
+                ("expense_breakdown", "Expense breakdown"),
+                ("top_customers", "Top customers"),
+                ("top_vendors", "Top vendors"),
+            ))
+
+        body = f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>Saved dashboards</h2>
+    <a class="btn ghost small" href="/reports/analytics">Analytics overview</a></div>
+  <p class="small muted" style="margin:0 0 12px">A saved dashboard stores only a selection of metrics,
+  charts, period and language. Every number is recomputed from posted journal rows when it is opened.</p>
+  <div class="grid2">{saved_cards}</div>
+</div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Dashboard templates</h2><span class="badge neutral">Starting points</span></div>
+  <p class="small muted" style="margin:0 0 12px">Templates create a private dashboard you can open and
+  delete. They do not post, edit or cache any accounting total.</p>
+  <div class="grid2">{template_cards}</div>
+</div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Create a dashboard</h2><span class="badge neutral">Actuals only</span></div>
+  <form method="post" action="/dashboards">
+    <input type="hidden" name="_csrf" value="{csrf}">
+    <div class="row c2">
+      <div class="field"><label for="dash-name">Name</label>
+        <input id="dash-name" name="name" maxlength="80" required
+               placeholder="e.g. Owner monthly"></div>
+      <div class="field"><label for="dash-visibility">Visibility</label>
+        <select id="dash-visibility" name="visibility">
+          <option value="private">Private</option>
+          <option value="tenant">Shared with this business</option>
+        </select></div>
+    </div>
+    <div class="row c2">
+      <div class="field"><label for="dash-period">Period</label>
+        <select id="dash-period" name="period">
+          <option value="fiscal_ytd">Fiscal year to date</option>
+          <option value="this_month">This month</option>
+          <option value="last_month">Last month</option>
+          <option value="this_quarter">This quarter</option>
+          <option value="custom">Custom dates</option>
+        </select></div>
+      <div class="field"><label for="dash-language">Language</label>
+        <select id="dash-language" name="language">
+          <option value="en">English</option>
+          <option value="hi">हिन्दी (Hindi)</option>
+        </select></div>
+    </div>
+    <div class="row c2">
+      <div class="field"><label for="dash-from">From (custom dates only)</label>
+        <input id="dash-from" type="date" name="from"></div>
+      <div class="field"><label for="dash-to">To (custom dates only)</label>
+        <input id="dash-to" type="date" name="to"></div>
+    </div>
+    <div class="field"><label>Metrics</label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 14px">
+        {metric_checks}</div></div>
+    <div class="field"><label>Charts</label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 14px">
+        {chart_checks}</div></div>
+    <div class="field"><label for="dash-description">Description (optional)</label>
+      <input id="dash-description" name="description" maxlength="200"></div>
+    <button class="btn" type="submit">Create dashboard</button>
+  </form>
+</div>
+<p class="small muted" style="margin-top:14px">Saved dashboards are read-only. They never post a
+journal, change a document or compute an authoritative total outside the accounting engine.</p>"""
+        return layout("Saved dashboards", body, "dashboards", user, tenant)
+
+    def page_saved_dashboard(self, conn, user, tenant, sess, dashboard_id: str, q) -> str:
+        security.require(conn, user["id"], tenant["id"], dashboards_mod.PERMISSION)
+        dash = dashboards_mod.get_dashboard(conn, tenant["id"], dashboard_id)
+        config = dash["config"]
+        lang = config.get("language", "en")
+        try:
+            period = dashboards_mod.resolve_period(tenant, config)
+        except analytics_mod.AnalyticsError:
+            period = analytics_mod.resolve_period(tenant)
+        data = analytics_mod.overview(conn, tenant, period["from"], period["to"])
+        dfrom, dto = period["from"], period["to"]
+        csrf = esc(sess["csrf_token"])
+        period_q = urllib.parse.urlencode({"from": dfrom, "to": dto})
+
+        def metric_text(key: str) -> str:
+            metric = dashboards_mod.METRIC_BY_KEY[key]
+            value = data["metrics"].get(key)
+            if metric["unit"] == analytics_mod.UNIT_PAISE:
+                return money.fmt(value or 0)
+            if metric["unit"] == analytics_mod.UNIT_BOOLEAN:
+                return dashboards_mod.t(lang, "Yes" if value else "No")
+            return str(value or 0)
+
+        kpis = "".join(
+            f'<a href="{esc(dashboards_mod.METRIC_BY_KEY[key]["drilldown"])}?{esc(period_q)}" '
+            f'style="text-decoration:none;color:inherit">'
+            f'{kpi(dashboards_mod.metric_label(key, lang), metric_text(key),
+                    dashboards_mod.t(lang, "Actuals from posted journals"))}</a>'
+            for key in config["metrics"])
+
+        def party_rows(items: list[dict]) -> str:
+            return "".join(
+                f'<tr><td>{esc(r["name"])}</td><td class="num">{r["documents"]}</td>'
+                f'<td class="num">{money.fmt(r["amount_paise"])}</td></tr>'
+                for r in items) or (
+                f'<tr><td colspan="3" class="empty">'
+                f'{esc(dashboards_mod.t(lang, "No data in this period."))}</td></tr>')
+
+        charts_html = ""
+        chart_script = ""
+        if "monthly" in config["charts"]:
+            months = data["monthly"]["months"]
+            payload = {
+                "months": [m["month"] for m in months],
+                "revenue": [round(int(m["revenue_paise"]) / 100, 2) for m in months],
+                "expense": [round(int(m["expense_paise"]) / 100, 2) for m in months],
+                "profit": [round(int(m["profit_paise"]) / 100, 2) for m in months],
+            }
+            chart_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+            legend = json.dumps([dashboards_mod.t(lang, "Revenue"),
+                                 dashboards_mod.t(lang, "Expenses"),
+                                 dashboards_mod.t(lang, "Net profit")], ensure_ascii=False)
+            charts_html += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Monthly revenue and expenses"))}</h2>
+    <span class="badge neutral">{esc(dfrom)} to {esc(dto)}</span></div>
+  <div id="saved-monthly" style="height:320px;width:100%"></div>
+</div>"""
+            chart_script += f"""
+  const monthlyEl = document.getElementById('saved-monthly');
+  if (monthlyEl && window.echarts) {{
+    const monthly = echarts.init(monthlyEl, null, {{ renderer: 'canvas' }});
+    const monthlyData = {chart_json};
+    const inr = function (value) {{
+      return '\\u20b9' + Number(value).toLocaleString('en-IN',
+        {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+    }};
+    monthly.setOption({{
+      animationDuration: 400,
+      color: ['#0C3157', '#D97706', '#2E7D8F'],
+      tooltip: {{ trigger: 'axis', valueFormatter: inr }},
+      legend: {{ top: 0, data: {legend} }},
+      grid: {{ left: 72, right: 28, top: 42, bottom: 34 }},
+      xAxis: {{ type: 'category', data: monthlyData.months, axisLabel: {{ color: '#52606D' }} }},
+      yAxis: {{ type: 'value', axisLabel: {{ color: '#52606D' }},
+        splitLine: {{ lineStyle: {{ color: '#E4EBF2' }} }} }},
+      series: [
+        {{ name: {legend}[0], type: 'bar', data: monthlyData.revenue, barMaxWidth: 28 }},
+        {{ name: {legend}[1], type: 'bar', data: monthlyData.expense, barMaxWidth: 28 }},
+        {{ name: {legend}[2], type: 'line', smooth: true, data: monthlyData.profit, symbolSize: 6 }}
+      ]
+    }});
+    window.addEventListener('resize', function () {{ monthly.resize(); }});
+  }}"""
+
+        if "expense_breakdown" in config["charts"]:
+            rows = data["expense_breakdown"]["rows"]
+            other = int(data["expense_breakdown"]["other_paise"])
+            exp_total = int(data["expense_breakdown"]["total_paise"])
+            labels = [f'{r["code"]} {r["name"]}' for r in rows]
+            values = [round(int(r["amount_paise"]) / 100, 2) for r in rows]
+            if other:
+                labels.append(dashboards_mod.t(lang, "Other expense ledgers"))
+                values.append(round(other / 100, 2))
+            if exp_total:
+                exp_json = json.dumps({"labels": labels, "values": values},
+                                      ensure_ascii=False).replace("</", "<\\/")
+                charts_html += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Expense breakdown"))}</h2>
+    <span class="badge neutral">{money.fmt(exp_total)}</span></div>
+  <div id="saved-expense" style="height:300px;width:100%"></div>
+</div>"""
+                chart_script += f"""
+  const expenseEl = document.getElementById('saved-expense');
+  if (expenseEl && window.echarts) {{
+    const expenseData = {exp_json};
+    const expenseChart = echarts.init(expenseEl, null, {{ renderer: 'canvas' }});
+    expenseChart.setOption({{
+      animationDuration: 400,
+      color: ['#0C3157', '#2E7D8F', '#D97706', '#7C3AED', '#059669', '#B45309', '#64748B'],
+      tooltip: {{ trigger: 'item' }},
+      legend: {{ type: 'scroll', bottom: 0, textStyle: {{ color: '#52606D' }} }},
+      series: [{{ name: {json.dumps(dashboards_mod.t(lang, "Expenses"), ensure_ascii=False)},
+        type: 'pie', radius: ['46%', '70%'], center: ['50%', '44%'],
+        label: {{ color: '#27313B', fontSize: 11 }},
+        data: expenseData.labels.map(function (name, i) {{
+          return {{ name: name, value: expenseData.values[i] }};
+        }}) }}]
+    }});
+    window.addEventListener('resize', function () {{ expenseChart.resize(); }});
+  }}"""
+            else:
+                charts_html += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Expense breakdown"))}</h2></div>
+  <p class="small muted" style="margin:0">{esc(dashboards_mod.t(lang, "No data in this period."))}</p>
+</div>"""
+
+        if "top_customers" in config["charts"]:
+            charts_html += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Top customers"))}</h2>
+    <a class="btn ghost small" href="/reports/ar-ageing?{esc(period_q)}">Ageing</a></div>
+  <div class="table-wrap"><table><thead><tr><th>{esc(dashboards_mod.t(lang, "Name"))}</th>
+    <th class="num">Invoices</th><th class="num">Net sales</th></tr></thead>
+    <tbody>{party_rows(data["top_customers"])}</tbody></table></div>
+</div>"""
+
+        if "top_vendors" in config["charts"]:
+            charts_html += f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Top vendors"))}</h2>
+    <a class="btn ghost small" href="/reports/ap-ageing?{esc(period_q)}">Ageing</a></div>
+  <div class="table-wrap"><table><thead><tr><th>{esc(dashboards_mod.t(lang, "Name"))}</th>
+    <th class="num">Bills</th><th class="num">Purchases</th></tr></thead>
+    <tbody>{party_rows(data["top_vendors"])}</tbody></table></div>
+</div>"""
+
+        if chart_script:
+            chart_script = ('<script src="/static/echarts.min.js"></script><script>\n'
+                            '(function () {\n' + chart_script + '\n})();\n</script>')
+
+        body = f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(dash["name"])}</h2>
+    <span class="badge neutral">{esc(dfrom)} to {esc(dto)}</span></div>
+  <p class="small muted" style="margin:0 0 6px">{esc(dash.get("description") or "")}</p>
+  <p class="small muted" style="margin:0 0 12px">{esc(dashboards_mod.t(lang, "Created by"))}
+    {esc(dash["creator_name"])} · {esc(dashboards_mod.t(lang, "Updated"))}
+    {esc(dash["updated_at"][:10])} · {esc("Shared" if dash["visibility"] == "tenant" else "Private")}</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn ghost small" href="/dashboards">Back</a>
+    <a class="btn ghost small" href="/reports/analytics?{esc(period_q)}">Analytics overview</a>
+    <form method="post" action="/dashboards/{esc(dashboard_id)}/delete" style="margin:0"
+          onsubmit="return confirm('Delete this dashboard?')">
+      <input type="hidden" name="_csrf" value="{csrf}">
+      <button class="btn ghost small" type="submit">Delete</button></form>
+  </div>
+</div>
+<div class="kpis">{kpis}</div>
+{charts_html}
+<p class="small muted" style="margin-top:14px">{esc(dashboards_mod.t(lang, "Posted journal actuals; no estimate or forecast is included."))}</p>
+{chart_script}"""
+        return layout(dash["name"], body, "dashboards", user, tenant)
+
     def page_analytics(self, conn, user, tenant, q) -> str:
         default = analytics_mod.resolve_period(tenant)
         dfrom = (q.get("from") or [default["from"]])[0] or default["from"]
@@ -9005,6 +9329,56 @@ Currency {esc(tenant['currency'])}. GSTIN, PIN code and IFSC are validated on sa
                    meta={"from": old, "to": theme})
         cookie = f"ui_theme={theme}; Path=/; Max-Age=31536000; SameSite=Lax{self._cookie_secure()}"
         return self._redirect("/settings?theme_saved=1", {"Set-Cookie": cookie})
+
+    def _create_dashboard(self, conn, user, tenant, form):
+        try:
+            security.require(conn, user["id"], tenant["id"], dashboards_mod.PERMISSION)
+        except security.AuthError as e:
+            return self._error_page(user, tenant, e.message, "/dashboards")
+        template_key = first(form, "template").strip()
+        if template_key:
+            tpl = dashboards_mod.template(template_key)
+            if not tpl:
+                return self._error_page(user, tenant, "That dashboard template does not exist.",
+                                        "/dashboards")
+            name = first(form, "name").strip() or tpl["name"]
+            config = tpl["config"]
+            visibility = first(form, "visibility").strip() or "private"
+            description = tpl["description"]
+        else:
+            name = first(form, "name")
+            visibility = first(form, "visibility")
+            description = first(form, "description")
+            config = {
+                "period": first(form, "period") or "fiscal_ytd",
+                "from": first(form, "from"),
+                "to": first(form, "to"),
+                "metrics": form.get("metrics") or [],
+                "charts": form.get("charts") or [],
+                "language": first(form, "language") or "en",
+            }
+        try:
+            dashboard_id = dashboards_mod.create_dashboard(
+                conn, tenant["id"], user["id"], name, config, visibility, description)
+        except dashboards_mod.DashboardError as e:
+            return self._error_page(user, tenant, e.message, "/dashboards")
+        return self._redirect(f"/dashboards/{dashboard_id}?created=1")
+
+    def _delete_dashboard(self, conn, user, tenant, form, dashboard_id: str):
+        try:
+            security.require(conn, user["id"], tenant["id"], dashboards_mod.PERMISSION)
+        except security.AuthError as e:
+            return self._error_page(user, tenant, e.message, "/dashboards")
+        member = conn.execute(
+            "SELECT role FROM membership WHERE tenant_id=? AND user_id=? AND status='active'",
+            (tenant["id"], user["id"])).fetchone()
+        can_manage_all = bool(member and member["role"] in ("owner", "admin"))
+        try:
+            dashboards_mod.delete_dashboard(conn, tenant["id"], user["id"],
+                                            dashboard_id, can_manage_all)
+        except dashboards_mod.DashboardError as e:
+            return self._error_page(user, tenant, e.message, "/dashboards")
+        return self._redirect("/dashboards?deleted=1")
 
     def _save_settings(self, conn, user, tenant, form):
         try:

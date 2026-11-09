@@ -4,7 +4,7 @@
 |---|---|
 | Version | 1.1 |
 | Date | 2026-10-28 |
-| Status | In delivery; Build 0.21 verified, full Phase 6/8/10 gates remain |
+| Status | In delivery; Build 0.22 verified, full Phase 6/8/10 gates remain |
 | Rule | Each phase ends with a gate. No gate = no progression. |
 
 Effort bands are indicative for a single developer working part-time with AI assistance. They are **not commitments**.
@@ -171,7 +171,7 @@ A working, testable accounting core (Phases 1â€“3) is realistic in roughly **6â€
 
 ---
 
-## Current status - Build 0.21 (2026-11-08)
+## Current status - Build 0.22 (2026-11-08)
 
 The stale "immediate next actions" above are superseded by the actual delivery record:
 
@@ -198,10 +198,11 @@ The stale "immediate next actions" above are superseded by the actual delivery r
 | 0.19 | Advanced operational registers and the final eight report screens: R-508 expiry/batch, R-601 project costing, R-602 WIP, R-603 production consumption, R-604 yield/wastage, R-605 cost-centre performance, R-902 department/branch P&L and R-1004 consolidation; additive `dimension`, `dimension_budget`, `inventory_batch` and `production_order` tables; optional `journal_line.dimension_id` and `journal_entry.is_intercompany`; explicit unallocated rows and intercompany exclusion; 66 of 66 working; 313 tests; offline package rebuilt as 0.19 | `RUN-2026-11-06-04` |
 | 0.20 | Correction and review workflow: audit-safe correction/void of posted invoices, bills, receipts and vendor payments (reverse journal, restore/undo stock, mark old document void, post a fresh replacement linked through `replaces_id`); draft purchase bills and draft journals with posting, rejection and void; optional maker-checker approval queue for pending invoices, bills and journals; direct opening-balance correction that reverses the old opening journal and posts a replacement in one transaction; additive `bill_draft`, `bill_draft_line`, `journal_draft`, `journal_draft_line` tables and additive approval/replacement/void columns; 331 tests; offline package rebuilt as 0.20 | `RUN-2026-11-08-01` |
 | 0.21 | Security and reliability hardening: CSP, Permissions-Policy, cross-origin isolation headers and conditional HSTS on HTML/JSON/static/export responses; `Secure` session, setup and theme cookies behind HTTPS; measured copy-based restore drill (`scripts/restore_drill.py`); read-only load test (`scripts/load_test.py`); 332 tests; offline package rebuilt as 0.21 | `RUN-2026-11-08-02` |
+| 0.22 | Saved analytics dashboards and a five-template dashboard library: additive `saved_dashboard` table; private or tenant-shared configuration of metric keys, chart keys, period and language; `/dashboards` list/create page and `/dashboards/<id>` render page; monthly bar/line and expense-composition ECharts, top customer/vendor tables; KPI cards link to the underlying report; English/Hindi labels on the saved-dashboard surface; 339 tests; offline package rebuilt as 0.22 | `RUN-2026-11-08-03` |
 
-**Next:** run the single-user trial against the offline package, then finish analytics Phase B
-(saved dashboards, full drill-down, filters, EN/HI labels and the ~150-template library). Permanent
-online hosting and offline-to-online sync remain separate decisions. The report catalogue itself is
+**Next:** finish analytics Phase B with a dedicated line-level drill-down page and dimension/party
+filters, then expand the template library beyond the five starting templates. Permanent online
+hosting and offline-to-online sync remain separate decisions. The report catalogue itself is
 now complete at 66 of 66; remaining work is depth, not missing screens. The static Power BI pack can become an optional
 Service model only after an explicit Desktop-vs-Service scope and licensing decision; a generative
 AI provider needs consent, privacy and cost approval and must keep deterministic totals with

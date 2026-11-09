@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.1 |
+| Version | 2.2 |
 | Date | 2026-11-08 |
-| Status | **No external provider is connected; internal imports, reports and analytics API are implemented through Build 0.21** |
+| Status | **No external provider is connected; internal imports, reports, saved dashboards and analytics API are implemented through Build 0.22** |
 | Policy | No paid APIs, no credentials, no fabrication |
 
 > Current state: **0 external integrations configured. 0 provider credentials stored. 0 outbound API calls made by the product.** Manual CSV/`.xlsx` import and the internal session-authenticated analytics/Power BI export surface are implemented; everything below labelled planned still needs external access, credentials or owner decisions.
@@ -111,6 +111,7 @@
 | Surface | Status |
 |---|---|
 | `/reports/library` | All 66 catalogued reports with honest working/partial/planned state; session only |
+| `/dashboards`, `/dashboards/<id>` | Saved analytics dashboards and five templates; session + `report.view`; tenant-scoped; configuration only, no cached totals |
 | `/reports/cash-flow` | R-104 direct movement and indirect bridge; no forecast |
 | `/reports/ratios` | R-108 ratios from posted P&L and balance sheet |
 | `/reports/comparison` | R-109 equal-length period comparison |
