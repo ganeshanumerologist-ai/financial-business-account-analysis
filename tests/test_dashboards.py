@@ -104,6 +104,26 @@ class DashboardTest(unittest.TestCase):
         self.assertIn("expense_breakdown", row["config"]["charts"])
         self.assertIsNone(dashboards.template("not-a-template"))
 
+    def test_template_library_is_grouped_and_valid(self):
+        library = dashboards.templates()
+        self.assertGreaterEqual(len(library), 20)
+        keys = [item["key"] for item in library]
+        self.assertEqual(len(keys), len(set(keys)))
+        categories = {item["category"] for item in library}
+        for required in ("Starter", "Cash", "Tax", "Receivables", "Payables",
+                         "Profitability", "Balance sheet", "Close", "Review"):
+            self.assertIn(required, categories)
+        for item in library:
+            normalized = dashboards.normalize_config(item["config"])
+            self.assertTrue(normalized["metrics"])
+            self.assertLessEqual(len(normalized["metrics"]), 12)
+            for metric_key in normalized["metrics"]:
+                self.assertIn(metric_key, dashboards.METRIC_BY_KEY)
+            for chart_key in normalized["charts"]:
+                self.assertIn(chart_key, dashboards.CHART_KEYS)
+            self.assertEqual(dashboards.template(item["key"])["category"],
+                             item["category"])
+
     def test_private_and_shared_visibility(self):
         private_id = dashboards.create_dashboard(
             self.conn, self.tenant["id"], self.user["id"], "Private view",

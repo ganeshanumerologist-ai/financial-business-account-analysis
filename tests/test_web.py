@@ -2763,6 +2763,62 @@ class WebTest(unittest.TestCase):
         self.assertNotIn("Web owner view", page)
         self.assertNotIn("Web template view", page)
 
+    def test_55_analytics_drilldown_and_saved_dashboard_filters(self):
+        self.login()
+        status, page = self.get(
+            "/analytics/drilldown?metric=revenue_paise&from=2020-01-01&to=2030-12-31")
+        self.assertEqual(status, 200)
+        self.assertIn("posted journal lines", page)
+        self.assertIn("Canonical total", page)
+        self.assertIn("Line total", page)
+        self.assertIn("Filter the posted lines", page)
+        self.assertIn("Posted journal lines", page)
+        self.assertIn("Reconciles", page)
+
+        account_id = self._account_id("4000")
+        status, page = self.get(
+            f"/analytics/drilldown?metric=revenue_paise&from=2020-01-01&to=2030-12-31"
+            f"&account_id={account_id}&q=Sale")
+        self.assertEqual(status, 200)
+        self.assertIn("4000", page)
+        self.assertIn("Filtered view", page)
+
+        status, page = self.get(
+            "/analytics/drilldown?metric=open_invoices&from=2020-01-01&to=2030-12-31")
+        self.assertEqual(status, 200)
+        self.assertIn("Report drill-down", page)
+        self.assertIn("Open the report", page)
+
+        status, page = self.get(
+            "/analytics/drilldown?metric=not-a-metric&from=2020-01-01&to=2030-12-31")
+        self.assertEqual(status, 200)
+        self.assertIn("Could not use that drill-down", page)
+        self.assertIn("Showing revenue", page)
+
+        status, page = self.get("/dashboards")
+        token = self.csrf(page)
+        status, body, final = self.post("/dashboards", {
+            "_csrf": token,
+            "name": "Web drilldown view",
+            "visibility": "private",
+            "period": "fiscal_ytd",
+            "language": "en",
+            "metrics": ["revenue_paise", "net_profit_paise"],
+            "charts": ["monthly"],
+            "description": "Drill-down HTTP test",
+        })
+        self.assertEqual(status, 200)
+        dashboard_id = re.search(r"/dashboards/([0-9a-f]{32})", final).group(1)
+        status, page = self.get(f"/dashboards/{dashboard_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("Open a filtered line-level drill-down", page)
+        self.assertIn("/analytics/drilldown?metric=revenue_paise", page)
+        self.assertIn("Open drill-down", page)
+        token = self.csrf(page)
+        status, body, final = self.post(
+            f"/dashboards/{dashboard_id}/delete", {"_csrf": token})
+        self.assertEqual(status, 200)
+
     def _account_id(self, code: str) -> str:
         conn = db.connect(self.db_path)
         tenant = conn.execute("SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()

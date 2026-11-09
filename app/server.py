@@ -35,7 +35,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.22"
+APP_VERSION = "0.23"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -1897,6 +1897,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(body)
             if path == "/reports/analytics":
                 return self._send(self.page_analytics(conn, user, tenant, q))
+            if path == "/analytics/drilldown":
+                return self._send(self.page_analytics_drilldown(conn, user, tenant, q))
             if path == "/reports/cash-flow":
                 return self._send(self.page_cash_flow(conn, user, tenant, q))
             if path == "/reports/ratios":
@@ -8611,7 +8613,8 @@ review. They are not proof of fraud, error or intent.</p>"""
         template_cards = "".join(
             f'<div class="card pad">'
             f'<div class="sect-head"><h2>{esc(tpl["name"])}</h2>'
-            f'<span class="badge neutral">{len(tpl["config"]["metrics"])} metrics</span></div>'
+            f'<span class="badge neutral">{esc(tpl.get("category", "Starter"))} · '
+            f'{len(tpl["config"]["metrics"])} metrics</span></div>'
             f'<p class="small muted" style="margin:0 0 10px">{esc(tpl["description"])}</p>'
             f'<form method="post" action="/dashboards" style="margin:0">'
             f'<input type="hidden" name="_csrf" value="{csrf}">'
@@ -8727,12 +8730,36 @@ journal, change a document or compute an authoritative total outside the account
                 return dashboards_mod.t(lang, "Yes" if value else "No")
             return str(value or 0)
 
+        def metric_href(key: str) -> str:
+            metric = dashboards_mod.METRIC_BY_KEY[key]
+            if key in analytics_mod.DRILLDOWN_SPECS:
+                drill_q = urllib.parse.urlencode({
+                    "metric": key, "from": dfrom, "to": dto,
+                    "dashboard": dashboard_id})
+                return f"/analytics/drilldown?{drill_q}"
+            return f'{metric["drilldown"]}?{period_q}'
+
         kpis = "".join(
-            f'<a href="{esc(dashboards_mod.METRIC_BY_KEY[key]["drilldown"])}?{esc(period_q)}" '
+            f'<a href="{esc(metric_href(key))}" '
             f'style="text-decoration:none;color:inherit">'
             f'{kpi(dashboards_mod.metric_label(key, lang), metric_text(key),
                     dashboards_mod.t(lang, "Actuals from posted journals"))}</a>'
             for key in config["metrics"])
+
+        filter_opts = analytics_mod.filter_options(conn, tenant)
+        drill_metric_options = "".join(
+            f'<option value="{esc(key)}">{esc(dashboards_mod.metric_label(key, lang))}</option>'
+            for key in config["metrics"])
+        drill_account_options = '<option value="">All accounts</option>' + "".join(
+            f'<option value="{esc(a["id"])}">{esc(a["code"])} - {esc(a["name"])}</option>'
+            for a in filter_opts["accounts"])
+        drill_party_options = '<option value="">All parties</option>' + "".join(
+            f'<option value="{esc(p["id"])}">{esc(p["name"])} ({esc(p["kind"])})</option>'
+            for p in filter_opts["parties"])
+        drill_dimension_options = '<option value="">All dimensions</option>' + "".join(
+            f'<option value="{esc(d["id"])}">{esc(d["kind"])} / {esc(d["code"])} - '
+            f'{esc(d["name"])}</option>'
+            for d in filter_opts["dimensions"])
 
         def party_rows(items: list[dict]) -> str:
             return "".join(
@@ -8875,6 +8902,32 @@ journal, change a document or compute an authoritative total outside the account
   </div>
 </div>
 <div class="kpis">{kpis}</div>
+<details class="card pad sect">
+  <summary style="cursor:pointer;font-weight:650">Open a filtered line-level drill-down</summary>
+  <p class="small muted" style="margin:10px 0">These filters open the posted journal lines behind one
+  metric. The dashboard totals above are not changed by this form.</p>
+  <form method="get" action="/analytics/drilldown">
+    <input type="hidden" name="from" value="{esc(dfrom)}">
+    <input type="hidden" name="to" value="{esc(dto)}">
+    <input type="hidden" name="dashboard" value="{esc(dashboard_id)}">
+    <div class="row c3">
+      <div class="field"><label for="saved-drill-metric">Metric</label>
+        <select id="saved-drill-metric" name="metric">{drill_metric_options}</select></div>
+      <div class="field"><label for="saved-drill-account">Account</label>
+        <select id="saved-drill-account" name="account_id">{drill_account_options}</select></div>
+      <div class="field"><label for="saved-drill-party">Party</label>
+        <select id="saved-drill-party" name="party_id">{drill_party_options}</select></div>
+    </div>
+    <div class="row c3">
+      <div class="field"><label for="saved-drill-dimension">Dimension</label>
+        <select id="saved-drill-dimension" name="dimension_id">{drill_dimension_options}</select></div>
+      <div class="field"><label for="saved-drill-q">Search</label>
+        <input id="saved-drill-q" name="q" placeholder="Entry no, narration, memo, account"></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="btn" type="submit">Open drill-down</button></div>
+    </div>
+  </form>
+</details>
 {charts_html}
 <p class="small muted" style="margin-top:14px">{esc(dashboards_mod.t(lang, "Posted journal actuals; no estimate or forecast is included."))}</p>
 {chart_script}"""
@@ -9028,6 +9081,7 @@ journal, change a document or compute an authoritative total outside the account
 <div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
 <button class="btn" type="submit">Apply</button>
 <span class="badge neutral">Actuals only</span>
+<a class="btn ghost" href="/analytics/drilldown?metric=revenue_paise&amp;from={esc(dfrom)}&amp;to={esc(dto)}">Line-level drill-down</a>
 </form>
 <div class="kpis">
   {kpi("Revenue", money.fmt(m["revenue_paise"]), "posted income journals")}
@@ -9112,6 +9166,222 @@ journal, change a document or compute an authoritative total outside the account
 <p class="small muted" style="margin-top:14px">GST figures are working aids, not filed returns. Receivable and payable ageing use posted invoices and bills as of the period end.</p>
 {chart_script}"""
         return layout("Analytics overview", body, "reports/analytics", user, tenant)
+
+    def page_analytics_drilldown(self, conn, user, tenant, q) -> str:
+        security.require(conn, user["id"], tenant["id"], analytics_mod.PERMISSION)
+        default = analytics_mod.resolve_period(tenant)
+        metric_key = (q.get("metric") or ["revenue_paise"])[0]
+        dfrom = (q.get("from") or [default["from"]])[0] or default["from"]
+        dto = (q.get("to") or [default["to"]])[0] or default["to"]
+        account_id = (q.get("account_id") or [""])[0]
+        party_id = (q.get("party_id") or [""])[0]
+        dimension_id = (q.get("dimension_id") or [""])[0]
+        search = (q.get("q") or [""])[0]
+        limit = (q.get("limit") or ["200"])[0]
+        dashboard_id = (q.get("dashboard") or [""])[0]
+
+        error = ""
+        try:
+            data = analytics_mod.drilldown(
+                conn, tenant, metric_key, dfrom, dto, account_id, party_id,
+                dimension_id, search, limit)
+        except analytics_mod.AnalyticsError as e:
+            error = e.message
+            dfrom, dto = default["from"], default["to"]
+            data = analytics_mod.drilldown(conn, tenant, "revenue_paise", dfrom, dto)
+
+        metric = data["metric"]
+        unit = metric["unit"]
+        period_q = urllib.parse.urlencode({"from": data["period"]["from"],
+                                           "to": data["period"]["to"]})
+        report_href = f'{data["report_url"]}?{period_q}'
+        back_link = ""
+        if re.fullmatch(r"[0-9a-f]{32}", dashboard_id or ""):
+            row = conn.execute(
+                "SELECT 1 FROM saved_dashboard WHERE id=? AND tenant_id=?",
+                (dashboard_id, tenant["id"])).fetchone()
+            if row:
+                back_link = (f'<a class="btn ghost small" href="/dashboards/'
+                             f'{esc(dashboard_id)}">Back to dashboard</a>')
+
+        def selected(value: str, current: str) -> str:
+            return " selected" if value == current else ""
+
+        metric_options = "".join(
+            f'<option value="{esc(m["key"])}"'
+            f'{selected(m["key"], metric["key"])}>{esc(m["label"])} ({esc(m["unit"])})</option>'
+            for m in analytics_mod.METRICS)
+        account_options = '<option value="">All accounts</option>' + "".join(
+            f'<option value="{esc(a["id"])}"{selected(a["id"], account_id)}>'
+            f'{esc(a["code"])} - {esc(a["name"])}</option>'
+            for a in data["options"]["accounts"])
+        party_options = '<option value="">All parties</option>' + "".join(
+            f'<option value="{esc(p["id"])}"{selected(p["id"], party_id)}>'
+            f'{esc(p["name"])} ({esc(p["kind"])})</option>'
+            for p in data["options"]["parties"])
+        dimension_labels = {"project": "Project", "cost_centre": "Cost centre",
+                            "department": "Department", "branch": "Branch"}
+        dimension_options = '<option value="">All dimensions</option>' + "".join(
+            f'<option value="{esc(d["id"])}"{selected(d["id"], dimension_id)}>'
+            f'{esc(dimension_labels.get(d["kind"], d["kind"]))} / '
+            f'{esc(d["code"])} - {esc(d["name"])}</option>'
+            for d in data["options"]["dimensions"])
+        limit_options = "".join(
+            f'<option value="{value}"{selected(str(value), str(data["limit"] or 200))}>'
+            f'{value} lines</option>' for value in (100, 200, 500, 1000))
+
+        def fmt_value(value) -> str:
+            if value is None:
+                return "n/a"
+            if unit == analytics_mod.UNIT_PAISE:
+                return money.fmt(value)
+            if unit == analytics_mod.UNIT_BOOLEAN:
+                return "Yes" if value else "No"
+            return str(value)
+
+        if data["reconciles"] is True:
+            reconcile_text = "Reconciles"
+        elif data["reconciles"] is False:
+            reconcile_text = "Does not reconcile"
+        elif any(data["filters"].values()):
+            reconcile_text = "Filtered view"
+        else:
+            reconcile_text = "n/a"
+        lines_sub = f'{data["line_count"]} shown' + (
+            " (more available; narrow the filters)" if data["truncated"] else "")
+
+        rows_html = ""
+        for r in data["rows"]:
+            ledger_href = (f'/ledger?account={esc(r["account_id"])}'
+                           f'&from={esc(data["period"]["from"])}'
+                           f'&to={esc(data["period"]["to"])}')
+            party_html = ""
+            if r.get("customer_id"):
+                party_html = (f'<a href="/customers/{esc(r["customer_id"])}">'
+                              f'{esc(r.get("party_name") or "")}</a>')
+            elif r.get("vendor_id"):
+                party_html = (f'<a href="/vendors/{esc(r["vendor_id"])}">'
+                              f'{esc(r.get("party_name") or "")}</a>')
+            elif r.get("party_name"):
+                party_html = esc(r["party_name"])
+            dimension_html = ""
+            if r.get("dimension_name"):
+                dimension_html = (
+                    f'{esc(dimension_labels.get(r.get("dimension_kind"), r.get("dimension_kind") or ""))}'
+                    f' / {esc(r.get("dimension_code") or "")} - {esc(r["dimension_name"])}')
+            source_type = (r.get("source_type") or "").replace("_", " ").title()
+            source_no = r.get("source_no") or ""
+            source_label = f"{source_type} {source_no}".strip()
+            source_html = (f'<a href="{esc(r["source_url"])}">{esc(source_label)}</a>'
+                           if r.get("source_url") else esc(source_label))
+            rows_html += (
+                f'<tr><td>{esc(r["entry_date"])}</td>'
+                f'<td>{esc(r["entry_no"])}</td>'
+                f'<td><a href="{ledger_href}">{esc(r["account_code"])} '
+                f'{esc(r["account_name"])}</a></td>'
+                f'<td>{party_html}</td><td>{dimension_html}</td>'
+                f'<td class="num">{money.fmt(r["debit_paise"]) if r["debit_paise"] else ""}</td>'
+                f'<td class="num">{money.fmt(r["credit_paise"]) if r["credit_paise"] else ""}</td>'
+                f'<td class="num">{money.fmt(r["amount_paise"])}</td>'
+                f'<td>{esc(r.get("memo") or r.get("narration") or "")}</td>'
+                f'<td>{source_html}</td></tr>')
+        rows_html = rows_html or (
+            '<tr><td colspan="10" class="empty">'
+            'No posted journal lines match these filters.</td></tr>')
+
+        err_html = (f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
+                    f'<b>Could not use that drill-down.</b> {esc(error)} '
+                    f'Showing revenue for the default period instead.</div>' if error else "")
+
+        unsupported = ""
+        if not data["supported"]:
+            unsupported = f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(metric["label"])}</h2>
+    <span class="badge neutral">Report drill-down</span></div>
+  <p class="small" style="margin:0 0 12px">{esc(data["message"])}</p>
+  <a class="btn" href="{esc(report_href)}">Open the report</a>
+</div>"""
+
+        total_text = fmt_value(data["total_value"])
+        line_total_text = (fmt_value(data["line_total_paise"])
+                           if unit == analytics_mod.UNIT_PAISE else "n/a")
+        difference_text = (fmt_value(data["difference_paise"])
+                           if unit == analytics_mod.UNIT_PAISE else "n/a")
+        truncated_note = (
+            f'<p class="small muted" style="margin:10px 0 0">Showing the first '
+            f'{data["limit"]} lines. Narrow the filters or raise the line limit.</p>'
+            if data["truncated"] else "")
+
+        body = f"""
+{err_html}
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(metric["label"])} - posted journal lines</h2>
+    <span class="badge neutral">{esc(data["period"]["from"])} to {esc(data["period"]["to"])}</span></div>
+  <p class="small muted" style="margin:0 0 12px">Every row below is a posted journal line.
+  The canonical total comes from the accounting engine; the line total is a reconciliation
+  check, not a second set of books.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="btn ghost small" href="/reports/analytics?{esc(period_q)}">Analytics overview</a>
+    <a class="btn ghost small" href="{esc(report_href)}">Open report</a>
+    {back_link}
+  </div>
+</div>
+<div class="kpis">
+  {kpi("Canonical total", total_text, "from the accounting engine")}
+  {kpi("Line total", line_total_text, "sum of the posted lines below")}
+  {kpi("Difference", difference_text, reconcile_text)}
+  {kpi("Lines shown", str(data["line_count"]), lines_sub)}
+</div>
+{unsupported}
+<div class="card pad sect">
+  <div class="sect-head"><h2>Filter the posted lines</h2>
+    <span class="badge neutral">Actuals only</span></div>
+  <form method="get" action="/analytics/drilldown">
+    <input type="hidden" name="dashboard" value="{esc(dashboard_id)}">
+    <div class="row c3">
+      <div class="field"><label for="drill-metric">Metric</label>
+        <select id="drill-metric" name="metric">{metric_options}</select></div>
+      <div class="field"><label for="drill-from">From</label>
+        <input id="drill-from" type="date" name="from" value="{esc(data["period"]["from"])}"></div>
+      <div class="field"><label for="drill-to">To</label>
+        <input id="drill-to" type="date" name="to" value="{esc(data["period"]["to"])}"></div>
+    </div>
+    <div class="row c3">
+      <div class="field"><label for="drill-account">Account</label>
+        <select id="drill-account" name="account_id">{account_options}</select></div>
+      <div class="field"><label for="drill-party">Party</label>
+        <select id="drill-party" name="party_id">{party_options}</select></div>
+      <div class="field"><label for="drill-dimension">Dimension</label>
+        <select id="drill-dimension" name="dimension_id">{dimension_options}</select></div>
+    </div>
+    <div class="row c3">
+      <div class="field"><label for="drill-q">Search</label>
+        <input id="drill-q" name="q" value="{esc(search)}"
+               placeholder="Entry no, narration, memo, account"></div>
+      <div class="field"><label for="drill-limit">Lines</label>
+        <select id="drill-limit" name="limit">{limit_options}</select></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="btn" type="submit">Apply filters</button></div>
+    </div>
+    <p class="small muted" style="margin:8px 0 0">A filtered line total is not the same as a
+    filtered statutory report. Use the report link for the authoritative statement layout.</p>
+  </form>
+</div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>Posted journal lines</h2>
+    <span class="badge neutral">{data["line_count"]} line(s)</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Entry</th><th>Account</th><th>Party</th><th>Dimension</th>
+      <th class="num">Debit</th><th class="num">Credit</th><th class="num">Amount</th>
+      <th>Memo / narration</th><th>Source</th></tr></thead>
+    <tbody>{rows_html}</tbody></table></div>
+  {truncated_note}
+</div>
+<p class="small muted" style="margin-top:14px">Posted journal actuals only. No estimate,
+forecast, cached total or AI-generated amount is included. A reversal appears as its own
+posted line, so both sides stay visible in the audit trail.</p>"""
+        return layout(f'{metric["label"]} drill-down', body, "reports/analytics", user, tenant)
 
     def page_customers(self, conn, user, tenant, sess) -> str:
         rows = acct.customer_balances(conn, tenant["id"])

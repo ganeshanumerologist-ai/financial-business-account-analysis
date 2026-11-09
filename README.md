@@ -2,7 +2,7 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.22).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.23).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
 (purchase returns), day book, manual journals, bank reconciliation, cash book, bank book, GST
 summary, GSTR-1 working export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation
@@ -77,12 +77,17 @@ is marked void with a reason. It also adds **draft purchase bills and draft jour
 correction** that reverses the old opening journal and posts a replacement in one transaction.
 Build 0.21 adds **security response headers and Secure cookies behind HTTPS**, a **measured
 backup/restore drill** and a **read-only load test**. Build 0.22 adds **saved analytics dashboards
-and a five-template dashboard library**: a user can save a named selection of registered metrics,
+and a dashboard template library**: a user can save a named selection of registered metrics,
 charts, period and language; every number is still recomputed from posted journal rows and each
 KPI card links back to the underlying report. The saved-dashboard surface also has
-**English/Hindi labels**. Full line-level drill-down, dimension filters, Power BI Service
-refresh/RLS and a generative AI provider remain planned. Covered by **339 automated tests
-that pass on this machine** (see `docs/TEST_RESULTS.md`, run `RUN-2026-11-08-03`).
+**English/Hindi labels**. Build 0.23 adds a **line-level drill-down page** that lists the posted
+journal lines behind a registered metric, with **account, party, dimension, date and text
+filters**. The canonical total still comes from the accounting engine; the page shows a separate
+line total and a reconciliation check, and unsupported count/ageing/balance-check metrics open
+their report instead. The template library grows to **29 grouped starting points** across cash,
+tax, receivables, payables, profitability, inventory, balance sheet, close and review.
+Power BI Service refresh/RLS, offline-to-online sync and a generative AI provider remain planned.
+Covered by **343 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
 email delivery, ownership transfer, PostgreSQL and the Next.js front end are not built. GSTR-1,
@@ -106,7 +111,7 @@ Or step by step:
 
 ```powershell
 python -m pip install -r requirements.txt  # approved openpyxl dependency
-python -m unittest discover -s tests       # 313 tests
+python -m unittest discover -s tests       # 343 tests
 python -m app.server                       # http://127.0.0.1:8000
 ```
 
@@ -159,7 +164,7 @@ Build a self-contained folder that needs no Python installation and no internet:
 .\.venv\Scripts\python.exe scripts\build_windows_portable.py --zip
 ```
 
-The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.22.zip`. It contains the
+The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.23.zip`. It contains the
 official Python 3.14.6 embeddable runtime, `openpyxl`, the app, and Windows launchers:
 
 - `Start ARTHIVIO.bat` starts the local server and opens the browser.
@@ -269,7 +274,7 @@ app/
   backup.py       online backup + verification (integrity, FKs, balance, row counts)
   server.py       HTTP server + server-rendered UI (stdlib only)
   demo.py         synthetic demo books
-tests/            313 unittest cases (unit + end-to-end HTTP)
+tests/            343 unittest cases (unit + end-to-end HTTP)
 scripts/          seed_demo.py, backup.py, restore_verify.py
 dev.ps1           test → seed → run
 ```
@@ -286,7 +291,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **313 tests, OK, 30.908 s**, Python 3.14.6, Windows.
+Last verified: **343 tests, OK, 48.447 s**, Python 3.14.6, Windows.
 
 Backup drill:
 

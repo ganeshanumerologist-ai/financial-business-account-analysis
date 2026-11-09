@@ -139,6 +139,88 @@ class AnalyticsTest(unittest.TestCase):
         self.assertEqual(monthly["income"], 100000)
         self.assertEqual(monthly["expense"], 40000)
 
+    def test_drilldown_reconciles_to_snapshot_and_exposes_line_filters(self):
+        self.post("1000", "4000", 100000, "2026-04-10", "Sale")
+        self.post("6000", "1000", 40000, "2026-05-10", "Rent")
+
+        revenue = analytics.drilldown(self.conn, self.tenant, "revenue_paise",
+                                      "2026-04-01", "2026-06-30")
+        self.assertTrue(revenue["supported"])
+        self.assertEqual(revenue["total_value"], 100000)
+        self.assertEqual(revenue["line_total_paise"], 100000)
+        self.assertEqual(revenue["difference_paise"], 0)
+        self.assertTrue(revenue["reconciles"])
+        self.assertEqual(revenue["line_count"], 1)
+        self.assertEqual(revenue["rows"][0]["account_code"], "4000")
+        self.assertEqual(revenue["rows"][0]["amount_paise"], 100000)
+
+        profit = analytics.drilldown(self.conn, self.tenant, "net_profit_paise",
+                                     "2026-04-01", "2026-06-30")
+        self.assertEqual(profit["total_value"], 60000)
+        self.assertEqual(profit["line_total_paise"], 60000)
+        self.assertEqual(profit["line_count"], 2)
+        self.assertTrue(profit["reconciles"])
+
+        cash = analytics.drilldown(self.conn, self.tenant, "cash_and_bank_paise",
+                                   "2026-04-01", "2026-06-30")
+        self.assertEqual(cash["total_value"], 60000)
+        self.assertEqual(cash["line_total_paise"], 60000)
+        self.assertTrue(cash["reconciles"])
+
+        income_account = db.account_id(self.conn, self.t, "4000")
+        filtered = analytics.drilldown(
+            self.conn, self.tenant, "revenue_paise", "2026-04-01", "2026-06-30",
+            account_id=income_account)
+        self.assertEqual(filtered["line_count"], 1)
+        self.assertEqual(filtered["line_total_paise"], 100000)
+        self.assertIsNone(filtered["reconciles"])
+
+        empty = analytics.drilldown(
+            self.conn, self.tenant, "revenue_paise", "2026-04-01", "2026-06-30",
+            account_id=db.account_id(self.conn, self.t, "1000"))
+        self.assertEqual(empty["line_count"], 0)
+        self.assertEqual(empty["line_total_paise"], 0)
+
+        unsupported = analytics.drilldown(self.conn, self.tenant, "open_invoices",
+                                          "2026-04-01", "2026-06-30")
+        self.assertFalse(unsupported["supported"])
+        self.assertEqual(unsupported["rows"], [])
+        self.assertIn("report", unsupported["message"].lower())
+
+    def test_drilldown_dimension_filter_and_tenant_isolation(self):
+        dimension_id = db.new_id()
+        self.conn.execute(
+            "INSERT INTO dimension (id, tenant_id, kind, code, name, active, note, created_at)"
+            " VALUES (?,?,?,?,?,1,'',?)",
+            (dimension_id, self.t, "project", "P1", "Project One", db.now()))
+        acct.post_journal(
+            self.conn, self.t, "2026-05-10", "Project sale",
+            [{"account_id": db.account_id(self.conn, self.t, "1000"),
+              "debit": 50000, "credit": 0, "dimension_id": dimension_id},
+             {"account_id": db.account_id(self.conn, self.t, "4000"),
+              "debit": 0, "credit": 50000, "dimension_id": dimension_id}],
+            "manual")
+        self.post("1000", "4000", 100000, "2026-05-11", "Unassigned sale")
+
+        filtered = analytics.drilldown(
+            self.conn, self.tenant, "revenue_paise", "2026-05-01", "2026-05-31",
+            dimension_id=dimension_id)
+        self.assertEqual(filtered["line_count"], 1)
+        self.assertEqual(filtered["line_total_paise"], 50000)
+        self.assertEqual(filtered["rows"][0]["dimension_name"], "Project One")
+
+        other = db.create_tenant(self.conn, "Other Co", "other-drilldown", state_code="27")
+        other_row = self.conn.execute("SELECT * FROM tenant WHERE id=?", (other,)).fetchone()
+        isolated = analytics.drilldown(self.conn, other_row, "revenue_paise",
+                                       "2026-05-01", "2026-05-31")
+        self.assertEqual(isolated["line_count"], 0)
+        self.assertEqual(isolated["total_value"], 0)
+
+        with self.assertRaises(analytics.AnalyticsError) as ctx:
+            analytics.drilldown(self.conn, self.tenant, "revenue_paise",
+                                "2026-05-01", "2026-05-31", account_id="not-an-account")
+        self.assertEqual(ctx.exception.code, "BAD_FILTER")
+
 
 if __name__ == "__main__":
     unittest.main()

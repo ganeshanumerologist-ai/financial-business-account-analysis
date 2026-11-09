@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.22.** The latest application run is `RUN-2026-11-08-03` with
-> **339 tests, OK**, Python 3.14.6, Windows - see section 39. The table immediately below is the original
+> **Current status: Build 0.23.** The latest application run is `RUN-2026-11-09-01` with
+> **343 tests, OK**, Python 3.14.6, Windows - see section 40. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1800,3 +1800,33 @@ Run ID: `RUN-2026-11-06-03`.
   active member of the same business. Deletion is limited to the creator or an owner/admin.
 - No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
   review was run for Build 0.22.
+
+## 40. Build 0.23 verification - line-level drill-down and grouped templates (2026-11-09)
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-09-01` |
+| Full test suite | **343 tests, OK**, 48.447 s, Python 3.14.6, Windows |
+| New unit tests | `tests/test_analytics.py`: drill-down reconciles to the semantic snapshot, account/dimension filters, empty filters, unsupported metrics, invalid filters and tenant isolation. `tests/test_dashboards.py`: grouped template library has at least 20 valid templates and stable categories |
+| New HTTP test | `test_55_analytics_drilldown_and_saved_dashboard_filters` opens the drill-down page, applies an account/search filter, checks the report fallback for a count metric, checks the invalid-metric fallback and checks the saved-dashboard filter panel |
+| Drill-down page | `/analytics/drilldown` lists posted journal lines with date, entry number, account (linked to the ledger), party, dimension, debit, credit, signed amount, memo/narration and source document. Filters cover metric, date range, account, party, dimension, text search and line limit |
+| Reconciliation | The page shows the canonical accounting-engine total, the sum of the visible lines and the difference. With no filters the line total must reconcile; a filtered view is labelled as filtered and is not presented as a statutory total |
+| Unsupported metrics | Counts, ageing buckets and balance checks open their report instead of pretending to be a single journal-line total |
+| Saved dashboards | KPI cards for supported metrics open the line-level drill-down; the saved-dashboard page also has a filter panel that opens a filtered drill-down without changing the dashboard totals |
+| Template library | 29 templates across Starter, Cash, Tax, Receivables, Payables, Profitability, Inventory, Balance sheet, Close, Review and Full pack; every template is validated by `normalize_config` |
+| Actuals rule | Only posted journal lines are listed. No estimate, forecast, cached total or AI-generated amount is included |
+| Offline package | Rebuilt as `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.23.zip`; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.23` |
+
+### 40.1 Honest limits
+
+- The drill-down is a **line-level trace**, not a replacement for the statutory report layout. The
+  report link remains the authoritative statement view.
+- The saved-dashboard filter panel opens a filtered drill-down; it does **not** recompute the
+  dashboard KPI cards or charts. A filtered KPI dashboard is still planned.
+- Counts, overdue buckets and the two balance checks are not single journal-line totals, so they
+  link to their reports instead of showing a misleading line list.
+- The line total is a reconciliation aid. It is not a second set of books and it never overrides
+  the accounting engine.
+- Hindi labels still cover the saved-dashboard surface only. The drill-down page is English.
+- No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
+  review was run for Build 0.23.

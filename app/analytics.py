@@ -210,6 +210,40 @@ METRICS = (
     },
 )
 
+METRIC_BY_KEY = {m["key"]: m for m in METRICS}
+
+# Metrics that can be traced to individual posted journal lines. Balance
+# metrics are read as-of the period end; flow metrics use the selected period.
+# A metric that is not listed here still has a report drill-down, but it is not
+# a single journal-line total (counts, overdue buckets and balance checks).
+DRILLDOWN_SPECS = {
+    "revenue_paise": {"mode": "flow", "where": "a.type='income'", "sign": "credit"},
+    "expense_paise": {"mode": "flow", "where": "a.type='expense'", "sign": "debit"},
+    "net_profit_paise": {"mode": "flow", "where": "a.type IN ('income','expense')",
+                         "sign": "credit"},
+    "total_assets_paise": {"mode": "balance", "where": "a.type='asset'", "sign": "debit"},
+    "total_liabilities_paise": {"mode": "balance", "where": "a.type='liability'",
+                                "sign": "credit"},
+    "cash_and_bank_paise": {"mode": "balance",
+                            "where": "a.group_code IN ('cash','bank')", "sign": "debit"},
+    "receivable_paise": {"mode": "balance", "where": "a.group_code='receivable'",
+                         "sign": "debit"},
+    "payable_paise": {"mode": "balance", "where": "a.group_code='payable'",
+                      "sign": "credit"},
+    "inventory_paise": {"mode": "balance", "where": "a.group_code='inventory'",
+                        "sign": "debit"},
+    "gst_output_paise": {"mode": "flow",
+                         "where": "a.code IN ('2100','2101','2102')", "sign": "credit"},
+    "gst_input_paise": {"mode": "flow",
+                        "where": "a.code IN ('2200','2201','2202')", "sign": "debit"},
+    "gst_net_payable_paise": {
+        "mode": "flow",
+        "where": "a.code IN ('2100','2101','2102','2200','2201','2202')",
+        "sign": "gst_net",
+    },
+}
+GST_OUTPUT_CODES = ("2100", "2101", "2102")
+
 
 class AnalyticsError(Exception):
     def __init__(self, code: str, message: str):
@@ -499,4 +533,215 @@ def overview(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
             conn, tenant, start.isoformat(), end.isoformat()),
         "top_customers": top_customers(conn, tenant, start.isoformat(), end.isoformat()),
         "top_vendors": top_vendors(conn, tenant, start.isoformat(), end.isoformat()),
+    }
+
+
+def filter_options(conn: sqlite3.Connection, tenant: str | sqlite3.Row) -> dict:
+    """Return tenant-scoped choices for the drill-down filter bar."""
+    tenant_id = _tenant_key(tenant)
+    accounts = [dict(r) for r in conn.execute(
+        """SELECT id, code, name, type, group_code, status
+           FROM account WHERE tenant_id=? ORDER BY code""",
+        (tenant_id,)).fetchall()]
+    parties = [dict(r) for r in conn.execute(
+        """SELECT id, name, 'customer' AS kind FROM customer WHERE tenant_id=?
+           UNION ALL
+           SELECT id, name, 'vendor' AS kind FROM vendor WHERE tenant_id=?
+           ORDER BY name""",
+        (tenant_id, tenant_id)).fetchall()]
+    dimensions = [dict(r) for r in conn.execute(
+        """SELECT id, kind, code, name FROM dimension
+           WHERE tenant_id=? AND active=1 ORDER BY kind, code""",
+        (tenant_id,)).fetchall()]
+    return {"accounts": accounts, "parties": parties, "dimensions": dimensions}
+
+
+def _drilldown_amount(row: dict, sign: str) -> int:
+    debit = int(row.get("debit_paise") or 0)
+    credit = int(row.get("credit_paise") or 0)
+    if sign == "credit":
+        return credit - debit
+    if sign == "debit":
+        return debit - credit
+    if sign == "pnl":
+        return (credit - debit) if row.get("account_type") == "income" else (debit - credit)
+    if sign == "gst_net":
+        return ((credit - debit) if row.get("account_code") in GST_OUTPUT_CODES
+                else (debit - credit))
+    return debit - credit
+
+
+def _drilldown_source_url(row: dict) -> str:
+    source_type = (row.get("source_type") or "").strip()
+    source_id = (row.get("source_id") or "").strip()
+    if source_type == "invoice" and source_id:
+        return f"/invoices/{source_id}"
+    if source_type == "bill" and source_id:
+        return f"/bills/{source_id}"
+    if source_type in ("receipt", "payment") and source_id:
+        return f"/receipts/{source_id}"
+    if source_type == "credit_note":
+        return "/credit-notes"
+    if source_type == "debit_note":
+        return "/debit-notes"
+    return ""
+
+
+def drilldown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
+              metric_key: str, date_from: str | None = None,
+              date_to: str | None = None, account_id: str = "",
+              party_id: str = "", dimension_id: str = "", q: str = "",
+              limit: int = 200) -> dict:
+    """List the posted journal lines behind one registered metric.
+
+    The canonical total still comes from :func:`snapshot`. The line total is a
+    reconciliation aid: with no filters it should equal the canonical total.
+    Filters narrow the lines and the line total, but they never rewrite a
+    posted journal or invent a missing row.
+    """
+    tenant_id = _tenant_key(tenant)
+    start, end = _period(tenant, date_from, date_to)
+    period = {"from": start.isoformat(), "to": end.isoformat()}
+    metric = METRIC_BY_KEY.get((metric_key or "").strip())
+    if not metric:
+        raise AnalyticsError("UNKNOWN_METRIC", "Choose a registered analytics metric.")
+
+    filters = {
+        "account_id": (account_id or "").strip(),
+        "party_id": (party_id or "").strip(),
+        "dimension_id": (dimension_id or "").strip(),
+        "q": (q or "").strip(),
+    }
+    options = filter_options(conn, tenant_id)
+    base = {
+        "metric": metric,
+        "period": period,
+        "as_of": end.isoformat(),
+        "filters": filters,
+        "report_url": metric["drilldown"],
+        "options": options,
+    }
+
+    spec = DRILLDOWN_SPECS.get(metric["key"])
+    if not spec:
+        return {
+            **base,
+            "supported": False,
+            "message": ("This metric is a count, a balance check or an ageing bucket, "
+                        "not a single posted-journal total. Open its report for the "
+                        "document-level view."),
+            "total_value": snapshot(conn, tenant, period["from"], period["to"])[
+                "metrics"].get(metric["key"]),
+            "line_total_paise": None,
+            "difference_paise": None,
+            "reconciles": None,
+            "rows": [],
+            "line_count": 0,
+            "truncated": False,
+            "limit": 0,
+        }
+
+    if filters["account_id"]:
+        if not conn.execute("SELECT 1 FROM account WHERE id=? AND tenant_id=?",
+                            (filters["account_id"], tenant_id)).fetchone():
+            raise AnalyticsError("BAD_FILTER", "The selected account is not in this business.")
+    if filters["party_id"]:
+        if not (conn.execute("SELECT 1 FROM customer WHERE id=? AND tenant_id=?",
+                             (filters["party_id"], tenant_id)).fetchone()
+                or conn.execute("SELECT 1 FROM vendor WHERE id=? AND tenant_id=?",
+                                (filters["party_id"], tenant_id)).fetchone()):
+            raise AnalyticsError("BAD_FILTER", "The selected party is not in this business.")
+    if filters["dimension_id"]:
+        if not conn.execute("SELECT 1 FROM dimension WHERE id=? AND tenant_id=?",
+                            (filters["dimension_id"], tenant_id)).fetchone():
+            raise AnalyticsError("BAD_FILTER", "The selected dimension is not in this business.")
+
+    keep = max(1, min(int(limit or 200), 1000))
+    where = ["e.tenant_id=?", spec["where"]]
+    params: list = [tenant_id]
+    if spec["mode"] == "flow":
+        where.append("e.entry_date BETWEEN ? AND ?")
+        params.extend([period["from"], period["to"]])
+    else:
+        where.append("e.entry_date <= ?")
+        params.append(period["to"])
+    if filters["account_id"]:
+        where.append("l.account_id=?")
+        params.append(filters["account_id"])
+    if filters["party_id"]:
+        where.append("l.party_id=?")
+        params.append(filters["party_id"])
+    if filters["dimension_id"]:
+        where.append("l.dimension_id=?")
+        params.append(filters["dimension_id"])
+    if filters["q"]:
+        like = f"%{filters['q']}%"
+        where.append("(e.entry_no LIKE ? OR e.narration LIKE ? OR l.memo LIKE ?"
+                     " OR a.code LIKE ? OR a.name LIKE ?)")
+        params.extend([like] * 5)
+
+    sql = f"""
+        SELECT e.id AS entry_id, e.entry_no, e.entry_date, e.narration,
+               e.source_type, e.source_id, e.status,
+               l.id AS line_id, l.line_no, l.account_id,
+               a.code AS account_code, a.name AS account_name,
+               a.type AS account_type, a.group_code,
+               l.party_id, l.dimension_id, l.debit_paise, l.credit_paise, l.memo,
+               d.kind AS dimension_kind, d.code AS dimension_code,
+               d.name AS dimension_name,
+               COALESCE(c.name, v.name) AS party_name,
+               c.id AS customer_id, v.id AS vendor_id,
+               i.invoice_no, b.bill_no, p.voucher_no,
+               cn.note_no AS credit_note_no, dn.note_no AS debit_note_no
+        FROM journal_entry e
+        JOIN journal_line l ON l.entry_id=e.id AND l.tenant_id=e.tenant_id
+        JOIN account a ON a.id=l.account_id AND a.tenant_id=l.tenant_id
+        LEFT JOIN dimension d ON d.id=l.dimension_id AND d.tenant_id=l.tenant_id
+        LEFT JOIN customer c ON c.id=l.party_id AND c.tenant_id=l.tenant_id
+        LEFT JOIN vendor v ON v.id=l.party_id AND v.tenant_id=l.tenant_id
+        LEFT JOIN invoice i ON i.id=e.source_id AND i.tenant_id=e.tenant_id
+             AND e.source_type='invoice'
+        LEFT JOIN bill b ON b.id=e.source_id AND b.tenant_id=e.tenant_id
+             AND e.source_type='bill'
+        LEFT JOIN payment p ON p.id=e.source_id AND p.tenant_id=e.tenant_id
+             AND e.source_type IN ('receipt','payment')
+        LEFT JOIN credit_note cn ON cn.id=e.source_id AND cn.tenant_id=e.tenant_id
+             AND e.source_type='credit_note'
+        LEFT JOIN debit_note dn ON dn.id=e.source_id AND dn.tenant_id=e.tenant_id
+             AND e.source_type='debit_note'
+        WHERE {' AND '.join(where)}
+        ORDER BY e.entry_date, e.entry_no, l.line_no
+        LIMIT ?
+    """
+    rows = [dict(r) for r in conn.execute(sql, (*params, keep + 1)).fetchall()]
+    truncated = len(rows) > keep
+    rows = rows[:keep]
+    for row in rows:
+        row["amount_paise"] = _drilldown_amount(row, spec["sign"])
+        row["source_no"] = (row.get("invoice_no") or row.get("bill_no")
+                            or row.get("voucher_no") or row.get("credit_note_no")
+                            or row.get("debit_note_no") or "")
+        row["source_url"] = _drilldown_source_url(row)
+
+    line_total = sum(int(r["amount_paise"]) for r in rows)
+    total_value = snapshot(conn, tenant, period["from"], period["to"])[
+        "metrics"].get(metric["key"])
+    if metric["unit"] == UNIT_PAISE:
+        difference = int(line_total) - int(total_value or 0)
+    else:
+        difference = None
+    no_filters = not any(filters.values())
+    reconciles = (difference == 0) if (difference is not None and no_filters) else None
+    return {
+        **base,
+        "supported": True,
+        "message": "",
+        "total_value": total_value,
+        "line_total_paise": line_total if metric["unit"] == UNIT_PAISE else None,
+        "difference_paise": difference,
+        "reconciles": reconciles,
+        "rows": rows,
+        "line_count": len(rows),
+        "truncated": truncated,
+        "limit": keep,
     }
