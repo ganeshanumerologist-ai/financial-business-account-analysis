@@ -61,7 +61,7 @@ function Get-TunnelProcess {
 
 function Start-Tunnel {
     Start-Process -FilePath $cloudflared `
-        -ArgumentList 'tunnel', '--url', "http://127.0.0.1:$port", '--no-autoupdate', '--logfile', $tunnelLog `
+        -ArgumentList 'tunnel', '--url', "http://127.0.0.1:$port", '--protocol', 'http2', '--no-autoupdate', '--logfile', $tunnelLog `
         -WindowStyle Hidden
     Write-WatchLog 'started cloudflared'
 }
