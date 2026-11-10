@@ -2,7 +2,7 @@
 #
 # The app runs on this PC and is exposed through a Cloudflare quick tunnel.
 # A quick tunnel gets a new hostname when it restarts, so this watchdog:
-#   1. starts the local app if it is not healthy or is not Build 0.25,
+#   1. starts the local app if it is not healthy or is not Build 0.26,
 #   2. starts cloudflared if it is not running,
 #   3. reads the current public URL from the cloudflared log,
 #   4. updates firebase-public/index.html and redeploys Firebase when the URL changed.
@@ -56,23 +56,27 @@ function Start-App {
 function Get-TunnelProcess {
     Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" |
         Where-Object { $_.CommandLine -like "*--url http://127.0.0.1:$port*" } |
+        Sort-Object CreationDate -Descending |
         Select-Object -First 1
 }
 
 function Start-Tunnel {
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $script:tunnelLog = Join-Path $env:TEMP "opencode\cloudflared-public-$stamp.log"
     Start-Process -FilePath $cloudflared `
-        -ArgumentList 'tunnel', '--url', "http://127.0.0.1:$port", '--protocol', 'http2', '--no-autoupdate', '--logfile', $tunnelLog `
+        -ArgumentList 'tunnel', '--url', "http://127.0.0.1:$port", '--protocol', 'http2', '--no-autoupdate', '--logfile', $script:tunnelLog `
         -WindowStyle Hidden
-    Write-WatchLog 'started cloudflared'
+    Write-WatchLog "started cloudflared (log $script:tunnelLog)"
 }
 
 function Stop-Tunnel {
-    $proc = Get-TunnelProcess
-    if ($proc) {
-        Stop-Process -Id $proc.ProcessId -Force
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" |
+        Where-Object { $_.CommandLine -like "*--url http://127.0.0.1:$port*" })
+    foreach ($proc in $procs) {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
         Write-WatchLog "stopped cloudflared pid $($proc.ProcessId)"
-        Start-Sleep -Seconds 2
     }
+    if ($procs.Count -gt 0) { Start-Sleep -Seconds 2 }
 }
 
 function Get-PublicUrl {
