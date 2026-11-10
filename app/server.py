@@ -36,7 +36,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.25"
+APP_VERSION = "0.26"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")

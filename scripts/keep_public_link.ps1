@@ -25,7 +25,7 @@ $redirectFile = Join-Path $root 'firebase-public\app\index.html'
 $nodeExe = 'C:\Users\vicky\AppData\Local\Temp\opencode\node-v24.22.2-win-x64\node.exe'
 $firebaseCli = 'C:\Users\vicky\AppData\Local\Temp\opencode\firebase-tools-24\node_modules\firebase-tools\lib\bin\firebase.js'
 $project = 'financial-business-accounting'
-$version = 'ARTHIVIO/0.25'
+$version = 'ARTHIVIO/0.26'
 
 function Write-WatchLog([string]$message) {
     $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $message
