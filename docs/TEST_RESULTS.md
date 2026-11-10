@@ -1960,12 +1960,12 @@ public link now serves 0.26, and the offline package and setup EXE were rebuilt 
 | Full test suite | **350 tests, OK**, 46.764 s, Python 3.14.6, Windows |
 | Version | `APP_VERSION` and the watchdog expected version both changed to `0.26` |
 | Local restart | Listener on `127.0.0.1:8010` restarted; `GET /health` returned `ok` with `Server: ARTHIVIO/0.26 Python/3.14.6` |
-| Public health | `https://bright-spotlight-secondary-oops.trycloudflare.com/health` returned 200 `ok` |
-| Stable link | `https://financial-business-accounting.web.app/app` returned 200 |
+| Public health | The current tunnel `/health` returned 200 `ok` (quick-tunnel URLs are ephemeral; the stable link is the Firebase `/app` page) |
+| Stable link | `https://financial-business-accounting.web.app/app` returned 200 and its meta refresh/JavaScript pointed at the current tunnel |
 | Tester login | `tester@arthivio.test` login returned 200 and the dashboard rendered |
 | Language switch | Hindi switch returned 200 with `lang="hi"` and translated navigation; switching back returned 200 with `lang="en"` and English navigation |
 | New templates live | `/dashboards` returned 200 and showed Collections and payments, Board snapshot, and Quarterly tax and profit |
-| Watchdog | `ARTHIVIO Public Link` ran after the restart with `LastTaskResult 0` and kept the same tunnel URL |
+| Watchdog | `ARTHIVIO Public Link` was hardened to start and continue on battery power, to stop duplicate tunnel processes, and to use a per-run tunnel log; a manual task run returned `LastTaskResult 0` with one cloudflared process |
 | Offline package | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.26.zip` rebuilt; embedded health returned `ARTHIVIO/0.26 Python/3.14.6` |
 | Setup EXE | `ARTHIVIO-Setup.exe` built with IExpress; installer batch installed to `%LOCALAPPDATA%\ARTHIVIO`, preserved existing `data` and `backups`, and installed health returned `ARTHIVIO/0.26` |
 | Installer ZIP | `ARTHIVIO-Installer-0.26.zip` contains the setup EXE, offline ZIP, installer BAT, README and access file |
