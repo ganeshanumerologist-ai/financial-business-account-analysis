@@ -20,6 +20,7 @@ from . import db
 
 PERMISSION = analytics_mod.PERMISSION
 MAX_NAME = 80
+MAX_METRICS = 20
 PERIODS = ("fiscal_ytd", "this_month", "last_month", "this_quarter", "custom")
 VISIBILITIES = ("private", "tenant")
 CHART_KEYS = ("monthly", "expense_breakdown", "top_customers", "top_vendors")
@@ -462,6 +463,103 @@ TEMPLATES = (
             "language": "en",
         },
     },
+    {
+        "key": "collections_and_payments",
+        "name": "Collections and payments",
+        "category": "Cash",
+        "description": "Receivable, overdue receivable, open invoices, payable, overdue payable and open bills. Actuals only.",
+        "config": {
+            "period": "fiscal_ytd",
+            "from": "",
+            "to": "",
+            "metrics": ["receivable_paise", "overdue_receivable_paise",
+                        "open_invoices", "payable_paise",
+                        "overdue_payable_paise", "open_bills"],
+            "charts": ["top_customers", "top_vendors"],
+            "language": "en",
+        },
+    },
+    {
+        "key": "inventory_working_capital",
+        "name": "Inventory and working capital",
+        "category": "Inventory",
+        "description": "Inventory, receivable, payable, cash, open invoices and open bills for the fiscal year to date.",
+        "config": {
+            "period": "fiscal_ytd",
+            "from": "",
+            "to": "",
+            "metrics": ["inventory_paise", "receivable_paise", "payable_paise",
+                        "cash_and_bank_paise", "open_invoices", "open_bills"],
+            "charts": ["monthly"],
+            "language": "en",
+        },
+    },
+    {
+        "key": "tax_close_checklist",
+        "name": "Tax close checklist",
+        "category": "Tax",
+        "description": "GST output, input, net payable, revenue, expenses and both balance checks for the current month. Working aid, not a filed return.",
+        "config": {
+            "period": "this_month",
+            "from": "",
+            "to": "",
+            "metrics": ["gst_output_paise", "gst_input_paise",
+                        "gst_net_payable_paise", "revenue_paise",
+                        "expense_paise", "trial_balance_balanced",
+                        "balance_sheet_balanced"],
+            "charts": ["monthly", "expense_breakdown"],
+            "language": "en",
+        },
+    },
+    {
+        "key": "board_snapshot",
+        "name": "Board snapshot",
+        "category": "Review",
+        "description": "Profit, balance sheet and working-capital actuals for the fiscal year to date.",
+        "config": {
+            "period": "fiscal_ytd",
+            "from": "",
+            "to": "",
+            "metrics": ["revenue_paise", "expense_paise", "net_profit_paise",
+                        "total_assets_paise", "total_liabilities_paise",
+                        "total_equity_paise", "cash_and_bank_paise",
+                        "receivable_paise", "payable_paise", "inventory_paise"],
+            "charts": ["monthly", "top_customers", "top_vendors"],
+            "language": "en",
+        },
+    },
+    {
+        "key": "cash_conversion",
+        "name": "Cash conversion",
+        "category": "Cash",
+        "description": "Cash, receivable, inventory, payable, revenue, expenses and profit for the fiscal year to date.",
+        "config": {
+            "period": "fiscal_ytd",
+            "from": "",
+            "to": "",
+            "metrics": ["cash_and_bank_paise", "receivable_paise",
+                        "inventory_paise", "payable_paise", "revenue_paise",
+                        "expense_paise", "net_profit_paise"],
+            "charts": ["monthly"],
+            "language": "en",
+        },
+    },
+    {
+        "key": "quarterly_tax_profit",
+        "name": "Quarterly tax and profit",
+        "category": "Tax",
+        "description": "Quarterly revenue, expenses, profit and GST working-aid totals. Not a filed return.",
+        "config": {
+            "period": "this_quarter",
+            "from": "",
+            "to": "",
+            "metrics": ["revenue_paise", "expense_paise", "net_profit_paise",
+                        "gst_output_paise", "gst_input_paise",
+                        "gst_net_payable_paise"],
+            "charts": ["monthly", "expense_breakdown"],
+            "language": "en",
+        },
+    },
 )
 TEMPLATE_BY_KEY = {t["key"]: t for t in TEMPLATES}
 
@@ -656,7 +754,7 @@ def normalize_config(config: dict | None) -> dict:
     metrics = list(dict.fromkeys(metrics))
     if not metrics:
         raise DashboardError("NO_METRICS", "Choose at least one metric for the dashboard.")
-    metrics = metrics[:12]
+    metrics = metrics[:MAX_METRICS]
 
     raw_charts = config.get("charts") or []
     if isinstance(raw_charts, str):

@@ -2,7 +2,7 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.25).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.25 deployed; Build 0.26 in progress).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
 (purchase returns), day book, manual journals, bank reconciliation, cash book, bank book, GST
 summary, GSTR-1 working export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation
@@ -84,14 +84,17 @@ KPI card links back to the underlying report. The saved-dashboard surface also h
 journal lines behind a registered metric, with **account, party, dimension, date and text
 filters**. The canonical total still comes from the accounting engine; the page shows a separate
 line total and a reconciliation check, and unsupported count/ageing/balance-check metrics open
-their report instead. The template library grows to **29 grouped starting points** across cash,
+their report instead. The template library grows to **35 grouped starting points** across cash,
 tax, receivables, payables, profitability, inventory, balance sheet, close and review. Build 0.24
 adds **filtered saved-dashboard KPI totals**: account, party, dimension and text filters now
 recompute the KPI cards from the full set of matching posted journal lines, while unsupported
 count/ageing/balance-check metrics are clearly labelled as unfiltered. Build 0.25 extends the same
 filters to the **monthly chart, expense breakdown, top customers and top vendors** tables. Every
 chart uses matching posted journal lines only, labels filtered rows clearly and shows an empty
-state instead of inventing data. The drill-down link carries the same filters.
+state instead of inventing data. The drill-down link carries the same filters. The in-progress
+Build 0.26 template expansion adds six packs: collections and payments, inventory and working
+capital, tax close checklist, board snapshot, cash conversion, and quarterly tax and profit. The
+full finance pack now keeps all 19 registered actual metrics instead of truncating at 12.
 Power BI Service refresh/RLS, offline-to-online sync and a generative AI provider remain planned.
 Covered by **346 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`).
 

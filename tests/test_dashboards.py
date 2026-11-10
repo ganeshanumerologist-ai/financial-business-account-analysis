@@ -106,9 +106,11 @@ class DashboardTest(unittest.TestCase):
 
     def test_template_library_is_grouped_and_valid(self):
         library = dashboards.templates()
-        self.assertGreaterEqual(len(library), 20)
+        self.assertGreaterEqual(len(library), 35)
         keys = [item["key"] for item in library]
         self.assertEqual(len(keys), len(set(keys)))
+        names = [item["name"] for item in library]
+        self.assertEqual(len(names), len(set(names)))
         categories = {item["category"] for item in library}
         for required in ("Starter", "Cash", "Tax", "Receivables", "Payables",
                          "Profitability", "Balance sheet", "Close", "Review"):
@@ -116,13 +118,21 @@ class DashboardTest(unittest.TestCase):
         for item in library:
             normalized = dashboards.normalize_config(item["config"])
             self.assertTrue(normalized["metrics"])
-            self.assertLessEqual(len(normalized["metrics"]), 12)
+            self.assertLessEqual(len(normalized["metrics"]),
+                                 dashboards.MAX_METRICS)
             for metric_key in normalized["metrics"]:
                 self.assertIn(metric_key, dashboards.METRIC_BY_KEY)
             for chart_key in normalized["charts"]:
                 self.assertIn(chart_key, dashboards.CHART_KEYS)
             self.assertEqual(dashboards.template(item["key"])["category"],
                              item["category"])
+        for key in ("collections_and_payments", "inventory_working_capital",
+                    "tax_close_checklist", "board_snapshot", "cash_conversion",
+                    "quarterly_tax_profit"):
+            self.assertIsNotNone(dashboards.template(key))
+        full = dashboards.normalize_config(
+            dashboards.template("full_finance")["config"])
+        self.assertEqual(full["metrics"], list(dashboards.METRIC_KEYS))
 
     def test_private_and_shared_visibility(self):
         private_id = dashboards.create_dashboard(

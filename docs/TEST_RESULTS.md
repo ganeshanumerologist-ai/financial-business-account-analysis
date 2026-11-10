@@ -1897,3 +1897,27 @@ Run ID: `RUN-2026-11-06-03`.
   page remains English.
 - No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
   review was run for Build 0.25.
+
+## 43. Build 0.26 work in progress - template library expansion (2026-11-10)
+
+This work is in the working tree while external testing of Build 0.25 continues. The public link
+still runs Build 0.25 until the tester finishes and the new package is verified.
+
+| Check | Result |
+|---|---|
+| Full test suite | **346 tests, OK**, 48.539 s, Python 3.14.6, Windows |
+| Template library | **35 templates**, up from 29 |
+| New packs | `collections_and_payments`, `inventory_working_capital`, `tax_close_checklist`, `board_snapshot`, `cash_conversion`, `quarterly_tax_profit` |
+| Coverage | Cash, inventory, tax close, board review and quarterly tax/profit combinations using only registered actual metrics |
+| Full finance pack | `MAX_METRICS` raised from 12 to 20, so `full_finance` now keeps all 19 registered actual metrics instead of being silently truncated |
+| Validation | Existing template test now checks at least 35 templates, unique keys and names, every metric/chart key, the six new packs, and that `full_finance` contains every registered metric |
+| Actuals rule | Templates are configuration only. They do not post, edit, cache or invent any accounting total |
+| Deployment | Not deployed. The stable public link remains Build 0.25 until testing is complete |
+
+### 43.1 Honest limits
+
+- The six new templates are starting points, not industry-specific statutory packs.
+- The tax packs remain GST working aids, not filed returns.
+- The full finance pack now shows up to 19 KPI cards; it is intentionally a long board-style view.
+- No new offline installer or public-link deployment was made for this in-progress work.
+- Hindi labels still cover only the saved-dashboard surface.
