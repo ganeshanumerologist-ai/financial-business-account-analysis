@@ -587,6 +587,61 @@ def _drilldown_source_url(row: dict) -> str:
     return ""
 
 
+def _clean_filters(account_id: str = "", party_id: str = "",
+                   dimension_id: str = "", q: str = "") -> dict:
+    return {
+        "account_id": (account_id or "").strip(),
+        "party_id": (party_id or "").strip(),
+        "dimension_id": (dimension_id or "").strip(),
+        "q": (q or "").strip(),
+    }
+
+
+def _validate_filter_ids(conn: sqlite3.Connection, tenant_id: str,
+                         filters: dict) -> None:
+    if filters["account_id"]:
+        if not conn.execute("SELECT 1 FROM account WHERE id=? AND tenant_id=?",
+                            (filters["account_id"], tenant_id)).fetchone():
+            raise AnalyticsError("BAD_FILTER", "The selected account is not in this business.")
+    if filters["party_id"]:
+        if not (conn.execute("SELECT 1 FROM customer WHERE id=? AND tenant_id=?",
+                             (filters["party_id"], tenant_id)).fetchone()
+                or conn.execute("SELECT 1 FROM vendor WHERE id=? AND tenant_id=?",
+                                (filters["party_id"], tenant_id)).fetchone()):
+            raise AnalyticsError("BAD_FILTER", "The selected party is not in this business.")
+    if filters["dimension_id"]:
+        if not conn.execute("SELECT 1 FROM dimension WHERE id=? AND tenant_id=?",
+                            (filters["dimension_id"], tenant_id)).fetchone():
+            raise AnalyticsError("BAD_FILTER", "The selected dimension is not in this business.")
+
+
+def _drilldown_where(tenant_id: str, spec: dict, period: dict,
+                     filters: dict) -> tuple[str, list]:
+    where = ["e.tenant_id=?", spec["where"]]
+    params: list = [tenant_id]
+    if spec["mode"] == "flow":
+        where.append("e.entry_date BETWEEN ? AND ?")
+        params.extend([period["from"], period["to"]])
+    else:
+        where.append("e.entry_date <= ?")
+        params.append(period["to"])
+    if filters["account_id"]:
+        where.append("l.account_id=?")
+        params.append(filters["account_id"])
+    if filters["party_id"]:
+        where.append("l.party_id=?")
+        params.append(filters["party_id"])
+    if filters["dimension_id"]:
+        where.append("l.dimension_id=?")
+        params.append(filters["dimension_id"])
+    if filters["q"]:
+        like = f"%{filters['q']}%"
+        where.append("(e.entry_no LIKE ? OR e.narration LIKE ? OR l.memo LIKE ?"
+                     " OR a.code LIKE ? OR a.name LIKE ?)")
+        params.extend([like] * 5)
+    return " AND ".join(where), params
+
+
 def drilldown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
               metric_key: str, date_from: str | None = None,
               date_to: str | None = None, account_id: str = "",
@@ -606,12 +661,7 @@ def drilldown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
     if not metric:
         raise AnalyticsError("UNKNOWN_METRIC", "Choose a registered analytics metric.")
 
-    filters = {
-        "account_id": (account_id or "").strip(),
-        "party_id": (party_id or "").strip(),
-        "dimension_id": (dimension_id or "").strip(),
-        "q": (q or "").strip(),
-    }
+    filters = _clean_filters(account_id, party_id, dimension_id, q)
     options = filter_options(conn, tenant_id)
     base = {
         "metric": metric,
@@ -641,44 +691,10 @@ def drilldown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
             "limit": 0,
         }
 
-    if filters["account_id"]:
-        if not conn.execute("SELECT 1 FROM account WHERE id=? AND tenant_id=?",
-                            (filters["account_id"], tenant_id)).fetchone():
-            raise AnalyticsError("BAD_FILTER", "The selected account is not in this business.")
-    if filters["party_id"]:
-        if not (conn.execute("SELECT 1 FROM customer WHERE id=? AND tenant_id=?",
-                             (filters["party_id"], tenant_id)).fetchone()
-                or conn.execute("SELECT 1 FROM vendor WHERE id=? AND tenant_id=?",
-                                (filters["party_id"], tenant_id)).fetchone()):
-            raise AnalyticsError("BAD_FILTER", "The selected party is not in this business.")
-    if filters["dimension_id"]:
-        if not conn.execute("SELECT 1 FROM dimension WHERE id=? AND tenant_id=?",
-                            (filters["dimension_id"], tenant_id)).fetchone():
-            raise AnalyticsError("BAD_FILTER", "The selected dimension is not in this business.")
+    _validate_filter_ids(conn, tenant_id, filters)
 
     keep = max(1, min(int(limit or 200), 1000))
-    where = ["e.tenant_id=?", spec["where"]]
-    params: list = [tenant_id]
-    if spec["mode"] == "flow":
-        where.append("e.entry_date BETWEEN ? AND ?")
-        params.extend([period["from"], period["to"]])
-    else:
-        where.append("e.entry_date <= ?")
-        params.append(period["to"])
-    if filters["account_id"]:
-        where.append("l.account_id=?")
-        params.append(filters["account_id"])
-    if filters["party_id"]:
-        where.append("l.party_id=?")
-        params.append(filters["party_id"])
-    if filters["dimension_id"]:
-        where.append("l.dimension_id=?")
-        params.append(filters["dimension_id"])
-    if filters["q"]:
-        like = f"%{filters['q']}%"
-        where.append("(e.entry_no LIKE ? OR e.narration LIKE ? OR l.memo LIKE ?"
-                     " OR a.code LIKE ? OR a.name LIKE ?)")
-        params.extend([like] * 5)
+    where_sql, params = _drilldown_where(tenant_id, spec, period, filters)
 
     sql = f"""
         SELECT e.id AS entry_id, e.entry_no, e.entry_date, e.narration,
@@ -709,7 +725,7 @@ def drilldown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
              AND e.source_type='credit_note'
         LEFT JOIN debit_note dn ON dn.id=e.source_id AND dn.tenant_id=e.tenant_id
              AND e.source_type='debit_note'
-        WHERE {' AND '.join(where)}
+        WHERE {where_sql}
         ORDER BY e.entry_date, e.entry_no, l.line_no
         LIMIT ?
     """
@@ -744,4 +760,65 @@ def drilldown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
         "line_count": len(rows),
         "truncated": truncated,
         "limit": keep,
+    }
+
+
+def filtered_metric_totals(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
+                           date_from: str | None = None,
+                           date_to: str | None = None, account_id: str = "",
+                           party_id: str = "", dimension_id: str = "",
+                           q: str = "", metric_keys: list[str] | None = None) -> dict:
+    """Return full filtered line totals for dashboard KPI cards.
+
+    Unlike :func:`drilldown`, this aggregate is not limited by the visible line
+    count. Metrics that are not a single journal-line total (counts, overdue
+    buckets and balance checks) return ``None`` and are marked unsupported.
+    """
+    tenant_id = _tenant_key(tenant)
+    start, end = _period(tenant, date_from, date_to)
+    period = {"from": start.isoformat(), "to": end.isoformat()}
+    filters = _clean_filters(account_id, party_id, dimension_id, q)
+    _validate_filter_ids(conn, tenant_id, filters)
+    keys = list(metric_keys or DRILLDOWN_SPECS)
+    metrics: dict[str, int | None] = {}
+    supported: dict[str, bool] = {}
+    for key in keys:
+        if key not in METRIC_BY_KEY:
+            raise AnalyticsError("UNKNOWN_METRIC", "Choose a registered analytics metric.")
+        spec = DRILLDOWN_SPECS.get(key)
+        if not spec:
+            metrics[key] = None
+            supported[key] = False
+            continue
+        where_sql, params = _drilldown_where(tenant_id, spec, period, filters)
+        sign = spec["sign"]
+        if sign == "credit":
+            amount_sql = "SUM(l.credit_paise - l.debit_paise)"
+        elif sign == "pnl":
+            amount_sql = ("SUM(CASE WHEN a.type='income' THEN l.credit_paise-l.debit_paise "
+                          "ELSE l.debit_paise-l.credit_paise END)")
+        elif sign == "gst_net":
+            amount_sql = ("SUM(CASE WHEN a.code IN ('2100','2101','2102') "
+                          "THEN l.credit_paise-l.debit_paise "
+                          "ELSE l.debit_paise-l.credit_paise END)")
+        else:
+            amount_sql = "SUM(l.debit_paise - l.credit_paise)"
+        row = conn.execute(
+            f"""SELECT COALESCE({amount_sql}, 0) AS value
+                FROM journal_entry e
+                JOIN journal_line l ON l.entry_id=e.id AND l.tenant_id=e.tenant_id
+                JOIN account a ON a.id=l.account_id AND a.tenant_id=l.tenant_id
+                WHERE {where_sql}""",
+            params,
+        ).fetchone()
+        metrics[key] = int(row["value"] or 0)
+        supported[key] = True
+    return {
+        "period": period,
+        "as_of": period["to"],
+        "filters": filters,
+        "metrics": metrics,
+        "supported": supported,
+        "note": ("Filtered totals are sums of posted journal lines. They are not a "
+                 "statutory report and they never replace the accounting engine."),
     }

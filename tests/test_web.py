@@ -2819,6 +2819,53 @@ class WebTest(unittest.TestCase):
             f"/dashboards/{dashboard_id}/delete", {"_csrf": token})
         self.assertEqual(status, 200)
 
+    def test_56_filtered_saved_dashboard_totals(self):
+        self.login()
+        status, page = self.get("/dashboards")
+        self.assertEqual(status, 200)
+        token = self.csrf(page)
+        status, body, final = self.post("/dashboards", {
+            "_csrf": token,
+            "name": "Web filtered totals",
+            "visibility": "private",
+            "period": "fiscal_ytd",
+            "language": "en",
+            "metrics": ["revenue_paise", "expense_paise", "open_invoices"],
+            "charts": ["monthly"],
+            "description": "Filtered dashboard HTTP test",
+        })
+        self.assertEqual(status, 200)
+        dashboard_id = re.search(r"/dashboards/([0-9a-f]{32})", final).group(1)
+
+        status, page = self.get(f"/dashboards/{dashboard_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("Filter dashboard totals", page)
+        self.assertIn("Open a filtered line-level drill-down", page)
+
+        expense_account = self._account_id("6000")
+        status, page = self.get(
+            f"/dashboards/{dashboard_id}?account_id={expense_account}")
+        self.assertEqual(status, 200)
+        self.assertIn("Filtered actuals", page)
+        self.assertIn("Active filters", page)
+        self.assertIn("Charts hidden while filters are active", page)
+        self.assertIn("Unfiltered actuals (not filterable)", page)
+        self.assertNotIn('id="saved-monthly"', page)
+        self.assertIn("/analytics/drilldown?metric=revenue_paise", page)
+        self.assertIn(f"account_id={expense_account}", page)
+
+        status, page = self.get(
+            f"/dashboards/{dashboard_id}?account_id=not-an-account")
+        self.assertEqual(status, 200)
+        self.assertIn("Could not apply filters", page)
+        self.assertIn("Showing unfiltered dashboard totals", page)
+        self.assertIn(f'href="/dashboards/{dashboard_id}"', page)
+
+        token = self.csrf(page)
+        status, body, final = self.post(
+            f"/dashboards/{dashboard_id}/delete", {"_csrf": token})
+        self.assertEqual(status, 200)
+
     def _account_id(self, code: str) -> str:
         conn = db.connect(self.db_path)
         tenant = conn.execute("SELECT id FROM tenant WHERE slug='arthivio-demo'").fetchone()

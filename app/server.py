@@ -35,7 +35,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.23"
+APP_VERSION = "0.24"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -8721,21 +8721,54 @@ journal, change a document or compute an authoritative total outside the account
         csrf = esc(sess["csrf_token"])
         period_q = urllib.parse.urlencode({"from": dfrom, "to": dto})
 
+        f_account = (q.get("account_id") or [""])[0].strip()
+        f_party = (q.get("party_id") or [""])[0].strip()
+        f_dimension = (q.get("dimension_id") or [""])[0].strip()
+        f_search = (q.get("q") or [""])[0].strip()
+        filters_active = any((f_account, f_party, f_dimension, f_search))
+        filtered = None
+        filter_error = ""
+        if filters_active:
+            try:
+                filtered = analytics_mod.filtered_metric_totals(
+                    conn, tenant, dfrom, dto, f_account, f_party, f_dimension,
+                    f_search, config["metrics"])
+            except analytics_mod.AnalyticsError as e:
+                filter_error = e.message
+                filters_active = False
+                f_account = f_party = f_dimension = f_search = ""
+                filtered = None
+
+        def metric_value(key: str):
+            if filters_active and filtered and filtered["supported"].get(key):
+                return filtered["metrics"].get(key)
+            return data["metrics"].get(key)
+
         def metric_text(key: str) -> str:
             metric = dashboards_mod.METRIC_BY_KEY[key]
-            value = data["metrics"].get(key)
+            value = metric_value(key)
             if metric["unit"] == analytics_mod.UNIT_PAISE:
                 return money.fmt(value or 0)
             if metric["unit"] == analytics_mod.UNIT_BOOLEAN:
                 return dashboards_mod.t(lang, "Yes" if value else "No")
             return str(value or 0)
 
+        def metric_sub(key: str) -> str:
+            if filters_active:
+                if filtered and filtered["supported"].get(key):
+                    return dashboards_mod.t(lang, "Filtered actuals")
+                return dashboards_mod.t(lang, "Unfiltered actuals (not filterable)")
+            return dashboards_mod.t(lang, "Actuals from posted journals")
+
         def metric_href(key: str) -> str:
             metric = dashboards_mod.METRIC_BY_KEY[key]
             if key in analytics_mod.DRILLDOWN_SPECS:
-                drill_q = urllib.parse.urlencode({
-                    "metric": key, "from": dfrom, "to": dto,
-                    "dashboard": dashboard_id})
+                params = {"metric": key, "from": dfrom, "to": dto,
+                          "dashboard": dashboard_id}
+                if filters_active:
+                    params.update({"account_id": f_account, "party_id": f_party,
+                                   "dimension_id": f_dimension, "q": f_search})
+                drill_q = urllib.parse.urlencode(params)
                 return f"/analytics/drilldown?{drill_q}"
             return f'{metric["drilldown"]}?{period_q}'
 
@@ -8743,23 +8776,44 @@ journal, change a document or compute an authoritative total outside the account
             f'<a href="{esc(metric_href(key))}" '
             f'style="text-decoration:none;color:inherit">'
             f'{kpi(dashboards_mod.metric_label(key, lang), metric_text(key),
-                    dashboards_mod.t(lang, "Actuals from posted journals"))}</a>'
+                    metric_sub(key))}</a>'
             for key in config["metrics"])
 
         filter_opts = analytics_mod.filter_options(conn, tenant)
+
+        def selected_option(value: str, current: str) -> str:
+            return " selected" if value == current else ""
+
         drill_metric_options = "".join(
             f'<option value="{esc(key)}">{esc(dashboards_mod.metric_label(key, lang))}</option>'
             for key in config["metrics"])
         drill_account_options = '<option value="">All accounts</option>' + "".join(
-            f'<option value="{esc(a["id"])}">{esc(a["code"])} - {esc(a["name"])}</option>'
+            f'<option value="{esc(a["id"])}"{selected_option(a["id"], f_account)}>'
+            f'{esc(a["code"])} - {esc(a["name"])}</option>'
             for a in filter_opts["accounts"])
         drill_party_options = '<option value="">All parties</option>' + "".join(
-            f'<option value="{esc(p["id"])}">{esc(p["name"])} ({esc(p["kind"])})</option>'
+            f'<option value="{esc(p["id"])}"{selected_option(p["id"], f_party)}>'
+            f'{esc(p["name"])} ({esc(p["kind"])})</option>'
             for p in filter_opts["parties"])
         drill_dimension_options = '<option value="">All dimensions</option>' + "".join(
-            f'<option value="{esc(d["id"])}">{esc(d["kind"])} / {esc(d["code"])} - '
-            f'{esc(d["name"])}</option>'
+            f'<option value="{esc(d["id"])}"{selected_option(d["id"], f_dimension)}>'
+            f'{esc(d["kind"])} / {esc(d["code"])} - {esc(d["name"])}</option>'
             for d in filter_opts["dimensions"])
+        active_labels = []
+        if f_account:
+            row = next((a for a in filter_opts["accounts"] if a["id"] == f_account), None)
+            active_labels.append(f'Account: {row["code"]} - {row["name"]}' if row else "Account")
+        if f_party:
+            row = next((p for p in filter_opts["parties"] if p["id"] == f_party), None)
+            active_labels.append(f'Party: {row["name"]}' if row else "Party")
+        if f_dimension:
+            row = next((d for d in filter_opts["dimensions"] if d["id"] == f_dimension), None)
+            active_labels.append(
+                f'Dimension: {row["kind"]} / {row["code"]} - {row["name"]}'
+                if row else "Dimension")
+        if f_search:
+            active_labels.append(f'Search: {f_search}')
+        active_filter_text = " · ".join(active_labels)
 
         def party_rows(items: list[dict]) -> str:
             return "".join(
@@ -8880,14 +8934,37 @@ journal, change a document or compute an authoritative total outside the account
     <tbody>{party_rows(data["top_vendors"])}</tbody></table></div>
 </div>"""
 
+        if filters_active:
+            charts_html = f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Charts hidden while filters are active"))}</h2></div>
+  <p class="small muted" style="margin:0 0 10px">Dashboard KPI cards show filtered posted-line
+  totals. Charts and party tables are not filtered, so they are hidden in this view to avoid mixing
+  filtered and unfiltered numbers.</p>
+  <a class="btn ghost small" href="/dashboards/{esc(dashboard_id)}">Clear filters</a>
+</div>"""
+            chart_script = ""
+
         if chart_script:
             chart_script = ('<script src="/static/echarts.min.js"></script><script>\n'
                             '(function () {\n' + chart_script + '\n})();\n</script>')
 
+        filter_badge = ('<span class="badge neutral">Filtered actuals</span>'
+                        if filters_active else "")
+        filter_error_html = (
+            f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
+            f'<b>Could not apply filters.</b> {esc(filter_error)} '
+            f'Showing unfiltered dashboard totals.</div>' if filter_error else "")
+        active_filter_html = (
+            f'<p class="small" style="margin:10px 0"><b>Active filters:</b> '
+            f'{esc(active_filter_text)} · <a href="/dashboards/{esc(dashboard_id)}">'
+            f'Clear</a></p>' if filters_active else "")
+
         body = f"""
+{filter_error_html}
 <div class="card pad sect">
   <div class="sect-head"><h2>{esc(dash["name"])}</h2>
-    <span class="badge neutral">{esc(dfrom)} to {esc(dto)}</span></div>
+    <span class="badge neutral">{esc(dfrom)} to {esc(dto)}</span>{filter_badge}</div>
   <p class="small muted" style="margin:0 0 6px">{esc(dash.get("description") or "")}</p>
   <p class="small muted" style="margin:0 0 12px">{esc(dashboards_mod.t(lang, "Created by"))}
     {esc(dash["creator_name"])} · {esc(dashboards_mod.t(lang, "Updated"))}
@@ -8902,10 +8979,37 @@ journal, change a document or compute an authoritative total outside the account
   </div>
 </div>
 <div class="kpis">{kpis}</div>
+<details class="card pad sect"{' open' if filters_active else ''}>
+  <summary style="cursor:pointer;font-weight:650">Filter dashboard totals</summary>
+  <p class="small muted" style="margin:10px 0">Filters apply to the KPI cards above. Charts are
+  hidden while filters are active so filtered and unfiltered numbers are never mixed.</p>
+  {active_filter_html}
+  <form method="get" action="/dashboards/{esc(dashboard_id)}">
+    <input type="hidden" name="from" value="{esc(dfrom)}">
+    <input type="hidden" name="to" value="{esc(dto)}">
+    <div class="row c3">
+      <div class="field"><label for="saved-filter-account">Account</label>
+        <select id="saved-filter-account" name="account_id">{drill_account_options}</select></div>
+      <div class="field"><label for="saved-filter-party">Party</label>
+        <select id="saved-filter-party" name="party_id">{drill_party_options}</select></div>
+      <div class="field"><label for="saved-filter-dimension">Dimension</label>
+        <select id="saved-filter-dimension" name="dimension_id">{drill_dimension_options}</select></div>
+    </div>
+    <div class="row c3">
+      <div class="field"><label for="saved-filter-q">Search</label>
+        <input id="saved-filter-q" name="q" value="{esc(f_search)}"
+               placeholder="Entry no, narration, memo, account"></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="btn" type="submit">Apply filters</button></div>
+      <div class="field"><label>&nbsp;</label>
+        <a class="btn ghost" href="/dashboards/{esc(dashboard_id)}">Clear filters</a></div>
+    </div>
+  </form>
+</details>
 <details class="card pad sect">
   <summary style="cursor:pointer;font-weight:650">Open a filtered line-level drill-down</summary>
   <p class="small muted" style="margin:10px 0">These filters open the posted journal lines behind one
-  metric. The dashboard totals above are not changed by this form.</p>
+  metric. They do not change the dashboard KPI cards; use the filter panel above for that.</p>
   <form method="get" action="/analytics/drilldown">
     <input type="hidden" name="from" value="{esc(dfrom)}">
     <input type="hidden" name="to" value="{esc(dto)}">
@@ -8922,7 +9026,8 @@ journal, change a document or compute an authoritative total outside the account
       <div class="field"><label for="saved-drill-dimension">Dimension</label>
         <select id="saved-drill-dimension" name="dimension_id">{drill_dimension_options}</select></div>
       <div class="field"><label for="saved-drill-q">Search</label>
-        <input id="saved-drill-q" name="q" placeholder="Entry no, narration, memo, account"></div>
+        <input id="saved-drill-q" name="q" value="{esc(f_search)}"
+               placeholder="Entry no, narration, memo, account"></div>
       <div class="field"><label>&nbsp;</label>
         <button class="btn" type="submit">Open drill-down</button></div>
     </div>

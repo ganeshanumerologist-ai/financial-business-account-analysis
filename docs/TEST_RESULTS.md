@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.23.** The latest application run is `RUN-2026-11-09-01` with
-> **343 tests, OK**, Python 3.14.6, Windows - see section 40. The table immediately below is the original
+> **Current status: Build 0.24.** The latest application run is `RUN-2026-11-09-02` with
+> **345 tests, OK**, Python 3.14.6, Windows - see section 41. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1830,3 +1830,32 @@ Run ID: `RUN-2026-11-06-03`.
 - Hindi labels still cover the saved-dashboard surface only. The drill-down page is English.
 - No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
   review was run for Build 0.23.
+
+## 41. Build 0.24 verification - filtered saved-dashboard totals (2026-11-09)
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-09-02` |
+| Full test suite | **345 tests, OK**, 60.313 s, Python 3.14.6, Windows |
+| New unit test | `tests/test_analytics.py::test_filtered_metric_totals_for_dashboard_cards` covers full filtered aggregates, account and dimension filters, unsupported metrics, invalid filters and tenant isolation |
+| New HTTP test | `test_56_filtered_saved_dashboard_totals` creates a dashboard, applies an account filter, checks filtered KPI labels, hidden charts, active-filter summary, drill-down link filters and the invalid-filter fallback |
+| Filtered KPI totals | Account, party, dimension and text filters recompute the KPI cards from the full set of matching posted journal lines. The aggregate is not capped by the visible drill-down line limit |
+| Unsupported metrics | Counts, overdue buckets, equity and balance checks return no filtered total and are labelled **Unfiltered actuals (not filterable)**. They are never given a fabricated filtered number |
+| Chart safety | Charts and party tables are hidden while filters are active, so a filtered KPI card is never displayed beside an unfiltered chart |
+| Drill-down continuity | Each filtered KPI card opens `/analytics/drilldown` with the same account, party, dimension and search filters |
+| Invalid filters | A stale or foreign filter ID is rejected, the page shows **Could not apply filters** and falls back to unfiltered dashboard totals |
+| Actuals rule | Filtered totals are sums of posted journal lines only. No estimate, forecast, cached total or AI-generated amount is included |
+| Offline package | Rebuilt as `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.24.zip`; embedded `/health` returns `ok` with `Server: ARTHIVIO/0.24` |
+
+### 41.1 Honest limits
+
+- Filtering applies to the saved-dashboard **KPI cards only**. Charts are deliberately hidden in
+  filtered mode; chart-level filtering is still planned.
+- Counts, overdue buckets, equity and the two balance checks are not single journal-line totals, so
+  they remain unfiltered and are labelled as such.
+- The filtered total is an operational view, not a statutory report. The report link remains the
+  authoritative statement layout.
+- Hindi labels cover the saved-dashboard surface, including the new filtered/unfiltered labels.
+  The drill-down page remains English.
+- No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
+  review was run for Build 0.24.

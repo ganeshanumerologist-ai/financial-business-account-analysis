@@ -221,6 +221,62 @@ class AnalyticsTest(unittest.TestCase):
                                 "2026-05-01", "2026-05-31", account_id="not-an-account")
         self.assertEqual(ctx.exception.code, "BAD_FILTER")
 
+    def test_filtered_metric_totals_for_dashboard_cards(self):
+        self.post("1000", "4000", 100000, "2026-04-10", "Sale")
+        self.post("6000", "1000", 40000, "2026-05-10", "Rent")
+        keys = ["revenue_paise", "expense_paise", "net_profit_paise",
+                "open_invoices", "trial_balance_balanced"]
+
+        totals = analytics.filtered_metric_totals(
+            self.conn, self.tenant, "2026-04-01", "2026-06-30",
+            metric_keys=keys)
+        self.assertEqual(totals["metrics"]["revenue_paise"], 100000)
+        self.assertEqual(totals["metrics"]["expense_paise"], 40000)
+        self.assertEqual(totals["metrics"]["net_profit_paise"], 60000)
+        self.assertIsNone(totals["metrics"]["open_invoices"])
+        self.assertIsNone(totals["metrics"]["trial_balance_balanced"])
+        self.assertTrue(totals["supported"]["revenue_paise"])
+        self.assertFalse(totals["supported"]["open_invoices"])
+
+        income_account = db.account_id(self.conn, self.t, "4000")
+        by_account = analytics.filtered_metric_totals(
+            self.conn, self.tenant, "2026-04-01", "2026-06-30",
+            account_id=income_account, metric_keys=keys)
+        self.assertEqual(by_account["metrics"]["revenue_paise"], 100000)
+        self.assertEqual(by_account["metrics"]["expense_paise"], 0)
+        self.assertEqual(by_account["metrics"]["net_profit_paise"], 100000)
+
+        dimension_id = db.new_id()
+        self.conn.execute(
+            "INSERT INTO dimension (id, tenant_id, kind, code, name, active, note, created_at)"
+            " VALUES (?,?,?,?,?,1,'',?)",
+            (dimension_id, self.t, "project", "P2", "Project Two", db.now()))
+        acct.post_journal(
+            self.conn, self.t, "2026-05-12", "Project sale",
+            [{"account_id": db.account_id(self.conn, self.t, "1000"),
+              "debit": 25000, "credit": 0, "dimension_id": dimension_id},
+             {"account_id": db.account_id(self.conn, self.t, "4000"),
+              "debit": 0, "credit": 25000, "dimension_id": dimension_id}],
+            "manual")
+        by_dimension = analytics.filtered_metric_totals(
+            self.conn, self.tenant, "2026-04-01", "2026-06-30",
+            dimension_id=dimension_id, metric_keys=keys)
+        self.assertEqual(by_dimension["metrics"]["revenue_paise"], 25000)
+        self.assertEqual(by_dimension["metrics"]["net_profit_paise"], 25000)
+
+        other = db.create_tenant(self.conn, "Other Co", "other-filtered", state_code="27")
+        other_row = self.conn.execute("SELECT * FROM tenant WHERE id=?", (other,)).fetchone()
+        isolated = analytics.filtered_metric_totals(
+            self.conn, other_row, "2026-04-01", "2026-06-30", metric_keys=keys)
+        self.assertEqual(isolated["metrics"]["revenue_paise"], 0)
+        self.assertEqual(isolated["metrics"]["net_profit_paise"], 0)
+
+        with self.assertRaises(analytics.AnalyticsError) as ctx:
+            analytics.filtered_metric_totals(
+                self.conn, self.tenant, "2026-04-01", "2026-06-30",
+                account_id="not-an-account", metric_keys=keys)
+        self.assertEqual(ctx.exception.code, "BAD_FILTER")
+
 
 if __name__ == "__main__":
     unittest.main()
