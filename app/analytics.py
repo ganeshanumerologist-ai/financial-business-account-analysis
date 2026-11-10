@@ -420,19 +420,39 @@ def snapshot(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
 
 
 def monthly_series(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
-                   date_from: str | None = None, date_to: str | None = None) -> dict:
+                   date_from: str | None = None, date_to: str | None = None,
+                   account_id: str = "", party_id: str = "",
+                   dimension_id: str = "", q: str = "") -> dict:
     """Monthly revenue, expense and profit actuals with zero-filled gaps."""
     tenant_id = _tenant_key(tenant)
     start, end = _period(tenant, date_from, date_to)
-    rows = conn.execute(
-        """SELECT period_month,
-                  COALESCE(SUM(income_paise), 0) AS revenue,
-                  COALESCE(SUM(expense_paise), 0) AS expense
-           FROM v_analytics_monthly
-           WHERE tenant_id=? AND period_month BETWEEN ? AND ?
-           GROUP BY period_month ORDER BY period_month""",
-        (tenant_id, start.isoformat()[:7], end.isoformat()[:7]),
-    ).fetchall()
+    filters = _clean_filters(account_id, party_id, dimension_id, q)
+    _validate_filter_ids(conn, tenant_id, filters)
+    extra, extra_params = _journal_filter_sql(filters)
+    if extra:
+        rows = conn.execute(
+            f"""SELECT v.period_month,
+                       COALESCE(SUM(CASE WHEN v.account_type='income'
+                            THEN v.credit_paise - v.debit_paise ELSE 0 END), 0) AS revenue,
+                       COALESCE(SUM(CASE WHEN v.account_type='expense'
+                            THEN v.debit_paise - v.credit_paise ELSE 0 END), 0) AS expense
+                FROM v_analytics_journal v
+                JOIN journal_entry e ON e.id=v.entry_id AND e.tenant_id=v.tenant_id
+                JOIN journal_line l ON l.id=v.line_id AND l.tenant_id=v.tenant_id
+                WHERE v.tenant_id=? AND v.period_month BETWEEN ? AND ?{extra}
+                GROUP BY v.period_month ORDER BY v.period_month""",
+            [tenant_id, start.isoformat()[:7], end.isoformat()[:7]] + extra_params,
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT period_month,
+                      COALESCE(SUM(income_paise), 0) AS revenue,
+                      COALESCE(SUM(expense_paise), 0) AS expense
+               FROM v_analytics_monthly
+               WHERE tenant_id=? AND period_month BETWEEN ? AND ?
+               GROUP BY period_month ORDER BY period_month""",
+            (tenant_id, start.isoformat()[:7], end.isoformat()[:7]),
+        ).fetchall()
     by_month = {r["period_month"]: r for r in rows}
     months = []
     for key in _month_keys(start, end):
@@ -452,20 +472,40 @@ def monthly_series(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
 
 def expense_breakdown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
                       date_from: str | None = None, date_to: str | None = None,
-                      limit: int = 10) -> dict:
+                      limit: int = 10, account_id: str = "",
+                      party_id: str = "", dimension_id: str = "",
+                      q: str = "") -> dict:
     tenant_id = _tenant_key(tenant)
     start, end = _period(tenant, date_from, date_to)
-    rows = conn.execute(
-        """SELECT account_id, account_code, account_name,
-                  SUM(signed_paise) AS amount_paise
-           FROM v_analytics_journal
-           WHERE tenant_id=? AND account_type='expense'
-             AND entry_date BETWEEN ? AND ?
-           GROUP BY account_id, account_code, account_name
-           HAVING SUM(signed_paise) > 0
-           ORDER BY amount_paise DESC, account_code""",
-        (tenant_id, start.isoformat(), end.isoformat()),
-    ).fetchall()
+    filters = _clean_filters(account_id, party_id, dimension_id, q)
+    _validate_filter_ids(conn, tenant_id, filters)
+    extra, extra_params = _journal_filter_sql(filters)
+    if extra:
+        rows = conn.execute(
+            f"""SELECT v.account_id, v.account_code, v.account_name,
+                       SUM(v.signed_paise) AS amount_paise
+                FROM v_analytics_journal v
+                JOIN journal_entry e ON e.id=v.entry_id AND e.tenant_id=v.tenant_id
+                JOIN journal_line l ON l.id=v.line_id AND l.tenant_id=v.tenant_id
+                WHERE v.tenant_id=? AND v.account_type='expense'
+                  AND v.entry_date BETWEEN ? AND ?{extra}
+                GROUP BY v.account_id, v.account_code, v.account_name
+                HAVING SUM(v.signed_paise) > 0
+                ORDER BY amount_paise DESC, v.account_code""",
+            [tenant_id, start.isoformat(), end.isoformat()] + extra_params,
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT account_id, account_code, account_name,
+                      SUM(signed_paise) AS amount_paise
+               FROM v_analytics_journal
+               WHERE tenant_id=? AND account_type='expense'
+                 AND entry_date BETWEEN ? AND ?
+               GROUP BY account_id, account_code, account_name
+               HAVING SUM(signed_paise) > 0
+               ORDER BY amount_paise DESC, account_code""",
+            (tenant_id, start.isoformat(), end.isoformat()),
+        ).fetchall()
     total = sum(int(r["amount_paise"] or 0) for r in rows)
     keep = max(1, min(int(limit or 10), 100))
     shown = [{"account_id": r["account_id"], "code": r["account_code"],
@@ -481,43 +521,89 @@ def expense_breakdown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
 
 def top_customers(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
                   date_from: str | None = None, date_to: str | None = None,
-                  limit: int = 5) -> list[dict]:
+                  limit: int = 5, account_id: str = "", party_id: str = "",
+                  dimension_id: str = "", q: str = "") -> list[dict]:
     tenant_id = _tenant_key(tenant)
     start, end = _period(tenant, date_from, date_to)
     keep = max(1, min(int(limit or 5), 50))
-    rows = conn.execute(
-        """SELECT c.id AS party_id, c.name,
-                  COUNT(i.id) AS documents,
-                  COALESCE(SUM(i.total_paise), 0) AS amount_paise
-           FROM invoice i
-           JOIN customer c ON c.id=i.customer_id AND c.tenant_id=i.tenant_id
-           WHERE i.tenant_id=? AND i.status='posted'
-             AND i.invoice_date BETWEEN ? AND ?
-           GROUP BY c.id, c.name
-           ORDER BY amount_paise DESC, c.name LIMIT ?""",
-        (tenant_id, start.isoformat(), end.isoformat(), keep),
-    ).fetchall()
+    filters = _clean_filters(account_id, party_id, dimension_id, q)
+    _validate_filter_ids(conn, tenant_id, filters)
+    extra, extra_params = _journal_filter_sql(filters)
+    if extra:
+        rows = conn.execute(
+            f"""SELECT v.party_id,
+                       COALESCE(c.name, v.party_id) AS name,
+                       COUNT(DISTINCT v.entry_id) AS documents,
+                       COALESCE(SUM(v.credit_paise - v.debit_paise), 0) AS amount_paise
+                FROM v_analytics_journal v
+                JOIN journal_entry e ON e.id=v.entry_id AND e.tenant_id=v.tenant_id
+                JOIN journal_line l ON l.id=v.line_id AND l.tenant_id=v.tenant_id
+                LEFT JOIN customer c ON c.id=v.party_id AND c.tenant_id=v.tenant_id
+                WHERE v.tenant_id=? AND v.account_type='income'
+                  AND v.party_id IS NOT NULL
+                  AND v.entry_date BETWEEN ? AND ?{extra}
+                GROUP BY v.party_id, c.name
+                HAVING SUM(v.credit_paise - v.debit_paise) > 0
+                ORDER BY amount_paise DESC, c.name LIMIT ?""",
+            [tenant_id, start.isoformat(), end.isoformat()] + extra_params + [keep],
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT c.id AS party_id, c.name,
+                      COUNT(i.id) AS documents,
+                      COALESCE(SUM(i.total_paise), 0) AS amount_paise
+               FROM invoice i
+               JOIN customer c ON c.id=i.customer_id AND c.tenant_id=i.tenant_id
+               WHERE i.tenant_id=? AND i.status='posted'
+                 AND i.invoice_date BETWEEN ? AND ?
+               GROUP BY c.id, c.name
+               ORDER BY amount_paise DESC, c.name LIMIT ?""",
+            (tenant_id, start.isoformat(), end.isoformat(), keep),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def top_vendors(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
                 date_from: str | None = None, date_to: str | None = None,
-                limit: int = 5) -> list[dict]:
+                limit: int = 5, account_id: str = "", party_id: str = "",
+                dimension_id: str = "", q: str = "") -> list[dict]:
     tenant_id = _tenant_key(tenant)
     start, end = _period(tenant, date_from, date_to)
     keep = max(1, min(int(limit or 5), 50))
-    rows = conn.execute(
-        """SELECT v.id AS party_id, v.name,
-                  COUNT(b.id) AS documents,
-                  COALESCE(SUM(b.total_paise), 0) AS amount_paise
-           FROM bill b
-           JOIN vendor v ON v.id=b.vendor_id AND v.tenant_id=b.tenant_id
-           WHERE b.tenant_id=? AND b.status='posted'
-             AND b.bill_date BETWEEN ? AND ?
-           GROUP BY v.id, v.name
-           ORDER BY amount_paise DESC, v.name LIMIT ?""",
-        (tenant_id, start.isoformat(), end.isoformat(), keep),
-    ).fetchall()
+    filters = _clean_filters(account_id, party_id, dimension_id, q)
+    _validate_filter_ids(conn, tenant_id, filters)
+    extra, extra_params = _journal_filter_sql(filters)
+    if extra:
+        rows = conn.execute(
+            f"""SELECT v.party_id,
+                       COALESCE(vd.name, v.party_id) AS name,
+                       COUNT(DISTINCT v.entry_id) AS documents,
+                       COALESCE(SUM(v.debit_paise - v.credit_paise), 0) AS amount_paise
+                FROM v_analytics_journal v
+                JOIN journal_entry e ON e.id=v.entry_id AND e.tenant_id=v.tenant_id
+                JOIN journal_line l ON l.id=v.line_id AND l.tenant_id=v.tenant_id
+                LEFT JOIN vendor vd ON vd.id=v.party_id AND vd.tenant_id=v.tenant_id
+                WHERE v.tenant_id=? AND v.account_type='expense'
+                  AND v.party_id IS NOT NULL
+                  AND v.entry_date BETWEEN ? AND ?{extra}
+                GROUP BY v.party_id, vd.name
+                HAVING SUM(v.debit_paise - v.credit_paise) > 0
+                ORDER BY amount_paise DESC, vd.name LIMIT ?""",
+            [tenant_id, start.isoformat(), end.isoformat()] + extra_params + [keep],
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT v.id AS party_id, v.name,
+                      COUNT(b.id) AS documents,
+                      COALESCE(SUM(b.total_paise), 0) AS amount_paise
+               FROM bill b
+               JOIN vendor v ON v.id=b.vendor_id AND v.tenant_id=b.tenant_id
+               WHERE b.tenant_id=? AND b.status='posted'
+                 AND b.bill_date BETWEEN ? AND ?
+               GROUP BY v.id, v.name
+               ORDER BY amount_paise DESC, v.name LIMIT ?""",
+            (tenant_id, start.isoformat(), end.isoformat(), keep),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -533,6 +619,32 @@ def overview(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
             conn, tenant, start.isoformat(), end.isoformat()),
         "top_customers": top_customers(conn, tenant, start.isoformat(), end.isoformat()),
         "top_vendors": top_vendors(conn, tenant, start.isoformat(), end.isoformat()),
+    }
+
+
+def filtered_chart_data(conn: sqlite3.Connection, tenant: str | sqlite3.Row,
+                        date_from: str | None = None,
+                        date_to: str | None = None, account_id: str = "",
+                        party_id: str = "", dimension_id: str = "",
+                        q: str = "") -> dict:
+    """Chart payload computed from matching posted journal lines only."""
+    tenant_id = _tenant_key(tenant)
+    start, end = _period(tenant, date_from, date_to)
+    filters = _clean_filters(account_id, party_id, dimension_id, q)
+    _validate_filter_ids(conn, tenant_id, filters)
+    dfrom, dto = start.isoformat(), end.isoformat()
+    return {
+        "from": dfrom,
+        "to": dto,
+        "filters": filters,
+        "filtered": True,
+        "monthly": monthly_series(conn, tenant, dfrom, dto, **filters),
+        "expense_breakdown": expense_breakdown(
+            conn, tenant, dfrom, dto, **filters),
+        "top_customers": top_customers(conn, tenant, dfrom, dto, **filters),
+        "top_vendors": top_vendors(conn, tenant, dfrom, dto, **filters),
+        "note": ("Filtered charts use matching posted journal lines. Empty charts "
+                 "mean no matching actuals, never a missing estimate."),
     }
 
 
@@ -640,6 +752,27 @@ def _drilldown_where(tenant_id: str, spec: dict, period: dict,
                      " OR a.code LIKE ? OR a.name LIKE ?)")
         params.extend([like] * 5)
     return " AND ".join(where), params
+
+
+def _journal_filter_sql(filters: dict) -> tuple[str, list]:
+    """Extra WHERE clause for chart queries using v/e/l aliases."""
+    where = []
+    params: list = []
+    if filters["account_id"]:
+        where.append("v.account_id=?")
+        params.append(filters["account_id"])
+    if filters["party_id"]:
+        where.append("v.party_id=?")
+        params.append(filters["party_id"])
+    if filters["dimension_id"]:
+        where.append("l.dimension_id=?")
+        params.append(filters["dimension_id"])
+    if filters["q"]:
+        like = f"%{filters['q']}%"
+        where.append("(v.entry_no LIKE ? OR v.memo LIKE ? OR v.account_code LIKE ?"
+                     " OR v.account_name LIKE ? OR e.narration LIKE ?)")
+        params.extend([like] * 5)
+    return ((" AND " + " AND ".join(where)) if where else ""), params
 
 
 def drilldown(conn: sqlite3.Connection, tenant: str | sqlite3.Row,

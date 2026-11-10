@@ -35,7 +35,7 @@ from . import sharing
 from . import stock_adjustments as stock_adjust_mod
 from . import xlsx_import as xlsx_mod
 
-APP_VERSION = "0.24"
+APP_VERSION = "0.25"
 DB_PATH = os.environ.get("ARTHIVIO_DB", os.path.join("data", "arthivio.db"))
 BACKUP_DIR = os.environ.get("ARTHIVIO_BACKUP_DIR", "backups")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -8739,6 +8739,19 @@ journal, change a document or compute an authoritative total outside the account
                 f_account = f_party = f_dimension = f_search = ""
                 filtered = None
 
+        charts_data = data
+        if filters_active:
+            try:
+                charts_data = analytics_mod.filtered_chart_data(
+                    conn, tenant, dfrom, dto, f_account, f_party, f_dimension,
+                    f_search)
+            except analytics_mod.AnalyticsError as e:
+                filter_error = e.message
+                filters_active = False
+                f_account = f_party = f_dimension = f_search = ""
+                filtered = None
+                charts_data = data
+
         def metric_value(key: str):
             if filters_active and filtered and filtered["supported"].get(key):
                 return filtered["metrics"].get(key)
@@ -8823,10 +8836,14 @@ journal, change a document or compute an authoritative total outside the account
                 f'<tr><td colspan="3" class="empty">'
                 f'{esc(dashboards_mod.t(lang, "No data in this period."))}</td></tr>')
 
+        filter_badge = ('<span class="badge neutral">Filtered actuals</span>'
+                        if filters_active else "")
+        chart_filter_badge = ('<span class="badge neutral">Filtered</span>'
+                              if filters_active else "")
         charts_html = ""
         chart_script = ""
         if "monthly" in config["charts"]:
-            months = data["monthly"]["months"]
+            months = charts_data["monthly"]["months"]
             payload = {
                 "months": [m["month"] for m in months],
                 "revenue": [round(int(m["revenue_paise"]) / 100, 2) for m in months],
@@ -8840,7 +8857,7 @@ journal, change a document or compute an authoritative total outside the account
             charts_html += f"""
 <div class="card pad sect">
   <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Monthly revenue and expenses"))}</h2>
-    <span class="badge neutral">{esc(dfrom)} to {esc(dto)}</span></div>
+    <span class="badge neutral">{esc(dfrom)} to {esc(dto)}</span>{chart_filter_badge}</div>
   <div id="saved-monthly" style="height:320px;width:100%"></div>
 </div>"""
             chart_script += f"""
@@ -8871,9 +8888,9 @@ journal, change a document or compute an authoritative total outside the account
   }}"""
 
         if "expense_breakdown" in config["charts"]:
-            rows = data["expense_breakdown"]["rows"]
-            other = int(data["expense_breakdown"]["other_paise"])
-            exp_total = int(data["expense_breakdown"]["total_paise"])
+            rows = charts_data["expense_breakdown"]["rows"]
+            other = int(charts_data["expense_breakdown"]["other_paise"])
+            exp_total = int(charts_data["expense_breakdown"]["total_paise"])
             labels = [f'{r["code"]} {r["name"]}' for r in rows]
             values = [round(int(r["amount_paise"]) / 100, 2) for r in rows]
             if other:
@@ -8885,7 +8902,7 @@ journal, change a document or compute an authoritative total outside the account
                 charts_html += f"""
 <div class="card pad sect">
   <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Expense breakdown"))}</h2>
-    <span class="badge neutral">{money.fmt(exp_total)}</span></div>
+    <span class="badge neutral">{money.fmt(exp_total)}</span>{chart_filter_badge}</div>
   <div id="saved-expense" style="height:300px;width:100%"></div>
 </div>"""
                 chart_script += f"""
@@ -8918,39 +8935,34 @@ journal, change a document or compute an authoritative total outside the account
             charts_html += f"""
 <div class="card pad sect">
   <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Top customers"))}</h2>
-    <a class="btn ghost small" href="/reports/ar-ageing?{esc(period_q)}">Ageing</a></div>
+    <a class="btn ghost small" href="/reports/ar-ageing?{esc(period_q)}">Ageing</a>{chart_filter_badge}</div>
   <div class="table-wrap"><table><thead><tr><th>{esc(dashboards_mod.t(lang, "Name"))}</th>
-    <th class="num">Invoices</th><th class="num">Net sales</th></tr></thead>
-    <tbody>{party_rows(data["top_customers"])}</tbody></table></div>
+    <th class="num">{esc(dashboards_mod.t(lang, "Entries" if filters_active else "Invoices"))}</th>
+    <th class="num">{esc(dashboards_mod.t(lang, "Net income lines" if filters_active else "Net sales"))}</th></tr></thead>
+    <tbody>{party_rows(charts_data["top_customers"])}</tbody></table></div>
 </div>"""
 
         if "top_vendors" in config["charts"]:
             charts_html += f"""
 <div class="card pad sect">
   <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Top vendors"))}</h2>
-    <a class="btn ghost small" href="/reports/ap-ageing?{esc(period_q)}">Ageing</a></div>
+    <a class="btn ghost small" href="/reports/ap-ageing?{esc(period_q)}">Ageing</a>{chart_filter_badge}</div>
   <div class="table-wrap"><table><thead><tr><th>{esc(dashboards_mod.t(lang, "Name"))}</th>
-    <th class="num">Bills</th><th class="num">Purchases</th></tr></thead>
-    <tbody>{party_rows(data["top_vendors"])}</tbody></table></div>
+    <th class="num">{esc(dashboards_mod.t(lang, "Entries" if filters_active else "Bills"))}</th>
+    <th class="num">{esc(dashboards_mod.t(lang, "Expense lines" if filters_active else "Purchases"))}</th></tr></thead>
+    <tbody>{party_rows(charts_data["top_vendors"])}</tbody></table></div>
 </div>"""
 
-        if filters_active:
-            charts_html = f"""
-<div class="card pad sect">
-  <div class="sect-head"><h2>{esc(dashboards_mod.t(lang, "Charts hidden while filters are active"))}</h2></div>
-  <p class="small muted" style="margin:0 0 10px">Dashboard KPI cards show filtered posted-line
-  totals. Charts and party tables are not filtered, so they are hidden in this view to avoid mixing
-  filtered and unfiltered numbers.</p>
-  <a class="btn ghost small" href="/dashboards/{esc(dashboard_id)}">Clear filters</a>
-</div>"""
-            chart_script = ""
+        if filters_active and charts_html:
+            charts_html = (
+                f'<p class="small muted" style="margin:0 0 12px">'
+                f'{esc(dashboards_mod.t(lang, "Filtered charts use matching posted journal lines."))}'
+                f'</p>' + charts_html)
 
         if chart_script:
             chart_script = ('<script src="/static/echarts.min.js"></script><script>\n'
                             '(function () {\n' + chart_script + '\n})();\n</script>')
 
-        filter_badge = ('<span class="badge neutral">Filtered actuals</span>'
-                        if filters_active else "")
         filter_error_html = (
             f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
             f'<b>Could not apply filters.</b> {esc(filter_error)} '
@@ -8981,8 +8993,8 @@ journal, change a document or compute an authoritative total outside the account
 <div class="kpis">{kpis}</div>
 <details class="card pad sect"{' open' if filters_active else ''}>
   <summary style="cursor:pointer;font-weight:650">Filter dashboard totals</summary>
-  <p class="small muted" style="margin:10px 0">Filters apply to the KPI cards above. Charts are
-  hidden while filters are active so filtered and unfiltered numbers are never mixed.</p>
+  <p class="small muted" style="margin:10px 0">Filters apply to the KPI cards and charts. Charts
+  use matching posted journal lines; an empty chart means no matching actuals.</p>
   {active_filter_html}
   <form method="get" action="/dashboards/{esc(dashboard_id)}">
     <input type="hidden" name="from" value="{esc(dfrom)}">

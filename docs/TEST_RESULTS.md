@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.24.** The latest application run is `RUN-2026-11-09-02` with
-> **345 tests, OK**, Python 3.14.6, Windows - see section 41. The table immediately below is the original
+> **Current status: Build 0.25.** The latest application run is `RUN-2026-11-10-01` with
+> **346 tests, OK**, Python 3.14.6, Windows - see section 42. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1859,3 +1859,41 @@ Run ID: `RUN-2026-11-06-03`.
   The drill-down page remains English.
 - No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
   review was run for Build 0.24.
+
+## 42. Build 0.25 verification - chart-level dashboard filtering (2026-11-10)
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-10-01` |
+| Full test suite | **346 tests, OK**, 45.583 s, Python 3.14.6, Windows |
+| New unit test | `tests/test_analytics.py::test_filtered_chart_data_uses_matching_posted_lines` covers dimension, account, party and text filters for the monthly series, expense breakdown, top customers and top vendors, plus tenant isolation and invalid-filter rejection |
+| Updated HTTP test | `test_56_filtered_saved_dashboard_totals` now checks that the monthly chart is still rendered in filtered mode and that the filtered-chart note is present |
+| Monthly chart | Revenue and expense bars are computed from matching posted journal lines for the selected account, party, dimension and text search |
+| Expense breakdown | Only matching expense lines are grouped; no matching lines produce the existing empty state, never a fabricated slice |
+| Top customers | Filtered mode ranks customers from matching posted income lines and labels the count column **Entries** and the amount column **Net income lines** |
+| Top vendors | Filtered mode ranks vendors from matching posted expense lines and labels the count column **Entries** and the amount column **Expense lines** |
+| Clear labelling | Each filtered chart carries a **Filtered** badge and the dashboard shows **Filtered charts use matching posted journal lines.** |
+| Actuals rule | Charts use posted journal lines only. No estimate, forecast, cached total or AI-generated amount is included |
+| Unsupported KPI cards | Count, overdue, equity and balance-check cards remain **Unfiltered actuals (not filterable)** |
+| Drill-down continuity | KPI cards still open `/analytics/drilldown` with the same account, party, dimension and search filters |
+| Invalid filters | A stale or foreign filter ID still shows **Could not apply filters** and falls back to unfiltered KPI cards and charts |
+| Offline package | Rebuilt as `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.25.zip`; embedded `GET /health` returned `ok` with `Server: ARTHIVIO/0.25 Python/3.14.6`; login page rendered |
+| Setup EXE | `ARTHIVIO-Setup.exe` built with IExpress, installed to `%LOCALAPPDATA%\ARTHIVIO`, existing `data` and `backups` preserved, desktop and Start Menu shortcuts present, installed health returned `ARTHIVIO/0.25` |
+| Installer ZIP | `ARTHIVIO-Installer-0.25.zip` contains the setup EXE, offline ZIP, installer BAT, README and access file |
+| Release ZIP | `ARTHIVIO-Release-0.25.zip` contains the runnable 0.25 folder plus the setup EXE, offline ZIP, installer BAT, README and access file |
+| Release hashes | Setup `7D8D7A5F4F9347A090D2BFAF85D8DFB728FF05A4976C0BFB43A4B353C16A6CBC`; installer ZIP `60007B946710C3BAA3DC9B4E9EB03EDBC2607061473E8BA3D1E7B868AE00B210`; offline ZIP `6C283BB6E66BEDA2BC275F06BE6993C76BF3056F3F296E447D31A88F3B88B278`; release ZIP `C0564B04803C419CDC4E5C20ADFE9E5894B07A008AA5277239470056871F9176` |
+| Public link | Stable `/app` returned 200, tester login returned 303, `/`, `/dashboards`, `/reports/library`, `/settings` and `/approvals` returned 200; filtered dashboard returned 200 with the filtered-chart note, monthly chart and **Filtered** badge |
+| Copied release | `D:\finance business software` now contains Build 0.25; Build 0.24 moved to `previous-0.24` and Build 0.23 remains in `previous-0.23`; app folder 514 files / 31,844,791 bytes and hashes match the source |
+
+### 42.1 Honest limits
+
+- Filtered top customers and top vendors use posted income/expense journal lines, so their amounts
+  are net line amounts, not invoice/bill totals. The column labels change to make this clear.
+- Monthly charts are zero-filled for months without matching lines. A zero bar means no matching
+  actuals in that month, not an estimate.
+- The filtered chart view is an operational view, not a statutory report.
+- Chart-level filtering does not yet apply to Excel/Power BI exports.
+- Hindi labels cover the saved-dashboard surface, including the new chart labels. The drill-down
+  page remains English.
+- No real phone, screen-reader, contrast, cross-browser, 4K, penetration or independent accounting
+  review was run for Build 0.25.

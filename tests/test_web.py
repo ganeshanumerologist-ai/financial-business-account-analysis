@@ -2848,9 +2848,9 @@ class WebTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("Filtered actuals", page)
         self.assertIn("Active filters", page)
-        self.assertIn("Charts hidden while filters are active", page)
+        self.assertIn("Filtered charts use matching posted journal lines.", page)
         self.assertIn("Unfiltered actuals (not filterable)", page)
-        self.assertNotIn('id="saved-monthly"', page)
+        self.assertIn('id="saved-monthly"', page)
         self.assertIn("/analytics/drilldown?metric=revenue_paise", page)
         self.assertIn(f"account_id={expense_account}", page)
 

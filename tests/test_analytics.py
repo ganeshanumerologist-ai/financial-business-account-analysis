@@ -38,6 +38,21 @@ class AnalyticsTest(unittest.TestCase):
             (cid, self.t, name, "27", db.now()))
         return cid
 
+    def vendor(self, name: str = "Analytics Vendor") -> str:
+        vid = db.new_id()
+        self.conn.execute(
+            "INSERT INTO vendor (id, tenant_id, name, state_code, created_at) VALUES (?,?,?,?,?)",
+            (vid, self.t, name, "27", db.now()))
+        return vid
+
+    def dimension(self, code: str = "P1", name: str = "Project One") -> str:
+        did = db.new_id()
+        self.conn.execute(
+            "INSERT INTO dimension (id, tenant_id, kind, code, name, active, note, created_at)"
+            " VALUES (?,?,?,?,?,1,'',?)",
+            (did, self.t, "project", code, name, db.now()))
+        return did
+
     def item(self, sku: str = "AN-1") -> str:
         iid = db.new_id()
         self.conn.execute(
@@ -275,6 +290,91 @@ class AnalyticsTest(unittest.TestCase):
             analytics.filtered_metric_totals(
                 self.conn, self.tenant, "2026-04-01", "2026-06-30",
                 account_id="not-an-account", metric_keys=keys)
+        self.assertEqual(ctx.exception.code, "BAD_FILTER")
+
+    def test_filtered_chart_data_uses_matching_posted_lines(self):
+        dim = self.dimension()
+        customer_a = self.customer("Customer A")
+        customer_b = self.customer("Customer B")
+        vendor = self.vendor("Vendor V")
+        cash = db.account_id(self.conn, self.t, "1000")
+        income = db.account_id(self.conn, self.t, "4000")
+        rent = db.account_id(self.conn, self.t, "6000")
+
+        acct.post_journal(
+            self.conn, self.t, "2026-04-10", "Sale A",
+            [{"account_id": cash, "debit": 100000, "credit": 0,
+              "dimension_id": dim},
+             {"account_id": income, "debit": 0, "credit": 100000,
+              "party_id": customer_a, "dimension_id": dim}],
+            "manual")
+        acct.post_journal(
+            self.conn, self.t, "2026-05-10", "Sale B",
+            [{"account_id": cash, "debit": 50000, "credit": 0},
+             {"account_id": income, "debit": 0, "credit": 50000,
+              "party_id": customer_b}],
+            "manual")
+        acct.post_journal(
+            self.conn, self.t, "2026-05-12", "Rent P1",
+            [{"account_id": rent, "debit": 40000, "credit": 0,
+              "party_id": vendor, "dimension_id": dim},
+             {"account_id": cash, "debit": 0, "credit": 40000,
+              "dimension_id": dim}],
+            "manual")
+        acct.post_journal(
+            self.conn, self.t, "2026-05-13", "Rent unassigned",
+            [{"account_id": rent, "debit": 10000, "credit": 0},
+             {"account_id": cash, "debit": 0, "credit": 10000}],
+            "manual")
+
+        by_dimension = analytics.filtered_chart_data(
+            self.conn, self.tenant, "2026-04-01", "2026-06-30",
+            dimension_id=dim)
+        self.assertTrue(by_dimension["filtered"])
+        self.assertEqual(by_dimension["monthly"]["total_revenue_paise"], 100000)
+        self.assertEqual(by_dimension["monthly"]["total_expense_paise"], 40000)
+        self.assertEqual(by_dimension["expense_breakdown"]["total_paise"], 40000)
+        self.assertEqual(by_dimension["top_customers"][0]["name"], "Customer A")
+        self.assertEqual(by_dimension["top_customers"][0]["amount_paise"], 100000)
+        self.assertEqual(by_dimension["top_vendors"][0]["name"], "Vendor V")
+        self.assertEqual(by_dimension["top_vendors"][0]["amount_paise"], 40000)
+
+        by_account = analytics.filtered_chart_data(
+            self.conn, self.tenant, "2026-04-01", "2026-06-30",
+            account_id=income)
+        self.assertEqual(by_account["monthly"]["total_revenue_paise"], 150000)
+        self.assertEqual(by_account["monthly"]["total_expense_paise"], 0)
+        self.assertEqual(by_account["expense_breakdown"]["total_paise"], 0)
+        self.assertEqual(len(by_account["top_customers"]), 2)
+        self.assertEqual(by_account["top_vendors"], [])
+
+        by_party = analytics.filtered_chart_data(
+            self.conn, self.tenant, "2026-04-01", "2026-06-30",
+            party_id=customer_a)
+        self.assertEqual(by_party["monthly"]["total_revenue_paise"], 100000)
+        self.assertEqual(len(by_party["top_customers"]), 1)
+        self.assertEqual(by_party["top_customers"][0]["name"], "Customer A")
+
+        by_search = analytics.filtered_chart_data(
+            self.conn, self.tenant, "2026-04-01", "2026-06-30", q="Rent")
+        self.assertEqual(by_search["monthly"]["total_revenue_paise"], 0)
+        self.assertEqual(by_search["monthly"]["total_expense_paise"], 50000)
+        self.assertEqual(by_search["top_customers"], [])
+        self.assertEqual(by_search["top_vendors"][0]["name"], "Vendor V")
+
+        other = db.create_tenant(self.conn, "Other Co", "other-charts", state_code="27")
+        other_row = self.conn.execute("SELECT * FROM tenant WHERE id=?", (other,)).fetchone()
+        isolated = analytics.filtered_chart_data(
+            self.conn, other_row, "2026-04-01", "2026-06-30")
+        self.assertEqual(isolated["monthly"]["total_revenue_paise"], 0)
+        self.assertEqual(isolated["expense_breakdown"]["total_paise"], 0)
+        self.assertEqual(isolated["top_customers"], [])
+        self.assertEqual(isolated["top_vendors"], [])
+
+        with self.assertRaises(analytics.AnalyticsError) as ctx:
+            analytics.filtered_chart_data(
+                self.conn, self.tenant, "2026-04-01", "2026-06-30",
+                dimension_id="not-a-dimension")
         self.assertEqual(ctx.exception.code, "BAD_FILTER")
 
 

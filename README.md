@@ -2,7 +2,7 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.24).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.25).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
 (purchase returns), day book, manual journals, bank reconciliation, cash book, bank book, GST
 summary, GSTR-1 working export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation
@@ -88,11 +88,12 @@ their report instead. The template library grows to **29 grouped starting points
 tax, receivables, payables, profitability, inventory, balance sheet, close and review. Build 0.24
 adds **filtered saved-dashboard KPI totals**: account, party, dimension and text filters now
 recompute the KPI cards from the full set of matching posted journal lines, while unsupported
-count/ageing/balance-check metrics are clearly labelled as unfiltered. Charts are hidden while
-filters are active so filtered and unfiltered numbers are never mixed. The drill-down link carries
-the same filters.
+count/ageing/balance-check metrics are clearly labelled as unfiltered. Build 0.25 extends the same
+filters to the **monthly chart, expense breakdown, top customers and top vendors** tables. Every
+chart uses matching posted journal lines only, labels filtered rows clearly and shows an empty
+state instead of inventing data. The drill-down link carries the same filters.
 Power BI Service refresh/RLS, offline-to-online sync and a generative AI provider remain planned.
-Covered by **345 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`).
+Covered by **346 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
 email delivery, ownership transfer, PostgreSQL and the Next.js front end are not built. GSTR-1,
@@ -116,7 +117,7 @@ Or step by step:
 
 ```powershell
 python -m pip install -r requirements.txt  # approved openpyxl dependency
-python -m unittest discover -s tests       # 345 tests
+python -m unittest discover -s tests       # 346 tests
 python -m app.server                       # http://127.0.0.1:8000
 ```
 
@@ -169,7 +170,7 @@ Build a self-contained folder that needs no Python installation and no internet:
 .\.venv\Scripts\python.exe scripts\build_windows_portable.py --zip
 ```
 
-The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.24.zip`. It contains the
+The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.25.zip`. It contains the
 official Python 3.14.6 embeddable runtime, `openpyxl`, the app, and Windows launchers:
 
 - `Start ARTHIVIO.bat` starts the local server and opens the browser.
@@ -279,7 +280,7 @@ app/
   backup.py       online backup + verification (integrity, FKs, balance, row counts)
   server.py       HTTP server + server-rendered UI (stdlib only)
   demo.py         synthetic demo books
-tests/            345 unittest cases (unit + end-to-end HTTP)
+tests/            346 unittest cases (unit + end-to-end HTTP)
 scripts/          seed_demo.py, backup.py, restore_verify.py
 dev.ps1           test → seed → run
 ```
@@ -296,7 +297,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **345 tests, OK, 60.313 s**, Python 3.14.6, Windows.
+Last verified: **346 tests, OK, 45.583 s**, Python 3.14.6, Windows.
 
 Backup drill:
 

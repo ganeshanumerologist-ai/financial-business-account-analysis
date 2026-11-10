@@ -1,6 +1,6 @@
 # ARTHIVIO Offline Edition
 
-**Build 0.24. Single-user Windows package. No Python install, no internet, local SQLite.**
+**Build 0.25. Single-user Windows package. No Python install, no internet, local SQLite.**
 
 This document describes the offline package only. It is not permanent hosting, not a multi-user
 server, and not a substitute for an independent accounting or security review.
@@ -32,7 +32,7 @@ Build it from the repository with:
 Output:
 
 - `dist\ARTHIVIO-Offline\`
-- `dist\ARTHIVIO-Offline-0.24.zip`
+- `dist\ARTHIVIO-Offline-0.25.zip`
 
 The build downloads the Python embeddable ZIP once into `build-cache\`, copies `openpyxl` 3.1.5
 and `et_xmlfile`, and tests the embedded runtime before reporting success. The target machine does
@@ -165,11 +165,11 @@ deserves a verified backup and a restore drill.
 
 ---
 
-## 9. Verification performed for Build 0.24
+## 9. Verification performed for Build 0.25
 
 | Check | Result |
 |---|---|
-| Full test suite | **345 tests, OK**, 60.313 s, Python 3.14.6, Windows |
+| Full test suite | **346 tests, OK**, 45.583 s, Python 3.14.6, Windows |
 | Report tests | 45 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, R-204 draft entries, R-508 expiry, R-601 project costing, R-602 WIP, R-603 consumption, R-604 yield, R-605 cost centre, R-902 dimension P&L, R-1004 consolidation, credit-limit detection, malformed journal detection and tenant isolation |
 | Draft workflow tests | save draft, post draft, insufficient stock at posting, void with reason, idempotent post, receipt guard and draft-print block |
 | Correction workflow tests | 9 `TestPostedCorrections` cases plus the HTTP flow: invoice, bill and payment void/replace, stock restore/undo, blocked replacement and opening-balance replacement |
@@ -181,12 +181,14 @@ deserves a verified backup and a restore drill.
 | Report HTTP tests | 46 report pages and 41 CSV exports, OK |
 | Saved dashboards | `tests/test_dashboards.py` (7 tests) and `test_web.test_54`: validation, CRUD, audit, private/shared visibility, tenant isolation, template creation, grouped template validation, Hindi labels and CSRF delete |
 | Line-level drill-down | `tests/test_analytics.py` and `test_web.test_55`: canonical-vs-line reconciliation, account/dimension filters, unsupported metrics, invalid filters, tenant isolation, saved-dashboard filter panel |
-| Filtered dashboard totals | `test_analytics.test_filtered_metric_totals_for_dashboard_cards` and `test_web.test_56`: full filtered aggregates, unsupported metrics, invalid-filter fallback, hidden charts and filter-carrying drill-down links |
-| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.24` |
-| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.24 Python/3.14.6` |
+| Filtered dashboard totals | `test_analytics.test_filtered_metric_totals_for_dashboard_cards` and `test_web.test_56`: full filtered aggregates, unsupported metrics, invalid-filter fallback and filter-carrying drill-down links |
+| Chart-level filtering | `test_analytics.test_filtered_chart_data_uses_matching_posted_lines`: monthly revenue/expense, expense breakdown, top customers and top vendors from matching posted lines, with dimension, account, party and text filters, tenant isolation and invalid-filter rejection |
+| Filtered chart surface | `test_web.test_56` confirms the monthly chart is rendered in filtered mode with the **Filtered charts use matching posted journal lines.** note; empty chart states are used instead of fabricated data |
+| Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.25` |
+| Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.25 Python/3.14.6` |
 | Package first run | Setup page rendered from the embedded runtime; owner creation covered by `test_first_run` |
 | External-drive backup | Local backup verified, copy hash matched, copy re-verified read-only (Build 0.14, unchanged code path) |
-| Package size | approximately 14.4 MB (ZIP); 31.7 MB extracted |
+| Package size | approximately 15.1 MB (ZIP); 31.8 MB extracted |
 | Package data reset | Smoke-test database and logs were kept outside the package; no test data was added to the built folder |
 
 Not verified in this build:

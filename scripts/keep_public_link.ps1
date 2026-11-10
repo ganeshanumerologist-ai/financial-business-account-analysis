@@ -2,7 +2,7 @@
 #
 # The app runs on this PC and is exposed through a Cloudflare quick tunnel.
 # A quick tunnel gets a new hostname when it restarts, so this watchdog:
-#   1. starts the local app if it is not healthy or is not Build 0.24,
+#   1. starts the local app if it is not healthy or is not Build 0.25,
 #   2. starts cloudflared if it is not running,
 #   3. reads the current public URL from the cloudflared log,
 #   4. updates firebase-public/index.html and redeploys Firebase when the URL changed.
@@ -25,7 +25,7 @@ $redirectFile = Join-Path $root 'firebase-public\app\index.html'
 $nodeExe = 'C:\Users\vicky\AppData\Local\Temp\opencode\node-v24.22.2-win-x64\node.exe'
 $firebaseCli = 'C:\Users\vicky\AppData\Local\Temp\opencode\firebase-tools-24\node_modules\firebase-tools\lib\bin\firebase.js'
 $project = 'financial-business-accounting'
-$version = 'ARTHIVIO/0.24'
+$version = 'ARTHIVIO/0.25'
 
 function Write-WatchLog([string]$message) {
     $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $message
