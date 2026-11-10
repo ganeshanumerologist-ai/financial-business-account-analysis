@@ -2,7 +2,7 @@
 
 Business finance, accounting and analytics platform for Indian SMEs.
 
-**Status: working local prototype (Build 0.25 deployed; Build 0.26 in progress).** The sales cycle (invoice → receipt →
+**Status: working local prototype (Build 0.26; stable demo link live).** The sales cycle (invoice → receipt →
 outstanding), the purchase cycle (bill → vendor payment → payable), credit notes, debit notes
 (purchase returns), day book, manual journals, bank reconciliation, cash book, bank book, GST
 summary, GSTR-1 working export, a **GSTR-3B working summary with GSTR-1/ledger reconciliation
@@ -91,14 +91,14 @@ recompute the KPI cards from the full set of matching posted journal lines, whil
 count/ageing/balance-check metrics are clearly labelled as unfiltered. Build 0.25 extends the same
 filters to the **monthly chart, expense breakdown, top customers and top vendors** tables. Every
 chart uses matching posted journal lines only, labels filtered rows clearly and shows an empty
-state instead of inventing data. The drill-down link carries the same filters. The in-progress
-Build 0.26 template expansion adds six packs: collections and payments, inventory and working
-capital, tax close checklist, board snapshot, cash conversion, and quarterly tax and profit. The
-full finance pack now keeps all 19 registered actual metrics instead of truncating at 12.
-Build 0.26 also starts the **full-app English/Hindi translation** with a saved per-user language
-preference, the seven navigation headings, menu groups and links, shell buttons, and common page
-titles. Page bodies and reports remain English and are translated next. Power BI Service
-refresh/RLS, offline-to-online sync and a generative AI provider remain planned.
+state instead of inventing data. The drill-down link carries the same filters. Build 0.26 adds six
+dashboard packs: collections and payments, inventory and working capital, tax close checklist,
+board snapshot, cash conversion, and quarterly tax and profit. The full finance pack now keeps all
+19 registered actual metrics instead of truncating at 12. Build 0.26 also adds the first slice of
+the **full-app English/Hindi translation** with a saved per-user language preference, the seven
+navigation headings, menu groups and links, shell buttons, and common page titles. Page bodies and
+reports remain English and are translated next. Power BI Service refresh/RLS, offline-to-online
+sync and a generative AI provider remain planned.
 Covered by **350 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
@@ -123,7 +123,7 @@ Or step by step:
 
 ```powershell
 python -m pip install -r requirements.txt  # approved openpyxl dependency
-python -m unittest discover -s tests       # 346 tests
+python -m unittest discover -s tests       # 350 tests
 python -m app.server                       # http://127.0.0.1:8000
 ```
 
@@ -176,7 +176,7 @@ Build a self-contained folder that needs no Python installation and no internet:
 .\.venv\Scripts\python.exe scripts\build_windows_portable.py --zip
 ```
 
-The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.25.zip`. It contains the
+The result is `dist\ARTHIVIO-Offline\` and `dist\ARTHIVIO-Offline-0.26.zip`. It contains the
 official Python 3.14.6 embeddable runtime, `openpyxl`, the app, and Windows launchers:
 
 - `Start ARTHIVIO.bat` starts the local server and opens the browser.
@@ -303,7 +303,7 @@ balanced journal or vice versa.
 python -m unittest discover -s tests -v
 ```
 
-Last verified: **346 tests, OK, 45.583 s**, Python 3.14.6, Windows.
+Last verified: **350 tests, OK, 46.764 s**, Python 3.14.6, Windows.
 
 Backup drill:
 

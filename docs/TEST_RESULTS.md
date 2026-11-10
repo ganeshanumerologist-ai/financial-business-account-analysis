@@ -1,7 +1,7 @@
 # ARTHIVIO — Test Results
 
-> **Current status: Build 0.25.** The latest application run is `RUN-2026-11-10-01` with
-> **346 tests, OK**, Python 3.14.6, Windows - see section 42. The table immediately below is the original
+> **Current status: Build 0.26.** The latest application run is `RUN-2026-11-10-02` with
+> **350 tests, OK**, Python 3.14.6, Windows - see section 45. The table immediately below is the original
 > 2026-10-24 baseline audit of an empty workspace and is preserved as history, not current status.
 
 | Field | Value |
@@ -1900,8 +1900,8 @@ Run ID: `RUN-2026-11-06-03`.
 
 ## 43. Build 0.26 work in progress - template library expansion (2026-11-10)
 
-This work is in the working tree while external testing of Build 0.25 continues. The public link
-still runs Build 0.25 until the tester finishes and the new package is verified.
+This slice was prepared while external testing of Build 0.25 was still in progress. It was later
+promoted to the public link and offline package in section 45.
 
 | Check | Result |
 |---|---|
@@ -1912,7 +1912,7 @@ still runs Build 0.25 until the tester finishes and the new package is verified.
 | Full finance pack | `MAX_METRICS` raised from 12 to 20, so `full_finance` now keeps all 19 registered actual metrics instead of being silently truncated |
 | Validation | Existing template test now checks at least 35 templates, unique keys and names, every metric/chart key, the six new packs, and that `full_finance` contains every registered metric |
 | Actuals rule | Templates are configuration only. They do not post, edit, cache or invent any accounting total |
-| Deployment | Not deployed. The stable public link remains Build 0.25 until testing is complete |
+| Deployment | Not deployed at the time of this slice. Later promoted to Build 0.26 in section 45 |
 
 ### 43.1 Honest limits
 
@@ -1924,8 +1924,8 @@ still runs Build 0.25 until the tester finishes and the new package is verified.
 
 ## 44. Build 0.26 work in progress - English/Hindi shell foundation (2026-11-10)
 
-This is the first slice of the full-app translation. It is additive and remains in the working tree
-while external testing of Build 0.25 continues.
+This is the first slice of the full-app translation. It is additive and was prepared while external
+testing of Build 0.25 was still in progress.
 
 | Check | Result |
 |---|---|
@@ -1936,7 +1936,7 @@ while external testing of Build 0.25 continues.
 | Fallback | Unknown keys stay English; a user row without the language column falls back to `en` |
 | Tests | Dictionary/fallback unit tests, additive migration test, HTTP switch test, and reset back to English |
 | Audit | `user.language_updated` event with `from` and `to` values |
-| Deployment | Not deployed. The stable public link remains Build 0.25 until testing is complete |
+| Deployment | Not deployed at the time of this slice. Later promoted to Build 0.26 in section 45 |
 
 ### 44.1 Honest limits
 
@@ -1948,3 +1948,39 @@ while external testing of Build 0.25 continues.
   and writes an audit event; it does not change accounting data.
 - The full-app translation is not complete. The next slice is the dashboard and transaction page
   bodies, then reports and print documents.
+
+## 45. Build 0.26 release verification - public link and offline package (2026-11-10)
+
+Build 0.26 was promoted after the full suite passed. The local app was restarted so the stable
+public link now serves 0.26, and the offline package and setup EXE were rebuilt and installed.
+
+| Check | Result |
+|---|---|
+| Run ID | `RUN-2026-11-10-02` |
+| Full test suite | **350 tests, OK**, 46.764 s, Python 3.14.6, Windows |
+| Version | `APP_VERSION` and the watchdog expected version both changed to `0.26` |
+| Local restart | Listener on `127.0.0.1:8010` restarted; `GET /health` returned `ok` with `Server: ARTHIVIO/0.26 Python/3.14.6` |
+| Public health | `https://bright-spotlight-secondary-oops.trycloudflare.com/health` returned 200 `ok` |
+| Stable link | `https://financial-business-accounting.web.app/app` returned 200 |
+| Tester login | `tester@arthivio.test` login returned 200 and the dashboard rendered |
+| Language switch | Hindi switch returned 200 with `lang="hi"` and translated navigation; switching back returned 200 with `lang="en"` and English navigation |
+| New templates live | `/dashboards` returned 200 and showed Collections and payments, Board snapshot, and Quarterly tax and profit |
+| Watchdog | `ARTHIVIO Public Link` ran after the restart with `LastTaskResult 0` and kept the same tunnel URL |
+| Offline package | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.26.zip` rebuilt; embedded health returned `ARTHIVIO/0.26 Python/3.14.6` |
+| Setup EXE | `ARTHIVIO-Setup.exe` built with IExpress; installer batch installed to `%LOCALAPPDATA%\ARTHIVIO`, preserved existing `data` and `backups`, and installed health returned `ARTHIVIO/0.26` |
+| Installer ZIP | `ARTHIVIO-Installer-0.26.zip` contains the setup EXE, offline ZIP, installer BAT, README and access file |
+| Release ZIP | `ARTHIVIO-Release-0.26.zip` contains the runnable 0.26 folder plus the setup EXE, offline ZIP, installer BAT, README and access file |
+| Release hashes | Setup `E1A221530AE84D0F356D2A5189DC7EA27C880A8F08A315AAB16B9D9D3822F6DB`; installer ZIP `89BED90108E3D2031D9EAFF42B80706D65159F26F46467E47105E9344D724AD5`; offline ZIP `B09DAF4C8798EB40AA10BF3ED991C2DFD78E4A6624D2854B6AE0C9B52A148290`; release ZIP `EEA6BA7DBC94491634B82791B7C752ADED688CCFC6F6B47694C8792C304C9640` |
+| Copied release | `D:\finance business software` now contains Build 0.26; Build 0.25 moved to `previous-0.25`; app folder 517 files / 31,896,902 bytes and hashes match the source |
+| Release folder | `D:\ARTHIVIO-Offline-0.26` contains the setup EXE, installer ZIP, offline ZIP, release ZIP, README and access file |
+
+### 45.1 Honest limits
+
+- The public link still depends on this PC staying powered on, signed in and online.
+- The Firebase `/app` page is only a stable redirect; it is not permanent Python/SQLite hosting.
+- Page bodies, forms, reports, print documents and detailed error messages remain English.
+- Offline-to-online sync is not built. Offline entries stay in the offline database.
+- GST outputs remain working aids, not filed returns.
+- The demo/trial database is synthetic. Real customer, bank or GST data must not be entered there.
+- No clean-machine, mobile, screen-reader, penetration or independent accounting review was run for
+  Build 0.26.
