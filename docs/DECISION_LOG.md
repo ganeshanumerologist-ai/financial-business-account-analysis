@@ -1128,3 +1128,26 @@ dashboard can never hold a stale or invented authoritative total.
   transaction drill-down page and dimension filters remain planned for later Phase B increments.
 - The full suite passes **339 tests, OK**, 45.737 s, Python 3.14.6, Windows, recorded in
   `docs/TEST_RESULTS.md` `RUN-2026-11-08-03`.
+
+## D-051 - English/Hindi is a per-user presentation preference with English fallback
+
+**Date:** 2026-11-10. **Status:** accepted for Build 0.26 in progress.
+
+Language is a presentation preference, not an accounting setting. It never changes document text,
+report totals, GST outputs or audit data.
+
+- A new additive `user.language` column defaults to `en`. Existing databases gain it through
+  `db.COLUMN_MIGRATIONS`; no historical row is rewritten.
+- The topbar **English / हिंदी** link calls `GET /language?lang=...`. It saves only the signed-in
+  user's own preference, writes a `user.language_updated` audit event and returns to the referring
+  page. It does not change any business data.
+- `app/i18n.py` is a dependency-free dictionary. Unknown keys fall back to the English source
+  string, and a user row without the language column falls back to `en`, so a partial translation
+  can never break a page.
+- Build 0.26 translates the seven navigation headings, all menu group titles and links, shell
+  buttons, footer note and common page titles. Page bodies, forms, reports and print documents
+  remain English until they are translated page by page.
+- Hindi labels are UI translations, not a statutory or accounting translation. A native Hindi
+  accounting review is still pending.
+- The full suite passes **350 tests, OK**, 46.482 s, Python 3.14.6, Windows, recorded in
+  `docs/TEST_RESULTS.md` section 44.

@@ -1921,3 +1921,30 @@ still runs Build 0.25 until the tester finishes and the new package is verified.
 - The full finance pack now shows up to 19 KPI cards; it is intentionally a long board-style view.
 - No new offline installer or public-link deployment was made for this in-progress work.
 - Hindi labels still cover only the saved-dashboard surface.
+
+## 44. Build 0.26 work in progress - English/Hindi shell foundation (2026-11-10)
+
+This is the first slice of the full-app translation. It is additive and remains in the working tree
+while external testing of Build 0.25 continues.
+
+| Check | Result |
+|---|---|
+| Full test suite | **350 tests, OK**, 46.482 s, Python 3.14.6, Windows |
+| Language preference | Additive `user.language` column, default `en`; old databases gain it through `COLUMN_MIGRATIONS` |
+| Toggle | Topbar **English / हिंदी** link; `GET /language?lang=hi` or `lang=en` saves the signed-in user's choice and returns to the referring page |
+| Translated shell | Seven navigation headings, 23 menu group titles, all menu links, brand tagline, Businesses and Sign out buttons, footer note and common page titles |
+| Fallback | Unknown keys stay English; a user row without the language column falls back to `en` |
+| Tests | Dictionary/fallback unit tests, additive migration test, HTTP switch test, and reset back to English |
+| Audit | `user.language_updated` event with `from` and `to` values |
+| Deployment | Not deployed. The stable public link remains Build 0.25 until testing is complete |
+
+### 44.1 Honest limits
+
+- Only the navigation, page shell and common page titles are translated. Page bodies, forms,
+  reports, print documents and detailed error messages remain English.
+- Hindi labels are UI translations, not a statutory or accounting translation. A native Hindi
+  accounting review is still pending.
+- The language switch is a GET preference route. It only changes the signed-in user's own language
+  and writes an audit event; it does not change accounting data.
+- The full-app translation is not complete. The next slice is the dashboard and transaction page
+  bodies, then reports and print documents.

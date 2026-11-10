@@ -28,6 +28,7 @@ from . import dashboards as dashboards_mod
 from . import db, diagnostics, drafts as drafts_mod, money, security
 from . import excel as excel_mod
 from . import gstr2b as gstr2b_mod
+from . import i18n
 from . import insights as insights_mod
 from . import opening_import as opening_mod
 from . import reports as reports_mod
@@ -666,40 +667,42 @@ def icon(key: str) -> str:
     return f'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">{d}</svg>'
 
 
-def nav_html(active: str) -> str:
+def nav_html(active: str, lang: str = "en") -> str:
     """Render the Tally-style top menu with grouped dropdowns."""
     out = []
     for item in NAV:
         links = [link for _group, group_links in item["groups"] for link in group_links]
         is_parent = any(path == active for path, _ico, _label in links)
+        top_label = i18n.t(lang, item["label"])
         if not item["groups"]:
             cls = "navlink on" if item["href"] == active else "navlink"
-            out.append(f'<a class="{cls}" href="/{item["href"]}">{icon(item["icon"])}<span>{item["label"]}</span></a>')
+            out.append(f'<a class="{cls}" href="/{item["href"]}">{icon(item["icon"])}<span>{top_label}</span></a>')
             continue
         cls = "menu on" if is_parent else "menu"
         chev = ('<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
                 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
                 f'{ICONS["chev"]}</svg>')
         out.append(f'<details class="{cls}"><summary>{icon(item["icon"])}'
-                   f'<span>{item["label"]}</span>{chev}</summary>'
+                   f'<span>{top_label}</span>{chev}</summary>'
                    f'<div class="menu-panel">')
         nested_groups = item["key"] == "reports" or len(links) > 12
         for group, group_links in item["groups"]:
             group_active = any(path == active for path, _ico, _label in group_links)
+            group_label = i18n.t(lang, group)
             if nested_groups:
                 group_open = " open" if group_active else ""
                 out.append(f'<details class="menu-sub"{group_open}><summary>'
-                           f'<span>{group}</span>{chev}</summary>'
+                           f'<span>{group_label}</span>{chev}</summary>'
                            f'<div class="menu-sub-panel">')
                 for path, ico, label in group_links:
                     link_cls = " on" if path == active else ""
-                    out.append(f'<a class="{link_cls.strip()}" href="/{path}">{icon(ico)}<span>{label}</span></a>')
+                    out.append(f'<a class="{link_cls.strip()}" href="/{path}">{icon(ico)}<span>{i18n.t(lang, label)}</span></a>')
                 out.append('</div></details>')
                 continue
-            out.append(f'<div class="menu-group"><div class="menu-title">{group}</div>')
+            out.append(f'<div class="menu-group"><div class="menu-title">{group_label}</div>')
             for path, ico, label in group_links:
                 link_cls = " on" if path == active else ""
-                out.append(f'<a class="{link_cls.strip()}" href="/{path}">{icon(ico)}<span>{label}</span></a>')
+                out.append(f'<a class="{link_cls.strip()}" href="/{path}">{icon(ico)}<span>{i18n.t(lang, label)}</span></a>')
             out.append('</div>')
         out.append('</div></details>')
     return "".join(out)
@@ -734,30 +737,35 @@ def theme_options(current: str) -> str:
 
 
 def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> str:
-    nav = nav_html(active)
+    lang = i18n.language_for(user)
+    title_text = i18n.t(lang, title)
+    nav = nav_html(active, lang)
     theme = theme_for(user)
     who = ""
     if user:
+        other = "hi" if lang == "en" else "en"
         who = (f'<div class="userbox"><div class="usertext"><b>{esc(user["full_name"])}</b>'
                f'{esc(tenant["name"]) if tenant else ""}</div>'
-               f'<a class="btn ghost small" href="/businesses">Businesses</a>'
+               f'<a class="btn ghost small" href="/language?lang={other}" '
+               f'title="{esc(i18n.t(lang, "Switch language"))}">{esc(i18n.language_label(other))}</a>'
+               f'<a class="btn ghost small" href="/businesses">{esc(i18n.t(lang, "Businesses"))}</a>'
                f'<form method="post" action="/logout" style="display:inline;margin:0">'
-               f'<button class="btn ghost small" type="submit">Sign out</button></form></div>')
-    return f"""<!doctype html><html lang="en" data-theme="{theme}"><head>
+               f'<button class="btn ghost small" type="submit">{esc(i18n.t(lang, "Sign out"))}</button></form></div>')
+    return f"""<!doctype html><html lang="{lang}" data-theme="{theme}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="description" content="ARTHIVIO private accounting workspace: double-entry books, GST working papers and financial statements.">
-<title>{esc(title)} · {APP_NAME}</title><style>{CSS}</style></head>
+<title>{esc(title_text)} · {APP_NAME}</title><style>{CSS}</style></head>
 <body><div class="shell">
 <header class="topbar"><div class="topbar-inner">
-  <a class="brand" href="/" aria-label="ARTHIVIO dashboard">{LOGO}<div><span class="name">ARTHIVIO</span><span class="tag">Smarter Finance</span></div></a>
-  <nav class="mainnav" aria-label="Main navigation">{nav}</nav>
+  <a class="brand" href="/" aria-label="{esc(i18n.t(lang, "ARTHIVIO dashboard"))}">{LOGO}<div><span class="name">ARTHIVIO</span><span class="tag">{esc(i18n.t(lang, "Smarter Finance"))}</span></div></a>
+  <nav class="mainnav" aria-label="{esc(i18n.t(lang, "Main navigation"))}">{nav}</nav>
   {who}
 </div></header>
 <main class="main">
-  <div class="top"><h1>{esc(title)}</h1></div>
+  <div class="top"><h1>{esc(title_text)}</h1></div>
   {body}
-  <p class="footer-note">{APP_NAME} · amounts in INR · all figures derived from posted documents and journal entries.</p>
+  <p class="footer-note">{APP_NAME} · {esc(i18n.t(lang, "Amounts in INR · all figures derived from posted documents and journal entries."))}</p>
 </main></div>
 <script>
 (() => {{
@@ -1828,6 +1836,8 @@ class Handler(BaseHTTPRequestHandler):
             if not user or not tenant:
                 return self._redirect("/logout")
 
+            if path == "/language":
+                return self._set_language(conn, user, tenant, q)
             if path == "/api/v1/analytics/catalog":
                 return self.api_analytics_catalog(conn, user, tenant)
             if path == "/api/v1/analytics/overview":
@@ -9705,6 +9715,27 @@ Currency {esc(tenant['currency'])}. GSTIN, PIN code and IFSC are validated on sa
         body = (f'<div class="card pad"><div class="err">{esc(message)}</div>'
                 '<a class="btn ghost" href="/settings">Back to settings</a></div>')
         return self._send(layout("Settings", body, "settings", user, tenant), 400)
+
+    def _set_language(self, conn, user, tenant, q):
+        """Save a user's UI language and return to the page that linked here."""
+        lang = i18n.normalize_language((q.get("lang") or [""])[0])
+        old = i18n.language_for(user)
+        if lang != old:
+            conn.execute("UPDATE user SET language=? WHERE id=?", (lang, user["id"]))
+            acct.audit(conn, tenant["id"], user["id"], "user.language_updated", "user",
+                       user["id"], meta={"from": old, "to": lang})
+        referer = self.headers.get("Referer", "")
+        target = "/"
+        try:
+            parsed = urllib.parse.urlparse(referer)
+            host = self.headers.get("Host", "")
+            if not parsed.netloc or parsed.netloc == host:
+                path = parsed.path or "/"
+                if path.startswith("/") and not path.startswith("//"):
+                    target = path + (("?" + parsed.query) if parsed.query else "")
+        except Exception:
+            target = "/"
+        return self._redirect(target)
 
     def _save_theme(self, conn, user, tenant, form):
         theme = first(form, "theme").strip()

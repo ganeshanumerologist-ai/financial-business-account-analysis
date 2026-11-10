@@ -95,8 +95,11 @@ state instead of inventing data. The drill-down link carries the same filters. T
 Build 0.26 template expansion adds six packs: collections and payments, inventory and working
 capital, tax close checklist, board snapshot, cash conversion, and quarterly tax and profit. The
 full finance pack now keeps all 19 registered actual metrics instead of truncating at 12.
-Power BI Service refresh/RLS, offline-to-online sync and a generative AI provider remain planned.
-Covered by **346 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`).
+Build 0.26 also starts the **full-app English/Hindi translation** with a saved per-user language
+preference, the seven navigation headings, menu groups and links, shell buttons, and common page
+titles. Page bodies and reports remain English and are translated next. Power BI Service
+refresh/RLS, offline-to-online sync and a generative AI provider remain planned.
+Covered by **350 automated tests that pass on this machine** (see `docs/TEST_RESULTS.md`).
 
 It is **not production-ready yet**: GST portal upload, e-invoice/IRN, e-way bills, TDS/TCS,
 email delivery, ownership transfer, PostgreSQL and the Next.js front end are not built. GSTR-1,

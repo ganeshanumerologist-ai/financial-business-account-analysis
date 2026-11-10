@@ -1,0 +1,267 @@
+"""Small, dependency-free English/Hindi dictionary for the application shell.
+
+Only presentation strings live here. Accounting labels, document text and
+reports remain English until they are translated page by page. Missing keys
+fall back to the English source string, so a partial dictionary can never
+break a page.
+"""
+from __future__ import annotations
+
+LANGUAGES = ("en", "hi")
+DEFAULT_LANGUAGE = "en"
+LANGUAGE_LABELS = {"en": "English", "hi": "हिंदी"}
+
+# Keys are the exact English strings used in NAV, page titles and the page
+# shell. Values are reviewed Hindi UI labels; accounting terms use common
+# Indian usage. English is the source language and is returned unchanged.
+HINDI = {
+    # Seven top-level navigation headings.
+    "Dashboard": "डैशबोर्ड",
+    "Transactions": "लेन-देन",
+    "Entries": "प्रविष्टियाँ",
+    "Books": "बहियाँ",
+    "Reports": "रिपोर्ट्स",
+    "Masters": "मास्टर",
+    "Settings": "सेटिंग्स",
+
+    # Navigation group titles.
+    "Sales": "बिक्री",
+    "Purchases": "खरीद",
+    "Record a new entry": "नई प्रविष्टि दर्ज करें",
+    "Review": "समीक्षा",
+    "Ledgers": "खाता बहियाँ",
+    "Day book": "दैनिक बही",
+    "Banking": "बैंकिंग",
+    "Analysis": "विश्लेषण",
+    "Financial statements": "वित्तीय विवरण",
+    "Accounting &amp; audit": "लेखांकन और ऑडिट",
+    "Sales &amp; purchases": "बिक्री और खरीद",
+    "Receivables &amp; payables": "प्राप्य और देय",
+    "Inventory": "इन्वेंटरी",
+    "Costing &amp; operations": "लागत और संचालन",
+    "Expense analysis": "व्यय विश्लेषण",
+    "Budgeting": "बजटिंग",
+    "Strategy &amp; cross-business": "रणनीति और क्रॉस-बिज़नेस",
+    "GST &amp; tax working papers": "GST और कर कार्यपत्र",
+    "Parties": "पार्टियाँ",
+    "Products": "उत्पाद",
+    "Operations": "संचालन",
+    "Workspace": "कार्यक्षेत्र",
+    "Controls": "नियंत्रण",
+
+    # Navigation links.
+    "Invoices": "चालान",
+    "Receipts": "रसीदें",
+    "Credit Notes": "क्रेडिट नोट",
+    "Bills": "बिल",
+    "Debit Notes": "डेबिट नोट",
+    "Vendors": "विक्रेता",
+    "Cash Entry": "नकद प्रविष्टि",
+    "Bank Entry": "बैंक प्रविष्टि",
+    "Journal Entry": "जर्नल प्रविष्टि",
+    "Approval Queue": "स्वीकृति कतार",
+    "Ledger": "खाता",
+    "Bulk Opening Balances": "बल्क प्रारंभिक शेष",
+    "Cash Book": "नकद बही",
+    "Bank Book": "बैंक बही",
+    "Day Book": "दैनिक बही",
+    "Bank Accounts": "बैंक खाते",
+    "Bank Reconciliation": "बैंक मिलान",
+    "Report Library": "रिपोर्ट लाइब्रेरी",
+    "Analytics Overview": "एनालिटिक्स अवलोकन",
+    "Saved Dashboards": "सहेजे गए डैशबोर्ड",
+    "Trial Balance": "ट्रायल बैलेंस",
+    "Profit &amp; Loss": "लाभ और हानि",
+    "Balance Sheet": "बैलेंस शीट",
+    "Cash Flow": "नकद प्रवाह",
+    "Financial Ratios": "वित्तीय अनुपात",
+    "Period Comparison": "अवधि तुलना",
+    "Opening vs Closing": "प्रारंभिक बनाम समापन",
+    "Reversal Register": "रिवर्सल रजिस्टर",
+    "Account Activity": "खाता गतिविधि",
+    "Trial Balance Exceptions": "ट्रायल बैलेंस अपवाद",
+    "Draft Entries": "ड्राफ्ट प्रविष्टियाँ",
+    "Locked Periods": "लॉक अवधियाँ",
+    "Rule Version Usage": "नियम संस्करण उपयोग",
+    "Sales Register": "बिक्री रजिस्टर",
+    "Sales Summary": "बिक्री सारांश",
+    "Top Customers": "शीर्ष ग्राहक",
+    "Product-wise Sales": "उत्पाद-वार बिक्री",
+    "Discount Analysis": "छूट विश्लेषण",
+    "Sales Returns": "बिक्री वापसी",
+    "Salesperson Performance": "सेल्सपर्सन प्रदर्शन",
+    "Purchase Register": "खरीद रजिस्टर",
+    "Top Suppliers": "शीर्ष आपूर्तिकर्ता",
+    "Price Variance": "मूल्य अंतर",
+    "Purchase Returns": "खरीद वापसी",
+    "Receivables Ageing": "प्राप्य एजिंग",
+    "Payables Ageing": "देय एजिंग",
+    "Credit Limit Utilisation": "क्रेडिट सीमा उपयोग",
+    "Receivables Risk": "प्राप्य जोखिम",
+    "Working Capital Cycle": "कार्यशील पूंजी चक्र",
+    "Cash Flow Forecast": "नकद प्रवाह पूर्वानुमान",
+    "Stock Summary": "स्टॉक सारांश",
+    "Stock Movements": "स्टॉक मूवमेंट",
+    "Stock Adjustments": "स्टॉक समायोजन",
+    "Stock Adjustment Register": "स्टॉक समायोजन रजिस्टर",
+    "Inventory Valuation": "इन्वेंटरी मूल्यांकन",
+    "Reorder / Shortage": "रीऑर्डर / कमी",
+    "Dead / Slow Stock": "डेड / स्लो स्टॉक",
+    "Inventory to GL": "इन्वेंटरी से GL",
+    "Expiry / Batch": "समाप्ति / बैच",
+    "Job / Project Costing": "जॉब / प्रोजेक्ट लागत",
+    "WIP Report": "WIP रिपोर्ट",
+    "Production Consumption": "उत्पादन खपत",
+    "Yield / Wastage": "यील्ड / अपव्यय",
+    "Cost Centre Performance": "लागत केंद्र प्रदर्शन",
+    "Expense Breakdown": "व्यय विवरण",
+    "KPI Dashboard Pack": "KPI डैशबोर्ड पैक",
+    "Trend Explanation": "ट्रेंड व्याख्या",
+    "Revenue Forecast": "राजस्व पूर्वानुमान",
+    "Anomaly Digest": "विसंगति डाइजेस्ट",
+    "Budgets": "बजट",
+    "Budget vs Actual": "बजट बनाम वास्तविक",
+    "Department / Branch P&amp;L": "विभाग / शाखा लाभ-हानि",
+    "Consolidated Multi-Company": "समेकित मल्टी-कंपनी",
+    "GST Summary &amp; GSTR-1": "GST सारांश और GSTR-1",
+    "GSTR-3B Working": "GSTR-3B कार्यपत्र",
+    "GSTR-2B Reconciliation": "GSTR-2B मिलान",
+    "Tax Ledger": "कर खाता",
+    "Customers": "ग्राहक",
+    "Items": "आइटम",
+    "Dimensions": "आयाम",
+    "Batch Register": "बैच रजिस्टर",
+    "Production Orders": "उत्पादन आदेश",
+    "Businesses": "व्यवसाय",
+    "Team &amp; Roles": "टीम और भूमिकाएँ",
+    "Business Settings": "व्यवसाय सेटिंग्स",
+    "Backups": "बैकअप",
+    "System Check": "सिस्टम जाँच",
+    "Audit Log": "ऑडिट लॉग",
+
+    # Shell labels.
+    "Smarter Finance": "स्मार्ट वित्त",
+    "Sign out": "साइन आउट",
+    "Switch language": "भाषा बदलें",
+    "Main navigation": "मुख्य नेविगेशन",
+    "ARTHIVIO dashboard": "ARTHIVIO डैशबोर्ड",
+    "Amounts in INR · all figures derived from posted documents and journal entries.":
+        "राशियाँ INR में · सभी आंकड़े पोस्ट किए गए दस्तावेज़ों और जर्नल प्रविष्टियों से लिए गए हैं।",
+
+    # Page titles used by layout(); dynamic titles fall back to English.
+    "Account activity": "खाता गतिविधि",
+    "Account not found": "खाता नहीं मिला",
+    "Analytics overview": "एनालिटिक्स अवलोकन",
+    "Anomaly digest": "विसंगति डाइजेस्ट",
+    "Approval pending": "स्वीकृति लंबित",
+    "Approvals": "स्वीकृतियाँ",
+    "Archive or merge account": "खाता संग्रहित या मिलाएँ",
+    "Audit log": "ऑडिट लॉग",
+    "Bank accounts": "बैंक खाते",
+    "Bank reconciliation": "बैंक मिलान",
+    "Bill": "बिल",
+    "Budget vs actual": "बजट बनाम वास्तविक",
+    "Bulk opening balances": "बल्क प्रारंभिक शेष",
+    "Cannot correct bill": "बिल सुधार नहीं हो सकता",
+    "Cannot correct invoice": "चालान सुधार नहीं हो सकता",
+    "Cannot edit": "संपादित नहीं कर सकते",
+    "Cannot post": "पोस्ट नहीं कर सकते",
+    "Cash flow": "नकद प्रवाह",
+    "Cash flow forecast": "नकद प्रवाह पूर्वानुमान",
+    "Consolidated multi-company": "समेकित मल्टी-कंपनी",
+    "Cost centre performance": "लागत केंद्र प्रदर्शन",
+    "Credit limit utilisation": "क्रेडिट सीमा उपयोग",
+    "Credit notes": "क्रेडिट नोट",
+    "Dead and slow stock": "डेड और स्लो स्टॉक",
+    "Debit notes": "डेबिट नोट",
+    "Department / branch P&L": "विभाग / शाखा लाभ-हानि",
+    "Discount analysis": "छूट विश्लेषण",
+    "Draft entries": "ड्राफ्ट प्रविष्टियाँ",
+    "Edit account": "खाता संपादित करें",
+    "Edit journal entry": "जर्नल प्रविष्टि संपादित करें",
+    "Expense breakdown": "व्यय विवरण",
+    "Financial ratios": "वित्तीय अनुपात",
+    "Forbidden": "निषिद्ध",
+    "GST summary": "GST सारांश",
+    "GSTR-2B reconciliation": "GSTR-2B मिलान",
+    "GSTR-3B": "GSTR-3B",
+    "Inventory to GL reconciliation": "इन्वेंटरी से GL मिलान",
+    "Inventory valuation": "इन्वेंटरी मूल्यांकन",
+    "Invite created": "आमंत्रण बनाया गया",
+    "Job / project costing": "जॉब / प्रोजेक्ट लागत",
+    "KPI dashboard pack": "KPI डैशबोर्ड पैक",
+    "Locked period register": "लॉक अवधि रजिस्टर",
+    "New bill": "नया बिल",
+    "New invoice": "नया चालान",
+    "New ledger account": "नया खाता",
+    "Not found": "नहीं मिला",
+    "Opening vs closing balances": "प्रारंभिक बनाम समापन शेष",
+    "Period comparison": "अवधि तुलना",
+    "Price variance": "मूल्य अंतर",
+    "Production consumption": "उत्पादन खपत",
+    "Production orders": "उत्पादन आदेश",
+    "Product-wise sales": "उत्पाद-वार बिक्री",
+    "Profit & Loss": "लाभ और हानि",
+    "Purchase register": "खरीद रजिस्टर",
+    "Purchase returns": "खरीद वापसी",
+    "Receipts &amp; payments": "रसीदें और भुगतान",
+    "Receivables risk": "प्राप्य जोखिम",
+    "Reorder and shortage": "रीऑर्डर और कमी",
+    "Report library": "रिपोर्ट लाइब्रेरी",
+    "Request too large": "अनुरोध बहुत बड़ा है",
+    "Revenue forecast": "राजस्व पूर्वानुमान",
+    "Reversal register": "रिवर्सल रजिस्टर",
+    "Reverse journal entry": "जर्नल प्रविष्टि रिवर्स करें",
+    "Rule version usage": "नियम संस्करण उपयोग",
+    "Sales register": "बिक्री रजिस्टर",
+    "Sales returns": "बिक्री वापसी",
+    "Sales summary": "बिक्री सारांश",
+    "Salesperson performance": "सेल्सपर्सन प्रदर्शन",
+    "Saved dashboards": "सहेजे गए डैशबोर्ड",
+    "Something went wrong": "कुछ गलत हो गया",
+    "Stock adjustment register": "स्टॉक समायोजन रजिस्टर",
+    "Stock adjustments": "स्टॉक समायोजन",
+    "Stock movement history": "स्टॉक मूवमेंट इतिहास",
+    "Stock summary": "स्टॉक सारांश",
+    "System check": "सिस्टम जाँच",
+    "Tax ledger": "कर खाता",
+    "Team": "टीम",
+    "Top customers": "शीर्ष ग्राहक",
+    "Top suppliers": "शीर्ष आपूर्तिकर्ता",
+    "Trend explanation": "ट्रेंड व्याख्या",
+    "Trial balance": "ट्रायल बैलेंस",
+    "Trial balance exceptions": "ट्रायल बैलेंस अपवाद",
+    "WIP report": "WIP रिपोर्ट",
+    "Working capital cycle": "कार्यशील पूंजी चक्र",
+    "Yield / wastage": "यील्ड / अपव्यय",
+}
+
+TRANSLATIONS = {"hi": HINDI}
+
+
+def normalize_language(value: str | None) -> str:
+    value = (value or "").strip().lower()
+    return value if value in LANGUAGES else DEFAULT_LANGUAGE
+
+
+def language_for(user) -> str:
+    """Read a user's saved language, tolerating old rows without the column."""
+    if not user:
+        return DEFAULT_LANGUAGE
+    try:
+        value = user["language"]
+    except (IndexError, KeyError, TypeError):
+        return DEFAULT_LANGUAGE
+    return normalize_language(value)
+
+
+def language_label(value: str | None) -> str:
+    return LANGUAGE_LABELS.get(normalize_language(value), LANGUAGE_LABELS[DEFAULT_LANGUAGE])
+
+
+def t(lang: str | None, key: str) -> str:
+    """Translate a known UI string; unknown strings fall back to English."""
+    lang = normalize_language(lang)
+    if lang == DEFAULT_LANGUAGE:
+        return key
+    return TRANSLATIONS.get(lang, {}).get(key, key)

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS user (
     full_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','locked','disabled')),
     theme TEXT NOT NULL DEFAULT 'ocean',
+    language TEXT NOT NULL DEFAULT 'en',
     created_at TEXT NOT NULL
 );
 
@@ -879,7 +880,10 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
-    "user": [("theme", "TEXT NOT NULL DEFAULT 'ocean'")],
+    "user": [
+        ("theme", "TEXT NOT NULL DEFAULT 'ocean'"),
+        ("language", "TEXT NOT NULL DEFAULT 'en'"),
+    ],
     "journal_entry": [
         ("rule_version", "TEXT NOT NULL DEFAULT 'posting-v1'"),
         ("is_intercompany", "INTEGER NOT NULL DEFAULT 0"),

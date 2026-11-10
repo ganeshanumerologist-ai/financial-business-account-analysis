@@ -89,12 +89,14 @@ class TestAdditiveMigration(unittest.TestCase):
         self.assertIn("mrp_paise", columns("item"))
         self.assertIn("margin_bp", columns("item"))
         self.assertIn("theme", columns("user"))
+        self.assertIn("language", columns("user"))
         self.conn.execute(
             "INSERT INTO user (id,email,password_hash,full_name,created_at)"
             " VALUES ('u1','old@example.test','x','Old User','2026-01-01')")
-        self.assertEqual(
-            self.conn.execute("SELECT theme FROM user WHERE id='u1'").fetchone()["theme"],
-            "ocean")
+        old_user = self.conn.execute(
+            "SELECT theme, language FROM user WHERE id='u1'").fetchone()
+        self.assertEqual(old_user["theme"], "ocean")
+        self.assertEqual(old_user["language"], "en")
         self.conn.execute(
             "INSERT INTO account (id,tenant_id,code,name,type)"
             " VALUES ('a1','t1','1000','Cash','asset')")

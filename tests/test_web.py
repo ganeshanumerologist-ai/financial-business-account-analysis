@@ -1384,6 +1384,31 @@ class WebTest(unittest.TestCase):
             "/preferences/theme", {"_csrf": token, "theme": "ocean"})
         self.assertEqual(status, 200)
 
+    def test_38b_user_can_switch_english_and_hindi(self):
+        self.login()
+        status, body = self.get("/language?lang=hi")
+        self.assertEqual(status, 200)
+        self.assertIn('<html lang="hi"', body)
+        for text in ("डैशबोर्ड", "लेन-देन", "रिपोर्ट्स", "साइन आउट"):
+            self.assertIn(text, body)
+        self.assertIn('href="/language?lang=en"', body)
+
+        conn = db.connect(self.db_path)
+        row = conn.execute(
+            "SELECT language FROM user WHERE email='owner@arthivio.test'").fetchone()
+        audit = conn.execute(
+            "SELECT meta FROM audit_log WHERE action='user.language_updated'"
+            " ORDER BY created_at DESC LIMIT 1").fetchone()
+        conn.close()
+        self.assertEqual(row["language"], "hi")
+        self.assertIn('"to": "hi"', audit["meta"])
+
+        status, body = self.get("/language?lang=en")
+        self.assertEqual(status, 200)
+        self.assertIn('<html lang="en"', body)
+        self.assertIn("Dashboard", body)
+        self.assertNotIn("डैशबोर्ड", body)
+
     def test_39_account_archive_merge_and_restore(self):
         self.login()
         status, page = self.get("/ledger/account/new")
