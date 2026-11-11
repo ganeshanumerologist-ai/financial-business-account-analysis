@@ -1402,6 +1402,8 @@ class WebTest(unittest.TestCase):
         for text in ("डैशबोर्ड", "लेन-देन", "रिपोर्ट्स", "साइन आउट"):
             self.assertIn(text, body)
         self.assertIn('href="/language?lang=en"', body)
+        self.assertIn('href="/language?lang=hi"', body)
+        self.assertIn('aria-current="true"', body)
         # Dashboard body labels, not just the navigation shell.
         for text in ("राजस्व (वित्त वर्ष)", "शुद्ध लाभ (वित्त वर्ष)",
                      "हाल के चालान", "कुल"):
@@ -1451,6 +1453,8 @@ class WebTest(unittest.TestCase):
                      "कर योग्य मूल्य", "चालान कुल",
                      "प्रिंट / PDF के रूप में सहेजें"):
             self.assertIn(text, printed)
+        self.assertIn('href="/language?lang=en"', printed)
+        self.assertIn('href="/language?lang=hi"', printed)
 
         conn = db.connect(self.db_path)
         row = conn.execute(

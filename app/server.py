@@ -200,6 +200,10 @@ h1{font-size:26px} h2{font-size:19px} h3{font-size:15px}
 .menu-sub-panel{display:grid;gap:2px;padding:5px 5px 7px 12px;border-left:2px solid var(--primary-soft);margin:0 8px 7px}
 .menu-sub-panel a{padding:7px 9px;font-size:13px}
 .userbox{display:flex;align-items:center;gap:8px;margin-left:auto;flex:0 0 auto}
+.lang-switch{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.lang-switch a{padding:5px 9px;border-radius:6px;font-size:13px;line-height:1.2;color:var(--muted);text-decoration:none}
+.lang-switch a:hover{background:var(--primary-pale);color:var(--primary-strong);text-decoration:none}
+.lang-switch a.on{background:var(--primary);color:#fff}
 .usertext{font-size:12px;line-height:1.25;color:var(--muted);text-align:right}
 .usertext b{display:block;color:var(--ink);font-size:12.5px}
 .topbar .btn.ghost{background:#fff;border-color:var(--line);color:var(--primary)}
@@ -349,6 +353,9 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:"Segoe UI",sys
 .toolbar{max-width:190mm;margin:14px auto;display:flex;gap:10px;justify-content:flex-end}
 .toolbar a,.toolbar button{font:inherit;font-size:13px;padding:8px 14px;border-radius:8px;border:1px solid var(--primary-line);background:#fff;color:var(--primary);cursor:pointer;text-decoration:none}
 .toolbar button{background:var(--primary);color:#fff;border-color:var(--primary)}
+.toolbar .lang-switch{margin-right:auto;display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--primary-line);border-radius:8px;background:#fff}
+.toolbar .lang-switch a{padding:5px 9px;font-size:12px;border:0;background:transparent;color:var(--primary)}
+.toolbar .lang-switch a.on{background:var(--primary);color:#fff}
 .sheet{width:190mm;min-height:270mm;margin:0 auto 20px;background:#fff;padding:14mm 14mm 12mm;box-shadow:0 4px 24px rgba(33,37,41,.08)}
 .head{display:flex;justify-content:space-between;gap:18px;border-bottom:2px solid var(--primary);padding-bottom:10px}
 .head .brand{font-size:21px;font-weight:700;letter-spacing:.03em;color:var(--ink)}
@@ -736,6 +743,20 @@ def theme_options(current: str) -> str:
     return "".join(out)
 
 
+def language_switch(lang: str, extra_class: str = "") -> str:
+    """Render both language choices, with the saved choice visibly active."""
+    links = []
+    for code in i18n.LANGUAGES:
+        active = code == lang
+        current = ' aria-current="true"' if active else ""
+        links.append(
+            f'<a class="{"on" if active else ""}" href="/language?lang={code}"{current}>'
+            f'{esc(i18n.language_label(code))}</a>')
+    classes = "lang-switch" + (f" {extra_class}" if extra_class else "")
+    return (f'<span class="{classes}" role="group" '
+            f'aria-label="{esc(i18n.t(lang, "Switch language"))}">{"".join(links)}</span>')
+
+
 def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> str:
     lang = i18n.language_for(user)
     title_text = i18n.t(lang, title)
@@ -743,11 +764,9 @@ def layout(title: str, body: str, active: str = "", user=None, tenant=None) -> s
     theme = theme_for(user)
     who = ""
     if user:
-        other = "hi" if lang == "en" else "en"
         who = (f'<div class="userbox"><div class="usertext"><b>{esc(user["full_name"])}</b>'
                f'{esc(tenant["name"]) if tenant else ""}</div>'
-               f'<a class="btn ghost small" href="/language?lang={other}" '
-               f'title="{esc(i18n.t(lang, "Switch language"))}">{esc(i18n.language_label(other))}</a>'
+               f'{language_switch(lang)}'
                f'<a class="btn ghost small" href="/businesses">{esc(i18n.t(lang, "Businesses"))}</a>'
                f'<form method="post" action="/logout" style="display:inline;margin:0">'
                f'<button class="btn ghost small" type="submit">{esc(i18n.t(lang, "Sign out"))}</button></form></div>')
@@ -3348,6 +3367,7 @@ it is posted. Debits and credits must still balance exactly.</div>
 <title>{esc(i18n.t(lang, "Tax Invoice"))} {esc(inv["invoice_no"])} &middot; {esc(t["name"])}</title>
 <style>{THEME_CSS}{PRINT_CSS}</style></head><body>
 <div class="toolbar no-print">
+  {language_switch(lang, "no-print")}
   <a href="/invoices/{esc(inv["id"])}">{esc(i18n.t(lang, "Back to invoice"))}</a>
   <button onclick="window.print()">{esc(i18n.t(lang, "Print / Save as PDF"))}</button>
 </div>
