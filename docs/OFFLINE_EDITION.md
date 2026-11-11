@@ -169,7 +169,7 @@ deserves a verified backup and a restore drill.
 
 | Check | Result |
 |---|---|
-| Full test suite | **351 tests, OK**, 46.144 s, Python 3.14.6, Windows |
+| Full test suite | **351 tests, OK**, 79.943 s, Python 3.14.6, Windows |
 | Report tests | 45 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, R-204 draft entries, R-508 expiry, R-601 project costing, R-602 WIP, R-603 consumption, R-604 yield, R-605 cost centre, R-902 dimension P&L, R-1004 consolidation, credit-limit detection, malformed journal detection and tenant isolation |
 | Draft workflow tests | save draft, post draft, insufficient stock at posting, void with reason, idempotent post, receipt guard and draft-print block |
 | Correction workflow tests | 9 `TestPostedCorrections` cases plus the HTTP flow: invoice, bill and payment void/replace, stock restore/undo, blocked replacement and opening-balance replacement |
@@ -187,15 +187,16 @@ deserves a verified backup and a restore drill.
 | Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.26` |
 | Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.26 Python/3.14.6` |
 | Template library | **35 templates**, including the six new packs; `full_finance` keeps all 19 registered actual metrics |
-| English/Hindi shell | Saved per-user language preference; seven navigation headings, 23 menu groups, 89 menu links, shell buttons and common page titles translated; the dashboard, invoice list, bill list, receipts list, payment detail and invoice/bill entry and correction forms are also translated; unknown strings fall back to English |
+| English/Hindi shell | Saved per-user language preference; seven navigation headings, 23 menu groups, 89 menu links, shell buttons and common page titles translated; the dashboard, invoice list, bill list, receipts list, payment detail, invoice/bill entry and correction forms, report library and posted-invoice print document are also translated; unknown strings fall back to English |
 | Setup EXE | `ARTHIVIO-Setup.exe` built with IExpress, installed to `%LOCALAPPDATA%\ARTHIVIO`, existing `data` and `backups` preserved, desktop and Start Menu shortcuts present, installed health returned `ARTHIVIO/0.26`; rebuilt for the post-release hotfix |
 | Package first run | Setup page rendered from the embedded runtime; owner creation covered by `test_first_run` |
 | External-drive backup | Local backup verified, copy hash matched, copy re-verified read-only (Build 0.14, unchanged code path) |
-| Package size | approximately 15.1 MB (ZIP); 31.9 MB extracted |
+| Package size | approximately 15.2 MB (ZIP); 32.0 MB extracted |
 | Package data reset | Smoke-test database and logs were kept outside the package; no test data was added to the built folder |
 
-The post-release hotfix rebuilt this package with the login redirect and the Hindi dashboard,
-invoice-list and bill-list labels. See `docs/TEST_RESULTS.md` section 46 for the new release hashes.
+The post-release hotfix rebuilt this package with the login redirect, the Hindi dashboard and
+transaction pages, the Hindi report library and the Hindi posted-invoice print document. See
+`docs/TEST_RESULTS.md` section 47 for the new release hashes.
 
 Not verified in this build:
 
@@ -215,6 +216,8 @@ Not verified in this build:
 - No offline-to-online sync. If the online version is used later, offline entry during an internet
   outage is still a separate, unbuilt feature.
 - GST outputs are working aids, not filed returns.
+- The report library is translated, but individual report screen bodies and other print/export
+  documents remain English. Report formulas and the invoice amount-in-words value also remain English.
 - AI insights are deterministic rules over posted records; no generative model is configured.
 - Power BI output is a static import pack, not a Power BI Service dataset or `.pbix`.
 - No permanent public URL. A Cloudflare quick tunnel or Render free service is temporary/demo-only.

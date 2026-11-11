@@ -3273,19 +3273,20 @@ it is posted. Debits and credits must still balance exactly.</div>
         return layout(f'Invoice {inv["invoice_no"]}', body, "invoices", user, tenant)
 
     def page_invoice_print(self, conn, user, tenant, invoice_id: str) -> tuple[str, int]:
+        lang = i18n.language_for(user)
         theme = theme_for(user)
         try:
             br = acct.invoice_tax_breakup(conn, tenant["id"], invoice_id)
         except acct.AccountingError:
-            return layout("Not found", '<div class="card pad">Invoice not found.</div>',
+            return layout("Not found",
+                          f'<div class="card pad">{esc(i18n.t(lang, "Invoice not found."))}</div>',
                           "invoices", user, tenant), 404
         inv, t, intra = br["invoice"], br["tenant"], br["intra"]
         if inv["status"] != "posted":
             return layout(
                 "Cannot print",
-                '<div class="card pad"><div class="err">Only a posted invoice can be printed '
-                'as a tax invoice. Post the draft first, or create a new invoice.</div>'
-                f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back to invoice</a></div>',
+                f'<div class="card pad"><div class="err">{esc(i18n.t(lang, "Only a posted invoice can be printed as a tax invoice. Post the draft first, or create a new invoice."))}</div>'
+                f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">{esc(i18n.t(lang, "Back to invoice"))}</a></div>',
                 "invoices", user, tenant), 400
         hsn = {r["id"]: r["hsn"] for r in conn.execute(
             "SELECT id, hsn FROM item WHERE tenant_id=?", (tenant["id"],))}
@@ -3324,30 +3325,31 @@ it is posted. Debits and credits must still balance exactly.</div>
         buyer_addr = (inv["customer_address"] or "").strip()
         warn = ""
         if not (t["gstin"] or "").strip():
-            warn = ('<div class="warn no-print">Supplier GSTIN is not set. Add it in '
-                    '<a href="/settings">Settings</a> before sharing this as a tax invoice.</div>')
+            warn = (f'<div class="warn no-print">{esc(i18n.t(lang, "Supplier GSTIN is not set. Add it in"))} '
+                    f'<a href="/settings">{esc(i18n.t(lang, "Settings"))}</a> '
+                    f'{esc(i18n.t(lang, "before sharing this as a tax invoice."))}</div>')
         bank = ""
         if (t["bank_name"] or "").strip() or (t["bank_account"] or "").strip():
-            bank = (f'<div class="box"><b>Bank details</b><br>{esc(t["bank_name"])}<br>'
-                    f'A/c {esc(t["bank_account"])}'
+            bank = (f'<div class="box"><b>{esc(i18n.t(lang, "Bank details"))}</b><br>{esc(t["bank_name"])}<br>'
+                    f'{esc(i18n.t(lang, "A/c"))} {esc(t["bank_account"])}'
                     + (f'<br>IFSC {esc(t["bank_ifsc"])}' if t["bank_ifsc"] else "")
                     + '</div>')
         terms = ""
         if (t["invoice_terms"] or "").strip():
-            terms = f'<div class="box"><b>Terms</b><br>{esc(t["invoice_terms"])}</div>'
+            terms = f'<div class="box"><b>{esc(i18n.t(lang, "Terms"))}</b><br>{esc(t["invoice_terms"])}</div>'
         contact = " &nbsp;|&nbsp; ".join(x for x in [
             f'GSTIN: <b>{esc(t["gstin"])}</b>' if t["gstin"] else "",
             esc(t["phone"]) if t["phone"] else "",
             esc(t["email"]) if t["email"] else "",
         ] if x)
 
-        return f"""<!doctype html><html lang="en" data-theme="{theme}"><head><meta charset="utf-8">
+        return f"""<!doctype html><html lang="{lang}" data-theme="{theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tax Invoice {esc(inv["invoice_no"])} &middot; {esc(t["name"])}</title>
+<title>{esc(i18n.t(lang, "Tax Invoice"))} {esc(inv["invoice_no"])} &middot; {esc(t["name"])}</title>
 <style>{THEME_CSS}{PRINT_CSS}</style></head><body>
 <div class="toolbar no-print">
-  <a href="/invoices/{esc(inv["id"])}">Back to invoice</a>
-  <button onclick="window.print()">Print / Save as PDF</button>
+  <a href="/invoices/{esc(inv["id"])}">{esc(i18n.t(lang, "Back to invoice"))}</a>
+  <button onclick="window.print()">{esc(i18n.t(lang, "Print / Save as PDF"))}</button>
 </div>
 {warn}
 <div class="sheet">
@@ -3358,47 +3360,47 @@ it is posted. Debits and credits must still balance exactly.</div>
       <div class="addr">{contact}</div>
     </div>
     <div class="meta">
-      <div class="doc">Tax Invoice</div>
+      <div class="doc">{esc(i18n.t(lang, "Tax Invoice"))}</div>
       <div><b>{esc(inv["invoice_no"])}</b></div>
-      <div>Date: {esc(inv["invoice_date"])}</div>
-      <div>Place of supply: {pos}</div>
-      <div>Reverse charge: N</div>
+      <div>{esc(i18n.t(lang, "Date"))}: {esc(inv["invoice_date"])}</div>
+      <div>{esc(i18n.t(lang, "Place of supply"))}: {pos}</div>
+      <div>{esc(i18n.t(lang, "Reverse charge: N"))}</div>
     </div>
   </div>
   <div class="parties">
     <div>
-      <h4>Billed to</h4>
+      <h4>{esc(i18n.t(lang, "Billed to"))}</h4>
       <b>{esc(inv["customer_name"])}</b>
       {f'<div class="addr">{esc(buyer_addr)}</div>' if buyer_addr else ''}
-      <div class="addr">GSTIN: {esc(inv["customer_gstin"]) if inv["customer_gstin"] else 'Unregistered'}</div>
-      <div class="addr">State: {esc(inv["customer_state"])} &ndash; {esc(state_name(inv["customer_state"]))}</div>
+      <div class="addr">GSTIN: {esc(inv["customer_gstin"]) if inv["customer_gstin"] else esc(i18n.t(lang, "Unregistered"))}</div>
+      <div class="addr">{esc(i18n.t(lang, "State"))}: {esc(inv["customer_state"])} &ndash; {esc(state_name(inv["customer_state"]))}</div>
     </div>
     <div>
-      <h4>Supply &amp; tax</h4>
-      <div class="addr">Type: {'Intra-state (CGST + SGST)' if intra else 'Inter-state (IGST)'}</div>
-      <div class="addr">Taxable value: {money.fmt(inv["sub_total_paise"])}</div>
+      <h4>{esc(i18n.t(lang, "Supply & tax"))}</h4>
+      <div class="addr">{esc(i18n.t(lang, "Type"))}: {esc(i18n.t(lang, "Intra-state (CGST + SGST)" if intra else "Inter-state (IGST)"))}</div>
+      <div class="addr">{esc(i18n.t(lang, "Taxable value"))}: {money.fmt(inv["sub_total_paise"])}</div>
       <div class="addr">GST: {money.fmt(inv["tax_paise"])}</div>
-      <div class="addr">Invoice total: <b>{money.fmt(inv["total_paise"])}</b></div>
+      <div class="addr">{esc(i18n.t(lang, "Invoice total"))}: <b>{money.fmt(inv["total_paise"])}</b></div>
     </div>
   </div>
   <table>
-    <thead><tr><th class="num">#</th><th>Description</th><th>HSN/SAC</th><th class="num">Qty</th>
-      <th class="num">Rate</th><th class="num">Discount</th><th class="num">Taxable</th>
-      <th class="num">GST %</th>{tax_heads}<th class="num">Amount</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>{esc(i18n.t(lang, "Description"))}</th><th>HSN/SAC</th><th class="num">{esc(i18n.t(lang, "Qty"))}</th>
+      <th class="num">{esc(i18n.t(lang, "Rate"))}</th><th class="num">{esc(i18n.t(lang, "Discount"))}</th><th class="num">{esc(i18n.t(lang, "Taxable"))}</th>
+      <th class="num">GST %</th>{tax_heads}<th class="num">{esc(i18n.t(lang, "Amount"))}</th></tr></thead>
     <tbody>{''.join(rows)}</tbody>
   </table>
   <div class="totals"><table>
-    <tr><td>Taxable value</td><td class="amt">{money.fmt(inv["sub_total_paise"])}</td></tr>
+    <tr><td>{esc(i18n.t(lang, "Taxable value"))}</td><td class="amt">{money.fmt(inv["sub_total_paise"])}</td></tr>
     {tax_total_rows}
-    <tr><td>Round off</td><td class="amt">{money.fmt(inv["round_off_paise"])}</td></tr>
-    <tr class="grand"><td>Invoice total</td><td class="amt">{money.fmt(inv["total_paise"])}</td></tr>
+    <tr><td>{esc(i18n.t(lang, "Round off"))}</td><td class="amt">{money.fmt(inv["round_off_paise"])}</td></tr>
+    <tr class="grand"><td>{esc(i18n.t(lang, "Invoice total"))}</td><td class="amt">{money.fmt(inv["total_paise"])}</td></tr>
   </table></div>
-  <div class="words"><b>Amount in words:</b> {esc(money.amount_in_words(inv["total_paise"]))}</div>
+  <div class="words"><b>{esc(i18n.t(lang, "Amount in words:"))}</b> {esc(money.amount_in_words(inv["total_paise"]))}</div>
   <div class="foot">
     {bank}{terms}
-    <div class="sign"><div>For {esc(t["name"])}</div><div class="line">Authorised signatory</div></div>
+    <div class="sign"><div>{esc(i18n.t(lang, "For {name}").replace("{name}", t["name"]))}</div><div class="line">{esc(i18n.t(lang, "Authorised signatory"))}</div></div>
   </div>
-  <div class="note">Computer-generated tax invoice. Posted entries are immutable; corrections are made by credit note.</div>
+  <div class="note">{esc(i18n.t(lang, "Computer-generated tax invoice. Posted entries are immutable; corrections are made by credit note."))}</div>
 </div>
 </body></html>""", 200
 
@@ -6352,6 +6354,7 @@ correction path. Every correction stays in the audit trail.</p>
         return dfrom, dto
 
     def page_report_library(self, conn, user, tenant, q) -> str:
+        lang = i18n.language_for(user)
         data = reports_mod.catalog()
         status = (q.get("status") or ["all"])[0]
         group_filter = (q.get("group") or ["all"])[0]
@@ -6361,7 +6364,7 @@ correction path. Every correction stays in the audit trail.</p>
 
         def badge(value: str) -> str:
             cls = "ok" if value == "working" else ("warn" if value == "partial" else "neutral")
-            return f'<span class="badge {cls}">{esc(value)}</span>'
+            return f'<span class="badge {cls}">{esc(i18n.t(lang, value.title()))}</span>'
 
         sections = []
         for group in groups:
@@ -6369,46 +6372,47 @@ correction path. Every correction stays in the audit trail.</p>
             for r in group["reports"]:
                 if status != "all" and r["status"] != status:
                     continue
-                title = (f'<a href="{esc(r["route"])}">{esc(r["title"])}</a>'
-                         if r["route"] else esc(r["title"]))
+                title = (f'<a href="{esc(r["route"])}">{esc(i18n.t(lang, r["title"]))}</a>'
+                         if r["route"] else esc(i18n.t(lang, r["title"])))
                 rows.append(
                     f'<tr><td>{esc(r["id"])}</td><td>{title}</td><td>{badge(r["status"])}</td>'
                     f'<td class="small muted">{esc(r["formula"])}</td></tr>')
             if rows:
+                shown = i18n.t(lang, "{count} shown").replace("{count}", str(len(rows)))
                 sections.append(
-                    f'<div class="card pad sect"><div class="sect-head"><h2>{esc(group["name"])}</h2>'
-                    f'<span class="badge neutral">{len(rows)} shown</span></div>'
-                    f'<div class="table-wrap"><table><thead><tr><th>ID</th><th>Report</th>'
-                    f'<th>Status</th><th>Formula / source</th></tr></thead><tbody>'
+                    f'<div class="card pad sect"><div class="sect-head"><h2>{esc(i18n.t(lang, group["name"]))}</h2>'
+                    f'<span class="badge neutral">{esc(shown)}</span></div>'
+                    f'<div class="table-wrap"><table><thead><tr><th>{esc(i18n.t(lang, "ID"))}</th><th>{esc(i18n.t(lang, "Report"))}</th>'
+                    f'<th>{esc(i18n.t(lang, "Status"))}</th><th>{esc(i18n.t(lang, "Formula / source"))}</th></tr></thead><tbody>'
                     f'{"".join(rows)}</tbody></table></div></div>')
         group_options = "".join(
             f'<option value="{esc(g["name"])}"{" selected" if g["name"] == group_filter else ""}>'
-            f'{esc(g["name"])}</option>' for g in data["groups"])
+            f'{esc(i18n.t(lang, g["name"]))}</option>' for g in data["groups"])
         status_options = "".join(
-            f'<option value="{value}"{" selected" if value == status else ""}>{label}</option>'
+            f'<option value="{value}"{" selected" if value == status else ""}>{esc(i18n.t(lang, label))}</option>'
             for value, label in (("all", "All statuses"), ("working", "Working"),
                                  ("partial", "Partial"), ("planned", "Planned")))
+        working_badge = i18n.t(lang, "{working} of {total} working").replace(
+            "{working}", str(data["working"])).replace("{total}", str(data["total"]))
         body = f"""
-<div class="sect-head"><div><h2>Report library</h2>
-<div class="small muted">Every catalogued report with its source formula and current delivery state.
-Only working reports have a route; planned rows are not simulated.</div></div>
-<span class="badge ok">{data["working"]} of {data["total"]} working</span></div>
+<div class="sect-head"><div><h2>{esc(i18n.t(lang, "Report library"))}</h2>
+<div class="small muted">{esc(i18n.t(lang, "Every catalogued report with its source formula and current delivery state. Only working reports have a route; planned rows are not simulated."))}</div></div>
+<span class="badge ok">{esc(working_badge)}</span></div>
 <div class="kpis">
-  {kpi("Working", str(data["working"]), "route + automated check")}
-  {kpi("Partial", str(data["partial"]), "working paper only")}
-  {kpi("Planned", str(data["planned"]), "formula defined, screen not built")}
-  {kpi("Catalogued", str(data["total"]), "Phase 2–6 priorities")}
+  {kpi(i18n.t(lang, "Working"), str(data["working"]), i18n.t(lang, "route + automated check"))}
+  {kpi(i18n.t(lang, "Partial"), str(data["partial"]), i18n.t(lang, "working paper only"))}
+  {kpi(i18n.t(lang, "Planned"), str(data["planned"]), i18n.t(lang, "formula defined, screen not built"))}
+  {kpi(i18n.t(lang, "Catalogued"), str(data["total"]), i18n.t(lang, "Phase 2–6 priorities"))}
 </div>
 <form method="get" action="/reports/library" class="card pad sect"
  style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
-<div><label>Group</label><select name="group"><option value="all">All groups</option>{group_options}</select></div>
-<div><label>Status</label><select name="status">{status_options}</select></div>
-<button class="btn" type="submit">Filter</button>
-<a class="btn ghost" href="/reports/library">Reset</a>
+<div><label>{esc(i18n.t(lang, "Group"))}</label><select name="group"><option value="all">{esc(i18n.t(lang, "All groups"))}</option>{group_options}</select></div>
+<div><label>{esc(i18n.t(lang, "Status"))}</label><select name="status">{status_options}</select></div>
+<button class="btn" type="submit">{esc(i18n.t(lang, "Filter"))}</button>
+<a class="btn ghost" href="/reports/library">{esc(i18n.t(lang, "Reset"))}</a>
 </form>
-{"".join(sections) or '<div class="card pad">No reports match this filter.</div>'}
-<p class="small muted">The catalogue is a delivery map, not a claim that every report is live. Each working
-report declares its formula on its own screen. Planned reports are deliberately not filled with sample data.</p>"""
+{"".join(sections) or f'<div class="card pad">{esc(i18n.t(lang, "No reports match this filter."))}</div>'}
+<p class="small muted">{esc(i18n.t(lang, "The catalogue is a delivery map, not a claim that every report is live. Each working report declares its formula on its own screen. Planned reports are deliberately not filled with sample data."))}</p>"""
         return layout("Report library", body, "reports/library", user, tenant)
 
     def page_cash_flow(self, conn, user, tenant, q) -> str:

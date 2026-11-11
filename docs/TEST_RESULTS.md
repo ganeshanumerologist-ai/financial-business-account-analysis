@@ -2011,8 +2011,42 @@ stable public link. It does not change any accounting calculation.
 
 ### 46.1 Honest limits
 
-- The invoice, bill and receipts lists, payment detail, and invoice/bill entry and correction forms
-  are translated. Reports and print documents remain English. The next translation slice is reports
-  and print documents.
+- At the time of this section, the invoice, bill and receipts lists, payment detail, and invoice/bill
+  entry and correction forms were translated. Section 47 adds the report library and the posted-invoice
+  print document; individual report screens and other print documents still remain English.
+- The public link still depends on this PC staying powered on, signed in and online.
+- The hotfix was not independently reviewed or tested on a clean machine.
+
+## 47. Report library and invoice print Hindi, offline rebuild (2026-11-11)
+
+This slice translates the report library page and the posted-invoice print document. It does not
+change any accounting calculation, tax rate, journal or report formula.
+
+| Check | Result |
+|---|---|
+| Full test suite | **351 tests, OK**, 79.943 s, Python 3.14.6, Windows |
+| Report library Hindi | Page title, introduction, working/partial/planned/catalogued KPIs and hints, group and status filters, table headers, group headings and all 66 catalogued report names now use the saved Hindi language |
+| Report formulas | Formula / source text stays in English because it is a technical source expression, not a UI label |
+| Invoice print Hindi | Print toolbar, tax-invoice heading, billed-to block, supply-and-tax block, item and total headers, amount-in-words label, authorised-signatory block and the computer-generated note now use the saved Hindi language |
+| Invoice print data | Invoice number, dates, party names, addresses, GSTIN, state codes, HSN/SAC, quantities, rates, amounts and the amount-in-words value remain unchanged data |
+| Tests | `test_38b_user_can_switch_english_and_hindi` now also checks the Hindi report library and a posted invoice print page |
+| Live verification | Local `/reports/library` returned `रिपोर्ट लाइब्रेरी`, `कार्यशील`, `समूह`, `सूत्र / स्रोत`, `वित्तीय विवरण` and `ट्रायल बैलेंस`; a posted invoice print returned `कर चालान`, `बिल प्राप्तकर्ता`, `आपूर्ति और कर`, `कर योग्य मूल्य`, `चालान कुल` and `प्रिंट / PDF के रूप में सहेजें`; switching back returned English |
+| Public verification | Tester login through the current tunnel returned 200; Hindi `/reports/library` and the posted-invoice print returned the same expected labels; switching back returned English |
+| Offline package | `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.26.zip` rebuilt; embedded runtime returned `arthivio 0.26`; 516 files / 32,009,097 bytes |
+| Setup EXE | Rebuilt with IExpress from the updated offline ZIP, installer BAT and launcher |
+| Installer ZIP | Rebuilt with the updated offline ZIP and setup EXE |
+| Release ZIP | Rebuilt with the updated offline folder, setup EXE, offline ZIP, installer BAT, README and access file |
+| Copied release | `D:\finance business software\ARTHIVIO-Offline-0.26` updated to the new build; 516 files / 32,009,097 bytes; artifact hashes match `D:\ARTHIVIO-Offline-0.26` |
+| Release hashes | Setup `1033260D506B5873B50AC07ACEAA11A90A7AEDF2B406AA295C69AA2CA1657E43`; installer ZIP `3DD9331039B06DB038574FB072055EACC1CEAFF16CB92DA1CB468F7E46213AA9`; offline ZIP `856CA8B082C99DF33E307EDCBF06A0715CC399F7F439C1E91CADA65429CCD9E3`; release ZIP `AA4A05646CD89FBE08BFE5894F3704A7E4C3F5D0F3D199561AB12D0C4470DF0E` |
+
+### 47.1 Honest limits
+
+- The report library is translated, but the body of each individual report screen remains English.
+  The next report slice is the main statement screens: trial balance, profit and loss, balance sheet
+  and cash flow.
+- Only the posted-invoice print document is translated. Credit notes, statements, share links and
+  other print/export documents remain English.
+- Report formulas and the amount-in-words value remain English. A native Hindi accounting and legal
+  review of the tax-invoice wording is still pending.
 - The public link still depends on this PC staying powered on, signed in and online.
 - The hotfix was not independently reviewed or tested on a clean machine.

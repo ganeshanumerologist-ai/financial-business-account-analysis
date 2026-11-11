@@ -1434,6 +1434,24 @@ class WebTest(unittest.TestCase):
         for text in ("बिल तिथि", "विक्रेता बिल संख्या", "बिल पोस्ट करें"):
             self.assertIn(text, bill_new)
 
+        status, report_library = self.get("/reports/library")
+        self.assertEqual(status, 200)
+        for text in ("रिपोर्ट लाइब्रेरी", "कार्यशील", "समूह", "सूत्र / स्रोत",
+                     "वित्तीय विवरण", "ट्रायल बैलेंस"):
+            self.assertIn(text, report_library)
+
+        conn = db.connect(self.db_path)
+        invoice_id = conn.execute(
+            "SELECT id FROM invoice WHERE tenant_id=? AND status='posted' LIMIT 1",
+            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+        status, printed = self.get(f"/invoices/{invoice_id}/print")
+        self.assertEqual(status, 200)
+        for text in ("कर चालान", "बिल प्राप्तकर्ता", "आपूर्ति और कर",
+                     "कर योग्य मूल्य", "चालान कुल",
+                     "प्रिंट / PDF के रूप में सहेजें"):
+            self.assertIn(text, printed)
+
         conn = db.connect(self.db_path)
         row = conn.execute(
             "SELECT language FROM user WHERE email='owner@arthivio.test'").fetchone()
