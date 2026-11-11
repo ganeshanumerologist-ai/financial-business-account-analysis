@@ -1783,6 +1783,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/login":
                 if security.first_run(conn):
                     return self._redirect("/setup")
+                if self._session(conn):
+                    return self._redirect("/")
                 return self._send(login_page(theme=self._cookies().get("ui_theme", DEFAULT_THEME)))
             if path == "/setup":
                 return self._setup_get(conn)
@@ -2431,6 +2433,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(payload)
 
     def page_dashboard(self, conn, user, tenant) -> str:
+        lang = i18n.language_for(user)
         today = date.today()
         start = today.replace(month=tenant["fiscal_year_start_month"], day=1)
         if start > today:
@@ -2444,7 +2447,7 @@ class Handler(BaseHTTPRequestHandler):
         rows = "".join(
             f'<tr><td><a href="/invoices/{esc(r["id"])}">{esc(r["invoice_no"])}</a></td>'
             f'<td>{esc(r["invoice_date"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["total_paise"])}</td></tr>'
-            for r in recent) or '<tr><td colspan="4" class="empty">No invoices yet</td></tr>'
+            for r in recent) or f'<tr><td colspan="4" class="empty">{esc(i18n.t(lang, "No invoices yet"))}</td></tr>'
 
         # Actual monthly series for the fiscal year, limited to the last six months.
         monthly = analytics_mod.monthly_series(
@@ -2461,23 +2464,24 @@ class Handler(BaseHTTPRequestHandler):
         expense_labels = [f'{r["code"]} {r["name"]}' for r in expense_rows]
         expense_values = [round(int(r["amount_paise"]) / 100, 2) for r in expense_rows]
         if expense_other:
-            expense_labels.append("Other expense ledgers")
+            expense_labels.append(i18n.t(lang, "Other expense ledgers"))
             expense_values.append(round(expense_other / 100, 2))
         expense_has_data = bool(expense_labels) and any(expense_values)
         dash_charts = []
         if monthly_has_data:
             dash_charts.append({"id": "dash-monthly", "option": {
                 "tooltip": {"trigger": "axis"},
-                "legend": {"top": 0, "data": ["Revenue", "Expenses", "Profit"]},
+                "legend": {"top": 0, "data": [
+                    i18n.t(lang, "Revenue"), i18n.t(lang, "Expenses"), i18n.t(lang, "Profit")]},
                 "grid": {"left": 64, "right": 24, "top": 42, "bottom": 34, "containLabel": True},
                 "xAxis": {"type": "category", "data": monthly_labels},
                 "yAxis": {"type": "value"},
                 "series": [
-                    {"name": "Revenue", "type": "bar", "data": monthly_revenue,
+                    {"name": i18n.t(lang, "Revenue"), "type": "bar", "data": monthly_revenue,
                      "barMaxWidth": 28},
-                    {"name": "Expenses", "type": "line", "smooth": True,
+                    {"name": i18n.t(lang, "Expenses"), "type": "line", "smooth": True,
                      "data": monthly_expense, "symbolSize": 6},
-                    {"name": "Profit", "type": "line", "smooth": True,
+                    {"name": i18n.t(lang, "Profit"), "type": "line", "smooth": True,
                      "data": monthly_profit, "symbolSize": 6},
                 ],
             }})
@@ -2486,16 +2490,18 @@ class Handler(BaseHTTPRequestHandler):
                 "tooltip": {"trigger": "item"},
                 "legend": {"type": "scroll", "bottom": 0},
                 "series": [{
-                    "name": "Expense actuals", "type": "pie",
+                    "name": i18n.t(lang, "Expense actuals"), "type": "pie",
                     "radius": ["46%", "70%"], "center": ["50%", "44%"],
                     "data": [{"name": name, "value": value}
                              for name, value in zip(expense_labels, expense_values)],
                 }],
             }})
         monthly_html = (charting.container("dash-monthly", 320) if monthly_has_data
-                        else charting.empty("No posted revenue or expense actuals in this fiscal year yet."))
+                        else charting.empty(i18n.t(
+                            lang, "No posted revenue or expense actuals in this fiscal year yet.")))
         expense_html = (charting.container("dash-expense", 300) if expense_has_data
-                        else charting.empty("No posted expense actuals in this fiscal year yet."))
+                        else charting.empty(i18n.t(
+                            lang, "No posted expense actuals in this fiscal year yet.")))
         dash_chart_script = charting.render(dash_charts)
         pending_count = 0
         try:
@@ -2506,58 +2512,57 @@ class Handler(BaseHTTPRequestHandler):
         approval_note = ""
         if pending_count:
             approval_note = (f'<p class="small"><a class="badge warn" href="/approvals">'
-                             f'{pending_count} document(s) waiting for approval</a></p>')
+                             f'{pending_count} {esc(i18n.t(lang, "document(s) waiting for approval"))}</a></p>')
 
         body = f"""
 <div class="kpis">
-  {kpi("Revenue (FY)", money.fmt(d["revenue"]), "from posted journals")}
-  {kpi("Net profit (FY)", money.fmt(d["profit"]), "income minus expenses")}
-  {kpi("Cash + bank", money.fmt(d["cash"]), "cash and all linked bank accounts")}
-  {kpi("Receivable", money.fmt(d["receivable"]), f'{d["open_invoices"]} open invoice(s)')}
-  {kpi("Payable", money.fmt(d["payable"]), f'{d["open_bills"]} open bill(s)')}
-  {kpi("Inventory", money.fmt(d["inventory"]), "perpetual valuation")}
+  {kpi(i18n.t(lang, "Revenue (FY)"), money.fmt(d["revenue"]), i18n.t(lang, "from posted journals"))}
+  {kpi(i18n.t(lang, "Net profit (FY)"), money.fmt(d["profit"]), i18n.t(lang, "income minus expenses"))}
+  {kpi(i18n.t(lang, "Cash + bank"), money.fmt(d["cash"]), i18n.t(lang, "cash and all linked bank accounts"))}
+  {kpi(i18n.t(lang, "Receivable"), money.fmt(d["receivable"]), f'{d["open_invoices"]} {i18n.t(lang, "open invoice(s)")}')}
+  {kpi(i18n.t(lang, "Payable"), money.fmt(d["payable"]), f'{d["open_bills"]} {i18n.t(lang, "open bill(s)")}')}
+  {kpi(i18n.t(lang, "Inventory"), money.fmt(d["inventory"]), i18n.t(lang, "perpetual valuation"))}
 </div>
 <div class="grid2">
   <div class="card pad">
-    <div class="sect-head"><h2>Revenue, expenses and profit</h2>
+    <div class="sect-head"><h2>{esc(i18n.t(lang, "Revenue, expenses and profit"))}</h2>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <span class="badge ok">actuals only</span>
-        <a class="btn ghost small" href="/reports/analytics">Analytics</a>
+        <span class="badge ok">{esc(i18n.t(lang, "actuals only"))}</span>
+        <a class="btn ghost small" href="/reports/analytics">{esc(i18n.t(lang, "Analytics"))}</a>
       </div></div>
     {monthly_html}
-    <p class="small muted" style="margin:10px 0 0">Bars are posted revenue; lines are posted expenses and
-    profit. Missing months are zero actuals, never estimates or forecasts.</p>
+    <p class="small muted" style="margin:10px 0 0">{esc(i18n.t(lang, "Bars are posted revenue; lines are posted expenses and profit. Missing months are zero actuals, never estimates or forecasts."))}</p>
   </div>
   <div class="card pad">
-    <div class="sect-head"><h2>Checks</h2></div>
-    <p class="small muted" style="margin:0 0 12px">Every figure on this page is computed from posted journal lines — nothing is cached or invented.</p>
-    <p class="small"><span class="badge ok">Double-entry balanced</span></p>
+    <div class="sect-head"><h2>{esc(i18n.t(lang, "Checks"))}</h2></div>
+    <p class="small muted" style="margin:0 0 12px">{esc(i18n.t(lang, "Every figure on this page is computed from posted journal lines — nothing is cached or invented."))}</p>
+    <p class="small"><span class="badge ok">{esc(i18n.t(lang, "Double-entry balanced"))}</span></p>
     <table style="margin:10px 0">
-      <tr><td>Overdue receivable (60+ days)</td><td class="num">{money.fmt(d["overdue_receivable"])}</td></tr>
-      <tr><td>Overdue payable (60+ days)</td><td class="num">{money.fmt(d["overdue_payable"])}</td></tr>
-      <tr><td>Invoices posted this FY</td><td class="num">{d["invoice_count"]}</td></tr>
+      <tr><td>{esc(i18n.t(lang, "Overdue receivable (60+ days)"))}</td><td class="num">{money.fmt(d["overdue_receivable"])}</td></tr>
+      <tr><td>{esc(i18n.t(lang, "Overdue payable (60+ days)"))}</td><td class="num">{money.fmt(d["overdue_payable"])}</td></tr>
+      <tr><td>{esc(i18n.t(lang, "Invoices posted this FY"))}</td><td class="num">{d["invoice_count"]}</td></tr>
     </table>
     {approval_note}
-    <a class="btn" href="/invoices/new">Create invoice</a>
-    <a class="btn ghost" href="/bills/new" style="margin-left:6px">Record bill</a>
+    <a class="btn" href="/invoices/new">{esc(i18n.t(lang, "Create invoice"))}</a>
+    <a class="btn ghost" href="/bills/new" style="margin-left:6px">{esc(i18n.t(lang, "Record bill"))}</a>
   </div>
 </div>
 <div class="card pad sect">
-  <div class="sect-head"><h2>Expense mix (fiscal year)</h2>
+  <div class="sect-head"><h2>{esc(i18n.t(lang, "Expense mix (fiscal year)"))}</h2>
     <span class="badge neutral">{money.fmt(expense["total_paise"])}</span></div>
   {expense_html}
-  <p class="small muted" style="margin:10px 0 0">Posted expense accounts only. Other expense ledgers is the
-  remainder after the top seven accounts. Hover a slice for the rupee actual.</p>
+  <p class="small muted" style="margin:10px 0 0">{esc(i18n.t(lang, "Posted expense accounts only. Other expense ledgers is the remainder after the top seven accounts. Hover a slice for the rupee actual."))}</p>
 </div>
 <div class="sect" style="margin-top:20px">
-  <div class="sect-head"><h2>Recent invoices</h2><a class="btn ghost small" href="/invoices">View all</a></div>
-  <div class="card"><table><thead><tr><th>No</th><th>Date</th><th>Customer</th><th class="num">Total</th></tr></thead>
+  <div class="sect-head"><h2>{esc(i18n.t(lang, "Recent invoices"))}</h2><a class="btn ghost small" href="/invoices">{esc(i18n.t(lang, "View all"))}</a></div>
+  <div class="card"><table><thead><tr><th>{esc(i18n.t(lang, "No"))}</th><th>{esc(i18n.t(lang, "Date"))}</th><th>{esc(i18n.t(lang, "Customer"))}</th><th class="num">{esc(i18n.t(lang, "Total"))}</th></tr></thead>
   <tbody>{rows}</tbody></table></div>
 </div>
 {dash_chart_script}"""
         return layout("Dashboard", body, "", user, tenant)
 
     def page_invoices(self, conn, user, tenant, sess) -> str:
+        lang = i18n.language_for(user)
         rows = conn.execute(
             "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
             " WHERE i.tenant_id=? ORDER BY i.invoice_date DESC, i.invoice_no DESC LIMIT 100",
@@ -2589,19 +2594,19 @@ class Handler(BaseHTTPRequestHandler):
                     f'<td class="num">{money.fmt(r["tax_paise"])}</td>'
                     f'<td class="num"><b>{money.fmt(r["total_paise"])}</b></td>'
                     f'<td class="num">{out_display}</td>'
-                    f'<td><span class="badge {badge}">{status}</span></td></tr>')
-        trs = trs or '<tr><td colspan="8" class="empty">No invoices yet. Create the first one.</td></tr>'
+                    f'<td><span class="badge {badge}">{esc(i18n.t(lang, status))}</span></td></tr>')
+        trs = trs or f'<tr><td colspan="8" class="empty">{esc(i18n.t(lang, "No invoices yet. Create the first one."))}</td></tr>'
         body = f"""
 <div class="kpis">
-  {kpi("Invoices shown", str(len(rows)), "latest 100")}
-  {kpi("Outstanding", money.fmt(total_out), "posted invoices only")}
-  {kpi("Drafts", str(draft_count), "not posted; no stock or ledger effect")}
+  {kpi(i18n.t(lang, "Invoices shown"), str(len(rows)), i18n.t(lang, "latest 100"))}
+  {kpi(i18n.t(lang, "Outstanding"), money.fmt(total_out), i18n.t(lang, "posted invoices only"))}
+  {kpi(i18n.t(lang, "Drafts"), str(draft_count), i18n.t(lang, "not posted; no stock or ledger effect"))}
 </div>
-<div class="sect-head"><h2>Sales invoices</h2>
-<div><a class="btn" href="/invoices/new">New invoice</a>
-<a class="btn ghost" href="/export/invoices.csv">Export CSV</a></div></div>
+<div class="sect-head"><h2>{esc(i18n.t(lang, "Sales invoices"))}</h2>
+<div><a class="btn" href="/invoices/new">{esc(i18n.t(lang, "New invoice"))}</a>
+<a class="btn ghost" href="/export/invoices.csv">{esc(i18n.t(lang, "Export CSV"))}</a></div></div>
 <div class="card"><table>
-<thead><tr><th>No</th><th>Date</th><th>Customer</th><th class="num">Net</th><th class="num">Tax</th><th class="num">Total</th><th class="num">Outstanding</th><th>Status</th></tr></thead>
+<thead><tr><th>{esc(i18n.t(lang, "No"))}</th><th>{esc(i18n.t(lang, "Date"))}</th><th>{esc(i18n.t(lang, "Customer"))}</th><th class="num">{esc(i18n.t(lang, "Net"))}</th><th class="num">{esc(i18n.t(lang, "Tax"))}</th><th class="num">{esc(i18n.t(lang, "Total"))}</th><th class="num">{esc(i18n.t(lang, "Outstanding"))}</th><th>{esc(i18n.t(lang, "Status"))}</th></tr></thead>
 <tbody>{trs}</tbody></table></div>"""
         return layout("Invoices", body, "invoices", user, tenant)
 
@@ -3592,6 +3597,7 @@ amount cannot be less than {money.fmt(alloc_total)} already allocated.</p>
         return layout("Debit notes", body, "debit-notes", user, tenant)
 
     def page_bills(self, conn, user, tenant, sess) -> str:
+        lang = i18n.language_for(user)
         rows = conn.execute(
             "SELECT b.*, v.name FROM bill b JOIN vendor v ON v.id=b.vendor_id"
             " WHERE b.tenant_id=? ORDER BY b.bill_date DESC, b.bill_no DESC LIMIT 100",
@@ -3606,8 +3612,8 @@ amount cannot be less than {money.fmt(alloc_total)} already allocated.</p>
                     f'<td>{esc(r["name"])}</td><td class="num">{money.fmt(r["sub_total_paise"])}</td>'
                     f'<td class="num">{money.fmt(r["tax_paise"])}</td>'
                     f'<td class="num"><b>{money.fmt(r["total_paise"])}</b></td>'
-                    f'<td class="num">{money.fmt(out)}</td><td><span class="badge {badge}">{status}</span></td></tr>')
-        trs = trs or '<tr><td colspan="9" class="empty">No bills yet. Record your first purchase.</td></tr>'
+                    f'<td class="num">{money.fmt(out)}</td><td><span class="badge {badge}">{esc(i18n.t(lang, status))}</span></td></tr>')
+        trs = trs or f'<tr><td colspan="9" class="empty">{esc(i18n.t(lang, "No bills yet. Record your first purchase."))}</td></tr>'
         draft_rows = ""
         drafts = drafts_mod.list_bill_drafts(conn, tenant["id"],
                                              ("draft", "pending", "rejected"))
@@ -3619,23 +3625,23 @@ amount cannot be less than {money.fmt(alloc_total)} already allocated.</p>
                            f'{esc(d["draft_no"])}</a></td><td>{esc(d["bill_date"])}</td>'
                            f'<td>{esc(d["vendor_name"])}</td>'
                            f'<td class="num">{money.fmt(d["total_paise"])}</td>'
-                           f'<td><span class="badge {badge}">{esc(label)}</span></td></tr>')
-        draft_rows = draft_rows or ('<tr><td colspan="5" class="empty">No draft bills.</td></tr>')
+                           f'<td><span class="badge {badge}">{esc(i18n.t(lang, label))}</span></td></tr>')
+        draft_rows = draft_rows or f'<tr><td colspan="5" class="empty">{esc(i18n.t(lang, "No draft bills."))}</td></tr>'
         ap = acct.payable_ageing(conn, tenant["id"])
         body = f"""
 <div class="kpis">
-  {kpi("Payable outstanding", money.fmt(ap["grand_total"]), f'{len(ap["rows"])} open bill(s)')}
-  {kpi("Overdue 60+ days", money.fmt(ap["totals"]["61-90"] + ap["totals"]["90+"]), "to be paid")}
-  {kpi("Draft bills", str(len(drafts)), "not posted; no ledger or stock effect")}
+  {kpi(i18n.t(lang, "Payable outstanding"), money.fmt(ap["grand_total"]), f'{len(ap["rows"])} {i18n.t(lang, "open bill(s)")}')}
+  {kpi(i18n.t(lang, "Overdue 60+ days"), money.fmt(ap["totals"]["61-90"] + ap["totals"]["90+"]), i18n.t(lang, "to be paid"))}
+  {kpi(i18n.t(lang, "Draft bills"), str(len(drafts)), i18n.t(lang, "not posted; no ledger or stock effect"))}
 </div>
-<div class="sect-head"><h2>{len(rows)} bill(s)</h2>
-<div><a class="btn" href="/bills/new">New bill</a> <a class="btn ghost" href="/export/bills.csv">Export CSV</a></div></div>
+<div class="sect-head"><h2>{len(rows)} {esc(i18n.t(lang, "bill(s)"))}</h2>
+<div><a class="btn" href="/bills/new">{esc(i18n.t(lang, "New bill"))}</a> <a class="btn ghost" href="/export/bills.csv">{esc(i18n.t(lang, "Export CSV"))}</a></div></div>
 <div class="card"><table>
-<thead><tr><th>Bill</th><th>Vendor bill no</th><th>Date</th><th>Vendor</th><th class="num">Net</th><th class="num">GST</th><th class="num">Total</th><th class="num">Outstanding</th><th>Status</th></tr></thead>
+<thead><tr><th>{esc(i18n.t(lang, "Bill"))}</th><th>{esc(i18n.t(lang, "Vendor bill no"))}</th><th>{esc(i18n.t(lang, "Date"))}</th><th>{esc(i18n.t(lang, "Vendor"))}</th><th class="num">{esc(i18n.t(lang, "Net"))}</th><th class="num">{esc(i18n.t(lang, "GST"))}</th><th class="num">{esc(i18n.t(lang, "Total"))}</th><th class="num">{esc(i18n.t(lang, "Outstanding"))}</th><th>{esc(i18n.t(lang, "Status"))}</th></tr></thead>
 <tbody>{trs}</tbody></table></div>
-<div class="card sect"><div class="sect-head"><div><h2>Draft bills</h2>
-<div class="small muted">Drafts do not affect the ledger, stock, payables or input GST until posted.</div></div></div>
-<table><thead><tr><th>Draft</th><th>Date</th><th>Vendor</th><th class="num">Total</th><th>Status</th></tr></thead>
+<div class="card sect"><div class="sect-head"><div><h2>{esc(i18n.t(lang, "Draft bills"))}</h2>
+<div class="small muted">{esc(i18n.t(lang, "Drafts do not affect the ledger, stock, payables or input GST until posted."))}</div></div></div>
+<table><thead><tr><th>{esc(i18n.t(lang, "Draft"))}</th><th>{esc(i18n.t(lang, "Date"))}</th><th>{esc(i18n.t(lang, "Vendor"))}</th><th class="num">{esc(i18n.t(lang, "Total"))}</th><th>{esc(i18n.t(lang, "Status"))}</th></tr></thead>
 <tbody>{draft_rows}</tbody></table></div>"""
         return layout("Bills", body, "bills", user, tenant)
 

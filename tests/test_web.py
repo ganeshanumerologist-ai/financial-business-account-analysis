@@ -1351,8 +1351,18 @@ class WebTest(unittest.TestCase):
 
         status, dashboard = self.get("/")
         self.assertIn('data-theme="violet"', dashboard)
+        # A signed-in visitor should land on the dashboard, not the login form.
         status, login = self.get("/login")
-        self.assertIn('data-theme="violet"', login)
+        self.assertIn("Dashboard", login)
+        self.assertNotIn('action="/login"', login)
+        # A signed-out visitor still gets the saved theme on the login form.
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        req = urllib.request.Request(
+            self.url("/login"), headers={"Cookie": "ui_theme=violet"})
+        with opener.open(req, timeout=15) as r:
+            login_page = r.read().decode("utf-8")
+        self.assertIn('data-theme="violet"', login_page)
 
         conn = db.connect(self.db_path)
         invoice_id = conn.execute(
@@ -1392,6 +1402,20 @@ class WebTest(unittest.TestCase):
         for text in ("डैशबोर्ड", "लेन-देन", "रिपोर्ट्स", "साइन आउट"):
             self.assertIn(text, body)
         self.assertIn('href="/language?lang=en"', body)
+        # Dashboard body labels, not just the navigation shell.
+        for text in ("राजस्व (वित्त वर्ष)", "शुद्ध लाभ (वित्त वर्ष)",
+                     "हाल के चालान", "कुल"):
+            self.assertIn(text, body)
+
+        status, invoices = self.get("/invoices")
+        self.assertEqual(status, 200)
+        for text in ("बिक्री चालान", "बकाया", "स्थिति", "कर"):
+            self.assertIn(text, invoices)
+
+        status, bills = self.get("/bills")
+        self.assertEqual(status, 200)
+        for text in ("विक्रेता", "देय बकाया", "स्थिति", "GST"):
+            self.assertIn(text, bills)
 
         conn = db.connect(self.db_path)
         row = conn.execute(
@@ -1408,6 +1432,13 @@ class WebTest(unittest.TestCase):
         self.assertIn('<html lang="en"', body)
         self.assertIn("Dashboard", body)
         self.assertNotIn("डैशबोर्ड", body)
+
+    def test_38c_login_page_redirects_when_already_signed_in(self):
+        self.login()
+        status, body = self.get("/login")
+        self.assertEqual(status, 200)
+        self.assertIn("Dashboard", body)
+        self.assertNotIn('action="/login"', body)
 
     def test_39_account_archive_merge_and_restore(self):
         self.login()
