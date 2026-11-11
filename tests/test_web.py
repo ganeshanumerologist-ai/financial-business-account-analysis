@@ -1423,6 +1423,17 @@ class WebTest(unittest.TestCase):
                      "राशि", "माध्यम"):
             self.assertIn(text, receipts)
 
+        status, invoice_new = self.get("/invoices/new")
+        self.assertEqual(status, 200)
+        for text in ("चालान तिथि", "आपूर्ति का स्थान (राज्य कोड)",
+                     "चालान पोस्ट करें", "ड्राफ्ट के रूप में सहेजें"):
+            self.assertIn(text, invoice_new)
+
+        status, bill_new = self.get("/bills/new")
+        self.assertEqual(status, 200)
+        for text in ("बिल तिथि", "विक्रेता बिल संख्या", "बिल पोस्ट करें"):
+            self.assertIn(text, bill_new)
+
         conn = db.connect(self.db_path)
         row = conn.execute(
             "SELECT language FROM user WHERE email='owner@arthivio.test'").fetchone()

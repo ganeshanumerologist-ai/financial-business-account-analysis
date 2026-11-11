@@ -2611,14 +2611,16 @@ class Handler(BaseHTTPRequestHandler):
         return layout("Invoices", body, "invoices", user, tenant)
 
     def page_invoice_new(self, conn, user, tenant, sess, error: str = "") -> str:
+        lang = i18n.language_for(user)
         customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
                                  (tenant["id"],)).fetchall()
         items = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name",
                              (tenant["id"],)).fetchall()
         if not customers or not items:
             return layout("New invoice",
-                          '<div class="card pad"><div class="err">Add at least one customer and one item first.</div>'
-                          '<a class="btn ghost" href="/customers">Customers</a> <a class="btn ghost" href="/items">Items</a></div>',
+                          f'<div class="card pad"><div class="err">{esc(i18n.t(lang, "Add at least one customer and one item first."))}</div>'
+                          f'<a class="btn ghost" href="/customers">{esc(i18n.t(lang, "Customers"))}</a> '
+                          f'<a class="btn ghost" href="/items">{esc(i18n.t(lang, "Items"))}</a></div>',
                           "invoices", user, tenant)
         c_opts = "".join(f'<option value="{c["id"]}">{esc(c["name"])} ({esc(c["state_code"])})</option>' for c in customers)
         i_opts = "".join(
@@ -2628,9 +2630,9 @@ class Handler(BaseHTTPRequestHandler):
         row_tpl = f"""<tr>
   <td><select name="item_id">{i_opts}</select></td>
   <td><input name="qty" value="1" inputmode="decimal"></td>
-  <td><input name="price" placeholder="auto" inputmode="decimal"></td>
+  <td><input name="price" placeholder="{esc(i18n.t(lang, "auto"))}" inputmode="decimal"></td>
   <td><input name="discount" value="0" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td>
 </tr>"""
         rows = "".join(row_tpl for _ in range(3))
         body = f"""
@@ -2639,21 +2641,21 @@ class Handler(BaseHTTPRequestHandler):
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <div class="card pad sect">
   <div class="row c4">
-    <div class="field"><label>Invoice date</label><input type="date" name="invoice_date" value="{date.today().isoformat()}" required></div>
-    <div class="field"><label>Customer</label><select name="customer_id">{c_opts}</select></div>
-    <div class="field"><label>Place of supply (state code)</label><input name="place_of_supply" value="{esc(tenant['state_code'])}" maxlength="2"></div>
-    <div class="field"><label>Rounding</label><select name="rounding"><option value="">Exact (paise)</option><option value="1">Round to nearest ₹1</option></select></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Invoice date"))}</label><input type="date" name="invoice_date" value="{date.today().isoformat()}" required></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Customer"))}</label><select name="customer_id">{c_opts}</select></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Place of supply (state code)"))}</label><input name="place_of_supply" value="{esc(tenant['state_code'])}" maxlength="2"></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Rounding"))}</label><select name="rounding"><option value="">{esc(i18n.t(lang, "Exact (paise)"))}</option><option value="1">{esc(i18n.t(lang, "Round to nearest ₹1"))}</option></select></div>
   </div>
 </div>
 <div class="card sect">
-<table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit price</th><th>Discount</th><th></th></tr></thead>
+<table><thead><tr><th style="width:44%">{esc(i18n.t(lang, "Item"))}</th><th>{esc(i18n.t(lang, "Qty"))}</th><th>{esc(i18n.t(lang, "Unit price"))}</th><th>{esc(i18n.t(lang, "Discount"))}</th><th></th></tr></thead>
 <tbody id="lines">{rows}</tbody></table>
-<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">{esc(i18n.t(lang, "+ Add line"))}</button></div>
 </div>
-<button class="btn" type="submit" name="action" value="post">Post invoice</button>
-<button class="btn ghost" type="submit" name="action" value="draft" style="margin-left:8px">Save as draft</button>
-<a class="btn ghost" href="/invoices" style="margin-left:8px">Cancel</a>
-<div class="small muted" style="margin-top:8px">A draft does not post a journal entry, reduce stock or consume a tax-invoice number.</div>
+<button class="btn" type="submit" name="action" value="post">{esc(i18n.t(lang, "Post invoice"))}</button>
+<button class="btn ghost" type="submit" name="action" value="draft" style="margin-left:8px">{esc(i18n.t(lang, "Save as draft"))}</button>
+<a class="btn ghost" href="/invoices" style="margin-left:8px">{esc(i18n.t(lang, "Cancel"))}</a>
+<div class="small muted" style="margin-top:8px">{esc(i18n.t(lang, "A draft does not post a journal entry, reduce stock or consume a tax-invoice number."))}</div>
 <script>
 const tpl = document.querySelector('#lines tr').outerHTML;
 function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
@@ -2661,23 +2663,24 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         return layout("New invoice", body, "invoices", user, tenant)
 
     def page_invoice_edit(self, conn, user, tenant, sess, invoice_id: str) -> str:
+        lang = i18n.language_for(user)
         inv = conn.execute(
             "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
             " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant["id"])).fetchone()
         if not inv:
-            return layout("Not found", '<div class="card pad">Invoice not found.</div>',
+            return layout("Not found",
+                          f'<div class="card pad">{esc(i18n.t(lang, "Invoice not found."))}</div>',
                           "invoices", user, tenant)
         if inv["status"] != "draft":
-            return layout("Cannot edit", '<div class="card pad"><div class="err">Only a draft '
-                          'invoice can be edited. Posted invoices are corrected with a credit '
-                          'note or reversal.</div>'
-                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back</a></div>',
+            return layout("Cannot edit",
+                          f'<div class="card pad"><div class="err">{esc(i18n.t(lang, "Only a draft invoice can be edited. Posted invoices are corrected with a credit note or reversal."))}</div>'
+                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">{esc(i18n.t(lang, "Back"))}</a></div>',
                           "invoices", user, tenant)
         approval = inv["approval_status"] if "approval_status" in inv.keys() else "draft"
         if approval == "pending":
-            return layout("Approval pending", '<div class="card pad"><div class="err">This draft '
-                          'is waiting for approval. Withdraw or reject it before editing.</div>'
-                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back</a></div>',
+            return layout("Approval pending",
+                          f'<div class="card pad"><div class="err">{esc(i18n.t(lang, "This draft is waiting for approval. Withdraw or reject it before editing."))}</div>'
+                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">{esc(i18n.t(lang, "Back"))}</a></div>',
                           "invoices", user, tenant)
         customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
                                  (tenant["id"],)).fetchall()
@@ -2702,58 +2705,59 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
   <td><input name="qty" value="{line['qty_milli']/1000:.3f}" inputmode="decimal"></td>
   <td><input name="price" value="{money.to_str(line['unit_price_paise'])}" inputmode="decimal"></td>
   <td><input name="discount" value="{money.to_str(line['discount_paise'])}" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td>
 </tr>"""
         if not rows:
             rows = f"""<tr><td><select name="item_id">{i_opts}</select></td>
   <td><input name="qty" value="1" inputmode="decimal"></td>
-  <td><input name="price" placeholder="auto" inputmode="decimal"></td>
+  <td><input name="price" placeholder="{esc(i18n.t(lang, "auto"))}" inputmode="decimal"></td>
   <td><input name="discount" value="0" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td></tr>"""
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td></tr>"""
         rejection = ""
         if approval == "rejected" and inv["rejection_reason"]:
-            rejection = (f'<div class="err">Rejected: {esc(inv["rejection_reason"])}</div>')
+            rejection = (f'<div class="err">{esc(i18n.t(lang, "Rejected:"))} {esc(inv["rejection_reason"])}</div>')
         body = f"""
-<div class="notice">Editing draft <b>{esc(inv["invoice_no"])}</b>. A draft has no journal,
-stock movement or tax-invoice number. Saving keeps the same draft number.</div>
+<div class="notice">{esc(i18n.t(lang, "Editing draft"))} <b>{esc(inv["invoice_no"])}</b>. {esc(i18n.t(lang, "A draft has no journal, stock movement or tax-invoice number. Saving keeps the same draft number."))}</div>
 {rejection}
 <form method="post" action="/invoices/{esc(invoice_id)}/edit">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <div class="card pad sect">
   <div class="row c4">
-    <div class="field"><label>Invoice date</label><input type="date" name="invoice_date" value="{esc(inv['invoice_date'])}" required></div>
-    <div class="field"><label>Customer</label><select name="customer_id">{c_opts}</select></div>
-    <div class="field"><label>Place of supply (state code)</label><input name="place_of_supply" value="{esc(inv['place_of_supply_state'])}" maxlength="2"></div>
-    <div class="field"><label>Draft</label><input value="{esc(inv['invoice_no'])}" disabled></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Invoice date"))}</label><input type="date" name="invoice_date" value="{esc(inv['invoice_date'])}" required></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Customer"))}</label><select name="customer_id">{c_opts}</select></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Place of supply (state code)"))}</label><input name="place_of_supply" value="{esc(inv['place_of_supply_state'])}" maxlength="2"></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Draft"))}</label><input value="{esc(inv['invoice_no'])}" disabled></div>
   </div>
 </div>
 <div class="card sect">
-<table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit price</th><th>Discount</th><th></th></tr></thead>
+<table><thead><tr><th style="width:44%">{esc(i18n.t(lang, "Item"))}</th><th>{esc(i18n.t(lang, "Qty"))}</th><th>{esc(i18n.t(lang, "Unit price"))}</th><th>{esc(i18n.t(lang, "Discount"))}</th><th></th></tr></thead>
 <tbody id="lines">{rows}</tbody></table>
-<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">{esc(i18n.t(lang, "+ Add line"))}</button></div>
 </div>
-<button class="btn" type="submit">Save draft</button>
-<a class="btn ghost" href="/invoices/{esc(invoice_id)}" style="margin-left:8px">Cancel</a>
+<button class="btn" type="submit">{esc(i18n.t(lang, "Save draft"))}</button>
+<a class="btn ghost" href="/invoices/{esc(invoice_id)}" style="margin-left:8px">{esc(i18n.t(lang, "Cancel"))}</a>
 <script>
 const tpl = document.querySelector('#lines tr').outerHTML;
 function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
 </script>
 </form>"""
-        return layout(f'Edit {inv["invoice_no"]}', body, "invoices", user, tenant)
+        return layout(f'{i18n.t(lang, "Edit")} {inv["invoice_no"]}', body, "invoices", user, tenant)
 
     def page_invoice_replace(self, conn, user, tenant, sess, invoice_id: str) -> str:
+        lang = i18n.language_for(user)
         inv = conn.execute(
             "SELECT i.*, c.name FROM invoice i JOIN customer c ON c.id=i.customer_id"
             " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant["id"])).fetchone()
         if not inv:
-            return layout("Not found", '<div class="card pad">Invoice not found.</div>',
+            return layout("Not found",
+                          f'<div class="card pad">{esc(i18n.t(lang, "Invoice not found."))}</div>',
                           "invoices", user, tenant)
         try:
             acct._assert_invoice_replaceable(conn, tenant["id"], inv)
         except acct.AccountingError as e:
             return layout("Cannot correct invoice",
                           f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
-                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">Back</a></div>',
+                          f'<a class="btn ghost" href="/invoices/{esc(invoice_id)}">{esc(i18n.t(lang, "Back"))}</a></div>',
                           "invoices", user, tenant)
         customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
                                  (tenant["id"],)).fetchall()
@@ -2778,45 +2782,44 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
   <td><input name="qty" value="{line['qty_milli']/1000:.3f}" inputmode="decimal"></td>
   <td><input name="price" value="{money.to_str(line['unit_price_paise'])}" inputmode="decimal"></td>
   <td><input name="discount" value="{money.to_str(line['discount_paise'])}" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td>
 </tr>"""
         if not rows:
             rows = f"""<tr><td><select name="item_id">{i_opts}</select></td>
   <td><input name="qty" value="1" inputmode="decimal"></td>
-  <td><input name="price" placeholder="auto" inputmode="decimal"></td>
+  <td><input name="price" placeholder="{esc(i18n.t(lang, "auto"))}" inputmode="decimal"></td>
   <td><input name="discount" value="0" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td></tr>"""
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td></tr>"""
         body = f"""
-<div class="notice">Correcting posted invoice <b>{esc(inv["invoice_no"])}</b>.
-Saving reverses its journal, restores stock, marks it void, and posts a new invoice with a fresh
-INV number. Both versions stay in the audit trail.</div>
+<div class="notice">{esc(i18n.t(lang, "Correcting posted invoice"))} <b>{esc(inv["invoice_no"])}</b>.
+{esc(i18n.t(lang, "Saving reverses its journal, restores stock, marks it void, and posts a new invoice with a fresh INV number. Both versions stay in the audit trail."))}</div>
 <form method="post" action="/invoices/{esc(invoice_id)}/replace">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <div class="card pad sect">
   <div class="row c4">
-    <div class="field"><label>Invoice date</label><input type="date" name="invoice_date" value="{esc(inv['invoice_date'])}" required></div>
-    <div class="field"><label>Customer</label><select name="customer_id">{c_opts}</select></div>
-    <div class="field"><label>Place of supply (state code)</label><input name="place_of_supply" value="{esc(inv['place_of_supply_state'])}" maxlength="2"></div>
-    <div class="field"><label>Original</label><input value="{esc(inv['invoice_no'])}" disabled></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Invoice date"))}</label><input type="date" name="invoice_date" value="{esc(inv['invoice_date'])}" required></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Customer"))}</label><select name="customer_id">{c_opts}</select></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Place of supply (state code)"))}</label><input name="place_of_supply" value="{esc(inv['place_of_supply_state'])}" maxlength="2"></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Original"))}</label><input value="{esc(inv['invoice_no'])}" disabled></div>
   </div>
 </div>
 <div class="card sect">
-<table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit price</th><th>Discount</th><th></th></tr></thead>
+<table><thead><tr><th style="width:44%">{esc(i18n.t(lang, "Item"))}</th><th>{esc(i18n.t(lang, "Qty"))}</th><th>{esc(i18n.t(lang, "Unit price"))}</th><th>{esc(i18n.t(lang, "Discount"))}</th><th></th></tr></thead>
 <tbody id="lines">{rows}</tbody></table>
-<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">{esc(i18n.t(lang, "+ Add line"))}</button></div>
 </div>
 <div class="card pad sect">
-  <div class="field"><label>Why are you correcting it?</label>
-  <input name="reason" required maxlength="200" placeholder="e.g. Wrong quantity / wrong customer"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Why are you correcting it?"))}</label>
+  <input name="reason" required maxlength="200" placeholder="{esc(i18n.t(lang, "e.g. Wrong quantity / wrong customer"))}"></div>
 </div>
-<button class="btn" type="submit">Reverse and post corrected invoice</button>
-<a class="btn ghost" href="/invoices/{esc(invoice_id)}" style="margin-left:8px">Cancel</a>
+<button class="btn" type="submit">{esc(i18n.t(lang, "Reverse and post corrected invoice"))}</button>
+<a class="btn ghost" href="/invoices/{esc(invoice_id)}" style="margin-left:8px">{esc(i18n.t(lang, "Cancel"))}</a>
 <script>
 const tpl = document.querySelector('#lines tr').outerHTML;
 function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
 </script>
 </form>"""
-        return layout(f'Correct {inv["invoice_no"]}', body, "invoices", user, tenant)
+        return layout(f'{i18n.t(lang, "Correct")} {inv["invoice_no"]}', body, "invoices", user, tenant)
 
     def page_bill_draft_edit(self, conn, user, tenant, sess, draft_id: str) -> str:
         draft = conn.execute(
@@ -3065,10 +3068,13 @@ it is posted. Debits and credits must still balance exactly.</div>
         return layout("Approvals", body, "", user, tenant)
 
     def page_invoice_detail(self, conn, user, tenant, sess, invoice_id: str) -> str:
+        lang = i18n.language_for(user)
         inv = conn.execute("SELECT i.*, c.name, c.state_code FROM invoice i JOIN customer c ON c.id=i.customer_id"
                            " WHERE i.id=? AND i.tenant_id=?", (invoice_id, tenant["id"])).fetchone()
         if not inv:
-            return layout("Not found", '<div class="card pad">Invoice not found.</div>', "invoices", user, tenant)
+            return layout("Not found",
+                          f'<div class="card pad">{esc(i18n.t(lang, "Invoice not found."))}</div>',
+                          "invoices", user, tenant)
         lines = conn.execute("SELECT * FROM invoice_line WHERE invoice_id=? ORDER BY rowid",
                              (invoice_id,)).fetchall()
         trs = "".join(
@@ -3166,18 +3172,18 @@ it is posted. Debits and credits must still balance exactly.</div>
         elif not is_void:
             if out > 0:
                 receipt_form = f"""
-<div class="card pad sect"><h2 style="margin-bottom:12px">Receive payment</h2>
+<div class="card pad sect"><h2 style="margin-bottom:12px">{esc(i18n.t(lang, "Receive payment"))}</h2>
 <form method="post" action="/receipts">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <input type="hidden" name="invoice_id" value="{esc(invoice_id)}">
 <div class="row c4">
-<div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
-<div class="field"><label>Amount</label><input name="amount" value="{money.to_str(out)}" inputmode="decimal"></div>
-<div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option><option value="card">Card</option></select></div>
-<div class="field"><label>Reference</label><input name="reference" maxlength="60"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Date"))}</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Amount"))}</label><input name="amount" value="{money.to_str(out)}" inputmode="decimal"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Mode"))}</label><select name="mode"><option value="bank">{esc(i18n.t(lang, "Bank"))}</option><option value="cash">{esc(i18n.t(lang, "Cash"))}</option><option value="upi">{esc(i18n.t(lang, "UPI"))}</option><option value="cheque">{esc(i18n.t(lang, "Cheque"))}</option><option value="card">{esc(i18n.t(lang, "Card"))}</option></select></div>
+<div class="field"><label>{esc(i18n.t(lang, "Reference"))}</label><input name="reference" maxlength="60"></div>
 </div>
-<button class="btn" type="submit">Record receipt</button>
-<span class="small muted" style="margin-left:10px">Outstanding {money.fmt(out)}</span>
+<button class="btn" type="submit">{esc(i18n.t(lang, "Record receipt"))}</button>
+<span class="small muted" style="margin-left:10px">{esc(i18n.t(lang, "Outstanding"))} {money.fmt(out)}</span>
 </form></div>"""
 
             cn_lines = []
@@ -3661,13 +3667,16 @@ it is posted. Debits and credits must still balance exactly.</div>
         return layout("Bills", body, "bills", user, tenant)
 
     def page_bill_new(self, conn, user, tenant, sess, error: str = "") -> str:
+        lang = i18n.language_for(user)
         vendors = conn.execute("SELECT * FROM vendor WHERE tenant_id=? ORDER BY name",
                                (tenant["id"],)).fetchall()
         items = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name",
                              (tenant["id"],)).fetchall()
         if not vendors or not items:
-            return layout("New bill", '<div class="card pad"><div class="err">Add at least one vendor and one item first.</div>'
-                          '<a class="btn ghost" href="/vendors">Vendors</a> <a class="btn ghost" href="/items">Items</a></div>',
+            return layout("New bill",
+                          f'<div class="card pad"><div class="err">{esc(i18n.t(lang, "Add at least one vendor and one item first."))}</div>'
+                          f'<a class="btn ghost" href="/vendors">{esc(i18n.t(lang, "Vendors"))}</a> '
+                          f'<a class="btn ghost" href="/items">{esc(i18n.t(lang, "Items"))}</a></div>',
                           "bills", user, tenant)
         v_opts = "".join(f'<option value="{v["id"]}">{esc(v["name"])} ({esc(v["state_code"])})</option>' for v in vendors)
         i_opts = "".join(
@@ -3677,9 +3686,9 @@ it is posted. Debits and credits must still balance exactly.</div>
         row_tpl = f"""<tr>
   <td><select name="item_id">{i_opts}</select></td>
   <td><input name="qty" value="1" inputmode="decimal"></td>
-  <td><input name="price" placeholder="auto (cost)" inputmode="decimal"></td>
+  <td><input name="price" placeholder="{esc(i18n.t(lang, "auto (cost)"))}" inputmode="decimal"></td>
   <td><input name="discount" value="0" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td>
 </tr>"""
         rows = "".join(row_tpl for _ in range(2))
         body = f"""
@@ -3688,18 +3697,18 @@ it is posted. Debits and credits must still balance exactly.</div>
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <div class="card pad sect">
 <div class="row c4">
-<div class="field"><label>Bill date</label><input type="date" name="bill_date" value="{date.today().isoformat()}" required></div>
-<div class="field"><label>Vendor</label><select name="vendor_id">{v_opts}</select></div>
-<div class="field"><label>Vendor bill no</label><input name="vendor_bill_no" maxlength="60"></div>
-<div class="field"><label>Place of supply</label><input name="place_of_supply" value="{esc(tenant['state_code'])}" maxlength="2"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Bill date"))}</label><input type="date" name="bill_date" value="{date.today().isoformat()}" required></div>
+<div class="field"><label>{esc(i18n.t(lang, "Vendor"))}</label><select name="vendor_id">{v_opts}</select></div>
+<div class="field"><label>{esc(i18n.t(lang, "Vendor bill no"))}</label><input name="vendor_bill_no" maxlength="60"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Place of supply"))}</label><input name="place_of_supply" value="{esc(tenant['state_code'])}" maxlength="2"></div>
 </div></div>
-<div class="card sect"><table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit cost</th><th>Discount</th><th></th></tr></thead>
+<div class="card sect"><table><thead><tr><th style="width:44%">{esc(i18n.t(lang, "Item"))}</th><th>{esc(i18n.t(lang, "Qty"))}</th><th>{esc(i18n.t(lang, "Unit cost"))}</th><th>{esc(i18n.t(lang, "Discount"))}</th><th></th></tr></thead>
 <tbody id="lines">{rows}</tbody></table>
-<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div></div>
-<button class="btn" type="submit">Post bill</button>
-<button class="btn ghost" type="submit" name="action" value="draft" style="margin-left:8px">Save as draft</button>
-<a class="btn ghost" href="/bills" style="margin-left:8px">Cancel</a>
-<div class="small muted" style="margin-top:8px">A draft does not post a journal, move stock, create a payable or claim input GST.</div>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">{esc(i18n.t(lang, "+ Add line"))}</button></div></div>
+<button class="btn" type="submit">{esc(i18n.t(lang, "Post bill"))}</button>
+<button class="btn ghost" type="submit" name="action" value="draft" style="margin-left:8px">{esc(i18n.t(lang, "Save as draft"))}</button>
+<a class="btn ghost" href="/bills" style="margin-left:8px">{esc(i18n.t(lang, "Cancel"))}</a>
+<div class="small muted" style="margin-top:8px">{esc(i18n.t(lang, "A draft does not post a journal, move stock, create a payable or claim input GST."))}</div>
 <script>
 const tpl = document.querySelector('#lines tr').outerHTML;
 function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
@@ -3707,18 +3716,20 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         return layout("New bill", body, "bills", user, tenant)
 
     def page_bill_replace(self, conn, user, tenant, sess, bill_id: str) -> str:
+        lang = i18n.language_for(user)
         bill = conn.execute(
             "SELECT b.*, v.name FROM bill b JOIN vendor v ON v.id=b.vendor_id"
             " WHERE b.id=? AND b.tenant_id=?", (bill_id, tenant["id"])).fetchone()
         if not bill:
-            return layout("Not found", '<div class="card pad">Bill not found.</div>',
+            return layout("Not found",
+                          f'<div class="card pad">{esc(i18n.t(lang, "Bill not found."))}</div>',
                           "bills", user, tenant)
         try:
             acct._assert_bill_replaceable(conn, tenant["id"], bill)
         except acct.AccountingError as e:
             return layout("Cannot correct bill",
                           f'<div class="card pad"><div class="err">{esc(e.message)}</div>'
-                          f'<a class="btn ghost" href="/bills/{esc(bill_id)}">Back</a></div>',
+                          f'<a class="btn ghost" href="/bills/{esc(bill_id)}">{esc(i18n.t(lang, "Back"))}</a></div>',
                           "bills", user, tenant)
         vendors = conn.execute("SELECT * FROM vendor WHERE tenant_id=? ORDER BY name",
                                (tenant["id"],)).fetchall()
@@ -3743,51 +3754,53 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
   <td><input name="qty" value="{line['qty_milli']/1000:.3f}" inputmode="decimal"></td>
   <td><input name="price" value="{money.to_str(line['unit_price_paise'])}" inputmode="decimal"></td>
   <td><input name="discount" value="{money.to_str(line['discount_paise'])}" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td>
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td>
 </tr>"""
         if not rows:
             rows = f"""<tr><td><select name="item_id">{i_opts}</select></td>
   <td><input name="qty" value="1" inputmode="decimal"></td>
-  <td><input name="price" placeholder="auto (cost)" inputmode="decimal"></td>
+  <td><input name="price" placeholder="{esc(i18n.t(lang, "auto (cost)"))}" inputmode="decimal"></td>
   <td><input name="discount" value="0" inputmode="decimal"></td>
-  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">Remove</button></td></tr>"""
+  <td><button class="btn ghost small" type="button" onclick="this.closest('tr').remove()">{esc(i18n.t(lang, "Remove"))}</button></td></tr>"""
         body = f"""
-<div class="notice">Correcting posted bill <b>{esc(bill["bill_no"])}</b>.
-Saving reverses its journal, takes the purchased quantity back out of stock, marks it void, and
-posts a new bill with a fresh BILL number. Both versions stay in the audit trail.</div>
+<div class="notice">{esc(i18n.t(lang, "Correcting posted bill"))} <b>{esc(bill["bill_no"])}</b>.
+{esc(i18n.t(lang, "Saving reverses its journal, takes the purchased quantity back out of stock, marks it void, and posts a new bill with a fresh BILL number. Both versions stay in the audit trail."))}</div>
 <form method="post" action="/bills/{esc(bill_id)}/replace">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <div class="card pad sect">
   <div class="row c4">
-    <div class="field"><label>Bill date</label><input type="date" name="bill_date" value="{esc(bill['bill_date'])}" required></div>
-    <div class="field"><label>Vendor</label><select name="vendor_id">{v_opts}</select></div>
-    <div class="field"><label>Vendor bill no</label><input name="vendor_bill_no" value="{esc(bill['vendor_bill_no'] or '')}" maxlength="60"></div>
-    <div class="field"><label>Place of supply</label><input name="place_of_supply" value="{esc(bill['place_of_supply_state'])}" maxlength="2"></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Bill date"))}</label><input type="date" name="bill_date" value="{esc(bill['bill_date'])}" required></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Vendor"))}</label><select name="vendor_id">{v_opts}</select></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Vendor bill no"))}</label><input name="vendor_bill_no" value="{esc(bill['vendor_bill_no'] or '')}" maxlength="60"></div>
+    <div class="field"><label>{esc(i18n.t(lang, "Place of supply"))}</label><input name="place_of_supply" value="{esc(bill['place_of_supply_state'])}" maxlength="2"></div>
   </div>
 </div>
 <div class="card sect">
-<table><thead><tr><th style="width:44%">Item</th><th>Qty</th><th>Unit cost</th><th>Discount</th><th></th></tr></thead>
+<table><thead><tr><th style="width:44%">{esc(i18n.t(lang, "Item"))}</th><th>{esc(i18n.t(lang, "Qty"))}</th><th>{esc(i18n.t(lang, "Unit cost"))}</th><th>{esc(i18n.t(lang, "Discount"))}</th><th></th></tr></thead>
 <tbody id="lines">{rows}</tbody></table>
-<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">+ Add line</button></div>
+<div class="pad"><button class="btn ghost small" type="button" onclick="addRow()">{esc(i18n.t(lang, "+ Add line"))}</button></div>
 </div>
 <div class="card pad sect">
-  <div class="field"><label>Why are you correcting it?</label>
-  <input name="reason" required maxlength="200" placeholder="e.g. Wrong quantity / wrong rate"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Why are you correcting it?"))}</label>
+  <input name="reason" required maxlength="200" placeholder="{esc(i18n.t(lang, "e.g. Wrong quantity / wrong rate"))}"></div>
 </div>
-<button class="btn" type="submit">Reverse and post corrected bill</button>
-<a class="btn ghost" href="/bills/{esc(bill_id)}" style="margin-left:8px">Cancel</a>
+<button class="btn" type="submit">{esc(i18n.t(lang, "Reverse and post corrected bill"))}</button>
+<a class="btn ghost" href="/bills/{esc(bill_id)}" style="margin-left:8px">{esc(i18n.t(lang, "Cancel"))}</a>
 <script>
 const tpl = document.querySelector('#lines tr').outerHTML;
 function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; document.getElementById('lines').appendChild(t.firstElementChild); }}
 </script>
 </form>"""
-        return layout(f'Correct {bill["bill_no"]}', body, "bills", user, tenant)
+        return layout(f'{i18n.t(lang, "Correct")} {bill["bill_no"]}', body, "bills", user, tenant)
 
     def page_bill_detail(self, conn, user, tenant, sess, bill_id: str) -> str:
+        lang = i18n.language_for(user)
         bill = conn.execute("SELECT b.*, v.name, v.state_code FROM bill b JOIN vendor v ON v.id=b.vendor_id"
                             " WHERE b.id=? AND b.tenant_id=?", (bill_id, tenant["id"])).fetchone()
         if not bill:
-            return layout("Not found", '<div class="card pad">Bill not found.</div>', "bills", user, tenant)
+            return layout("Not found",
+                          f'<div class="card pad">{esc(i18n.t(lang, "Bill not found."))}</div>',
+                          "bills", user, tenant)
         lines = conn.execute("SELECT * FROM bill_line WHERE bill_id=? ORDER BY rowid", (bill_id,)).fetchall()
         trs = "".join(
             f'<tr><td>{esc(l["description"])}</td><td class="num">{l["qty_milli"]/1000:.3f}</td>'
@@ -3800,19 +3813,19 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         pay_form = ""
         if out > 0:
             pay_form = f"""
-<div class="card pad sect"><h2 style="margin-bottom:12px">Pay this bill</h2>
+<div class="card pad sect"><h2 style="margin-bottom:12px">{esc(i18n.t(lang, "Pay this bill"))}</h2>
 <form method="post" action="/receipts">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <input type="hidden" name="direction" value="payment">
 <input type="hidden" name="bill_id" value="{esc(bill_id)}">
 <input type="hidden" name="vendor_id" value="{esc(bill["vendor_id"])}">
 <div class="row c4">
-<div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
-<div class="field"><label>Amount</label><input name="amount" value="{money.to_str(out)}" inputmode="decimal"></div>
-<div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option></select></div>
-<div class="field"><label>Reference</label><input name="reference" maxlength="60"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Date"))}</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Amount"))}</label><input name="amount" value="{money.to_str(out)}" inputmode="decimal"></div>
+<div class="field"><label>{esc(i18n.t(lang, "Mode"))}</label><select name="mode"><option value="bank">{esc(i18n.t(lang, "Bank"))}</option><option value="cash">{esc(i18n.t(lang, "Cash"))}</option><option value="upi">{esc(i18n.t(lang, "UPI"))}</option><option value="cheque">{esc(i18n.t(lang, "Cheque"))}</option></select></div>
+<div class="field"><label>{esc(i18n.t(lang, "Reference"))}</label><input name="reference" maxlength="60"></div>
 </div>
-<button class="btn" type="submit">Record payment</button></form></div>"""
+<button class="btn" type="submit">{esc(i18n.t(lang, "Record payment"))}</button></form></div>"""
         dn_lines = []
         for l in lines:
             returned = conn.execute(
