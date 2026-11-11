@@ -1999,6 +1999,7 @@ stable public link. It does not change any accounting calculation.
 | Bills list Hindi | KPI labels, status badges, table headers, draft table and action buttons on `/bills` now use the saved Hindi language |
 | Tests | New `test_38c_login_page_redirects_when_already_signed_in`; the theme test now covers the redirect and the signed-out login theme; the Hindi switch test checks dashboard, invoice-list and bill-list body labels |
 | Live verification | Local `/health` returned `ARTHIVIO/0.26`; Hindi dashboard returned `राजस्व (वित्त वर्ष)`, `शुद्ध लाभ (वित्त वर्ष)`, `हाल के चालान` and `कुल`; Hindi `/invoices` returned `बिक्री चालान`, `बकाया`, `स्थिति`, `कर` and `नया चालान`; Hindi `/bills` returned `विक्रेता`, `देय बकाया`, `स्थिति`, `GST` and `नया बिल`; switching back returned English |
+| Public hotfix check | Tester login through the current tunnel returned 200; a second `GET /login` redirected to `/` with the dashboard and no login form |
 | Offline package | Rebuilt `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.26.zip`; embedded runtime returned `arthivio 0.26`; copied to `D:\ARTHIVIO-Offline-0.26` with matching source hashes |
 | Setup EXE | Rebuilt with IExpress from the updated offline ZIP, installer BAT and launcher |
 | Installer ZIP | Rebuilt with the updated offline ZIP and setup EXE |
