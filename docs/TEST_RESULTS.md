@@ -1992,25 +1992,26 @@ stable public link. It does not change any accounting calculation.
 
 | Check | Result |
 |---|---|
-| Full test suite | **351 tests, OK**, 45.344 s, Python 3.14.6, Windows |
+| Full test suite | **351 tests, OK**, 45.107 s, Python 3.14.6, Windows |
 | Login redirect | A signed-in `GET /login` now redirects to `/`; a signed-out visitor still gets the login form with the saved colour theme |
 | Dashboard Hindi | KPI labels and hints, chart legends, checks table, expense-mix card and recent-invoice table headers now use the saved Hindi language |
 | Invoices list Hindi | KPI labels, status badges, table headers and action buttons on `/invoices` now use the saved Hindi language |
 | Bills list Hindi | KPI labels, status badges, table headers, draft table and action buttons on `/bills` now use the saved Hindi language |
-| Tests | New `test_38c_login_page_redirects_when_already_signed_in`; the theme test now covers the redirect and the signed-out login theme; the Hindi switch test checks dashboard, invoice-list and bill-list body labels |
-| Live verification | Local `/health` returned `ARTHIVIO/0.26`; Hindi dashboard returned `राजस्व (वित्त वर्ष)`, `शुद्ध लाभ (वित्त वर्ष)`, `हाल के चालान` and `कुल`; Hindi `/invoices` returned `बिक्री चालान`, `बकाया`, `स्थिति`, `कर` and `नया चालान`; Hindi `/bills` returned `विक्रेता`, `देय बकाया`, `स्थिति`, `GST` and `नया बिल`; switching back returned English |
-| Public hotfix check | Tester login through the current tunnel returned 200; a second `GET /login` redirected to `/` with the dashboard and no login form |
+| Receipts Hindi | Receipt and payment list, KPI labels, table headers, both entry forms, mode labels, payment detail, allocation table, correction form and void form now use the saved Hindi language |
+| Tests | New `test_38c_login_page_redirects_when_already_signed_in`; the theme test now covers the redirect and the signed-out login theme; the Hindi switch test checks dashboard, invoice-list, bill-list and receipts-list body labels |
+| Live verification | Local `/health` returned `ARTHIVIO/0.26`; Hindi dashboard returned `राजस्व (वित्त वर्ष)`, `शुद्ध लाभ (वित्त वर्ष)`, `हाल के चालान` and `कुल`; Hindi `/invoices` returned `बिक्री चालान`, `बकाया`, `स्थिति`, `कर` and `नया चालान`; Hindi `/bills` returned `विक्रेता`, `देय बकाया`, `स्थिति`, `GST` and `नया बिल`; Hindi `/receipts` returned `रसीदें और भुगतान`, `अग्रिम रसीद`, `विक्रेता भुगतान`, `राशि` and `माध्यम`; a Hindi payment detail returned `रसीद`, `आवंटित`, `दस्तावेज़ प्रकार`, `रसीदों पर वापस` and `इस रसीद को सुधारें`; switching back returned English |
+| Public hotfix check | Tester login through the current tunnel returned 200; a second `GET /login` redirected to `/` with the dashboard and no login form; Hindi `/receipts` and a Hindi payment detail returned the expected labels |
 | Offline package | Rebuilt `dist\ARTHIVIO-Offline` and `dist\ARTHIVIO-Offline-0.26.zip`; embedded runtime returned `arthivio 0.26`; copied to `D:\ARTHIVIO-Offline-0.26` with matching source hashes |
 | Setup EXE | Rebuilt with IExpress from the updated offline ZIP, installer BAT and launcher |
 | Installer ZIP | Rebuilt with the updated offline ZIP and setup EXE |
 | Release ZIP | Rebuilt with the updated offline folder, setup EXE, offline ZIP, installer BAT, README and access file |
-| Copied release | `D:\finance business software\ARTHIVIO-Offline-0.26` updated to the new build; 516 files / 31,928,590 bytes; artifact hashes match `D:\ARTHIVIO-Offline-0.26` |
-| Release hashes | Setup `2A828BD9D0BC7E394788E97E1E70D10D37A5F221DC9D3242C8184255CBBA3112`; installer ZIP `44849FA232ACDCD9A8DF6734E04E7F3C1115F7C3C64ECCA7A05DC9A7AF9997C2`; offline ZIP `56F6F54D537F944727FBB0189AD428DB882BD23210A9C63E3CE03D87BC397718`; release ZIP `58057BF8C0B791AB7EE49D4E2AA31B3E567058D10A3223DFD25DA5C9844327DC` |
+| Copied release | `D:\finance business software\ARTHIVIO-Offline-0.26` updated to the new build; 516 files / 31,952,192 bytes; artifact hashes match `D:\ARTHIVIO-Offline-0.26` |
+| Release hashes | Setup `DF2FC0EA59DF62ACB2F994D146A1A1690F3E022FE5FA6337F28FE0CA478AA290`; installer ZIP `EA06D9E0BB139A38DAF6B87DBA6098C97C17D5D358418C58EDBF95F57DE1C779`; offline ZIP `672FAFCBA72453899C5B48716349E8DA6E36510FF147228D001D19C91B46D8F3`; release ZIP `996F4A1354222FFBDAE0D1546E876A8F97B99CD085B35564BCB050B032545154` |
 
 ### 46.1 Honest limits
 
-- The invoice and bill lists are translated. Transaction forms, receipts, reports and print documents
-  remain English. The next translation slice is the receipts list and transaction forms, then reports
-  and print documents.
+- The invoice, bill and receipts lists and the payment detail page are translated. Invoice and bill
+  entry forms, reports and print documents remain English. The next translation slice is the invoice
+  and bill forms, then reports and print documents.
 - The public link still depends on this PC staying powered on, signed in and online.
 - The hotfix was not independently reviewed or tested on a clean machine.

@@ -1417,6 +1417,12 @@ class WebTest(unittest.TestCase):
         for text in ("विक्रेता", "देय बकाया", "स्थिति", "GST"):
             self.assertIn(text, bills)
 
+        status, receipts = self.get("/receipts")
+        self.assertEqual(status, 200)
+        for text in ("रसीदें और भुगतान", "अग्रिम रसीद", "विक्रेता भुगतान",
+                     "राशि", "माध्यम"):
+            self.assertIn(text, receipts)
+
         conn = db.connect(self.db_path)
         row = conn.execute(
             "SELECT language FROM user WHERE email='owner@arthivio.test'").fetchone()

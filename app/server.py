@@ -3397,6 +3397,7 @@ it is posted. Debits and credits must still balance exactly.</div>
 </body></html>""", 200
 
     def page_receipts(self, conn, user, tenant, sess) -> str:
+        lang = i18n.language_for(user)
         rows = conn.execute(
             "SELECT p.*, COALESCE(c.name, v.name, '(deleted)') AS party_name"
             " FROM payment p"
@@ -3409,18 +3410,22 @@ it is posted. Debits and credits must still balance exactly.</div>
             alloc = conn.execute(
                 "SELECT COALESCE(SUM(amount_paise),0) a FROM payment_allocation WHERE payment_id=?",
                 (r["id"],)).fetchone()["a"]
-            status = ('<span class="badge bad">Void</span>' if r["status"] == "void"
-                      else '<span class="badge ok">Posted</span>')
+            status = (f'<span class="badge bad">{esc(i18n.t(lang, "Void"))}</span>'
+                      if r["status"] == "void"
+                      else f'<span class="badge ok">{esc(i18n.t(lang, "Posted"))}</span>')
+            mode_label = {"bank": "Bank", "cash": "Cash", "upi": "UPI",
+                          "cheque": "Cheque", "card": "Card"}.get(
+                              r["mode"], r["mode"].title())
             trs += (f'<tr><td><a href="/receipts/{esc(r["id"])}">{esc(r["voucher_no"])}</a></td>'
                     f'<td>{esc(r["payment_date"])}</td>'
-                    f'<td>{esc(r["direction"].title())}</td>'
-                    f'<td>{esc(r["party_name"])}</td><td>{esc(r["mode"])}</td>'
+                    f'<td>{esc(i18n.t(lang, r["direction"].title()))}</td>'
+                    f'<td>{esc(r["party_name"])}</td><td>{esc(i18n.t(lang, mode_label))}</td>'
                     f'<td>{esc(r["reference"] or "")}</td>'
                     f'<td class="num">{money.fmt(r["amount_paise"])}</td>'
                     f'<td class="num">{money.fmt(alloc)}</td>'
                     f'<td class="num">{money.fmt(r["amount_paise"] - alloc)}</td>'
                     f'<td>{status}</td></tr>')
-        trs = trs or '<tr><td colspan="10" class="empty">No receipts or payments yet</td></tr>'
+        trs = trs or f'<tr><td colspan="10" class="empty">{esc(i18n.t(lang, "No receipts or payments yet"))}</td></tr>'
         customers = conn.execute("SELECT * FROM customer WHERE tenant_id=? ORDER BY name",
                                  (tenant["id"],)).fetchall()
         vendors = conn.execute("SELECT * FROM vendor WHERE tenant_id=? ORDER BY name",
@@ -3428,50 +3433,56 @@ it is posted. Debits and credits must still balance exactly.</div>
         c_opts = "".join(f'<option value="{c["id"]}">{esc(c["name"])}</option>' for c in customers)
         v_opts = "".join(f'<option value="{v["id"]}">{esc(v["name"])}</option>' for v in vendors)
         ar = acct.receivable_ageing(conn, tenant["id"])
+        mode_options = "".join(
+            f'<option value="{value}">{esc(i18n.t(lang, label))}</option>'
+            for value, label in (("bank", "Bank"), ("cash", "Cash"), ("upi", "UPI"),
+                                 ("cheque", "Cheque"), ("card", "Card")))
         body = f"""
 <div class="kpis">
-  {kpi("Receivable outstanding", money.fmt(ar["grand_total"]), f'{len(ar["rows"])} open invoice(s)')}
-  {kpi("Overdue 60+ days", money.fmt(ar["totals"]["61-90"] + ar["totals"]["90+"]), "needs follow-up")}
-  {kpi("Vouchers listed", str(len(rows)), "receipts and vendor payments")}
+  {kpi(i18n.t(lang, "Receivable outstanding"), money.fmt(ar["grand_total"]), f'{len(ar["rows"])} {i18n.t(lang, "open invoice(s)")}')}
+  {kpi(i18n.t(lang, "Overdue 60+ days"), money.fmt(ar["totals"]["61-90"] + ar["totals"]["90+"]), i18n.t(lang, "needs follow-up"))}
+  {kpi(i18n.t(lang, "Vouchers listed"), str(len(rows)), i18n.t(lang, "receipts and vendor payments"))}
 </div>
 <div class="card sect"><table>
-<thead><tr><th>Voucher</th><th>Date</th><th>Type</th><th>Party</th><th>Mode</th><th>Ref</th><th class="num">Amount</th><th class="num">Allocated</th><th class="num">On account</th><th>Status</th></tr></thead>
+<thead><tr><th>{esc(i18n.t(lang, "Voucher"))}</th><th>{esc(i18n.t(lang, "Date"))}</th><th>{esc(i18n.t(lang, "Type"))}</th><th>{esc(i18n.t(lang, "Party"))}</th><th>{esc(i18n.t(lang, "Mode"))}</th><th>{esc(i18n.t(lang, "Ref"))}</th><th class="num">{esc(i18n.t(lang, "Amount"))}</th><th class="num">{esc(i18n.t(lang, "Allocated"))}</th><th class="num">{esc(i18n.t(lang, "On account"))}</th><th>{esc(i18n.t(lang, "Status"))}</th></tr></thead>
 <tbody>{trs}</tbody></table></div>
 <div class="grid2">
-  <div class="card pad"><h2 style="margin-bottom:6px">Advance receipt</h2>
-  <p class="small muted" style="margin:0 0 12px">To settle a specific invoice, open the invoice and use <b>Receive payment</b>.</p>
+  <div class="card pad"><h2 style="margin-bottom:6px">{esc(i18n.t(lang, "Advance receipt"))}</h2>
+  <p class="small muted" style="margin:0 0 12px">{esc(i18n.t(lang, "To settle a specific invoice, open the invoice and use"))} <b>{esc(i18n.t(lang, "Receive payment"))}</b>.</p>
   <form method="post" action="/receipts">
   <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
   <input type="hidden" name="direction" value="receipt">
-  <div class="field"><label>Customer</label><select name="customer_id">{c_opts}</select></div>
-  <div class="row c2"><div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
-  <div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option><option value="card">Card</option></select></div></div>
-  <div class="row c2"><div class="field"><label>Amount</label><input name="amount" placeholder="0.00" inputmode="decimal"></div>
-  <div class="field"><label>Reference</label><input name="reference" maxlength="60"></div></div>
-  <div class="field"><label>Notes</label><input name="notes" maxlength="200"></div>
-  <button class="btn" type="submit">Record receipt</button></form></div>
-  <div class="card pad"><h2 style="margin-bottom:6px">Vendor payment</h2>
-  <p class="small muted" style="margin:0 0 12px">To settle a specific bill, open the bill and use <b>Pay this bill</b>.</p>
+  <div class="field"><label>{esc(i18n.t(lang, "Customer"))}</label><select name="customer_id">{c_opts}</select></div>
+  <div class="row c2"><div class="field"><label>{esc(i18n.t(lang, "Date"))}</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Mode"))}</label><select name="mode">{mode_options}</select></div></div>
+  <div class="row c2"><div class="field"><label>{esc(i18n.t(lang, "Amount"))}</label><input name="amount" placeholder="0.00" inputmode="decimal"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Reference"))}</label><input name="reference" maxlength="60"></div></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Notes"))}</label><input name="notes" maxlength="200"></div>
+  <button class="btn" type="submit">{esc(i18n.t(lang, "Record receipt"))}</button></form></div>
+  <div class="card pad"><h2 style="margin-bottom:6px">{esc(i18n.t(lang, "Vendor payment"))}</h2>
+  <p class="small muted" style="margin:0 0 12px">{esc(i18n.t(lang, "To settle a specific bill, open the bill and use"))} <b>{esc(i18n.t(lang, "Pay this bill"))}</b>.</p>
   <form method="post" action="/receipts">
   <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
   <input type="hidden" name="direction" value="payment">
-  <div class="field"><label>Vendor</label><select name="vendor_id">{v_opts}</select></div>
-  <div class="row c2"><div class="field"><label>Date</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
-  <div class="field"><label>Mode</label><select name="mode"><option value="bank">Bank</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="cheque">Cheque</option><option value="card">Card</option></select></div></div>
-  <div class="row c2"><div class="field"><label>Amount</label><input name="amount" placeholder="0.00" inputmode="decimal"></div>
-  <div class="field"><label>Reference</label><input name="reference" maxlength="60"></div></div>
-  <div class="field"><label>Notes</label><input name="notes" maxlength="200"></div>
-  <button class="btn" type="submit">Record payment</button></form></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Vendor"))}</label><select name="vendor_id">{v_opts}</select></div>
+  <div class="row c2"><div class="field"><label>{esc(i18n.t(lang, "Date"))}</label><input type="date" name="payment_date" value="{date.today().isoformat()}"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Mode"))}</label><select name="mode">{mode_options}</select></div></div>
+  <div class="row c2"><div class="field"><label>{esc(i18n.t(lang, "Amount"))}</label><input name="amount" placeholder="0.00" inputmode="decimal"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Reference"))}</label><input name="reference" maxlength="60"></div></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Notes"))}</label><input name="notes" maxlength="200"></div>
+  <button class="btn" type="submit">{esc(i18n.t(lang, "Record payment"))}</button></form></div>
 </div>
-<p class="small muted" style="margin-top:14px">Receipts post Dr Cash/Bank, Cr Accounts Receivable with the customer tagged. Vendor payments post Dr Accounts Payable, Cr Cash/Bank. Open a voucher to correct or void it. <a href="/export/receipts.csv">Export CSV</a></p>"""
+<p class="small muted" style="margin-top:14px">{esc(i18n.t(lang, "Receipts post Dr Cash/Bank, Cr Accounts Receivable with the customer tagged. Vendor payments post Dr Accounts Payable, Cr Cash/Bank. Open a voucher to correct or void it."))} <a href="/export/receipts.csv">{esc(i18n.t(lang, "Export CSV"))}</a></p>"""
         return layout("Receipts &amp; payments", body, "receipts", user, tenant)
 
     def page_payment_detail(self, conn, user, tenant, sess, payment_id: str) -> str:
+        lang = i18n.language_for(user)
         p = conn.execute(
             "SELECT * FROM payment WHERE id=? AND tenant_id=?", (payment_id, tenant["id"])
         ).fetchone()
         if not p:
-            return layout("Not found", '<div class="card pad">Receipt or payment not found.</div>',
+            return layout("Not found",
+                          f'<div class="card pad">{esc(i18n.t(lang, "Receipt or payment not found."))}</div>',
                           "receipts", user, tenant)
         party_table = "customer" if p["party_type"] == "customer" else "vendor"
         party = conn.execute(
@@ -3488,75 +3499,79 @@ it is posted. Debits and credits must still balance exactly.</div>
             (tenant["id"], payment_id)).fetchall()
         alloc_total = sum(int(a["amount_paise"]) for a in allocations)
         alloc_rows = "".join(
-            f'<tr><td>{esc(a["doc_type"].replace("_", " ").title())}</td>'
+            f'<tr><td>{esc(i18n.t(lang, a["doc_type"].replace("_", " ").title()))}</td>'
             f'<td>{esc(a["doc_no"] or a["doc_id"])}</td>'
             f'<td class="num">{money.fmt(a["amount_paise"])}</td></tr>' for a in allocations)
-        alloc_rows = alloc_rows or '<tr><td colspan="3" class="empty">Not allocated to any document</td></tr>'
+        alloc_rows = alloc_rows or (f'<tr><td colspan="3" class="empty">'
+                                    f'{esc(i18n.t(lang, "Not allocated to any document"))}</td></tr>')
         direction_label = "Receipt" if p["direction"] == "receipt" else "Payment"
-        status_badge = ('<span class="badge ok">Posted</span>' if p["status"] == "posted"
-                        else '<span class="badge bad">Void</span>')
+        direction_text = i18n.t(lang, direction_label)
+        mode_labels = {"bank": "Bank", "cash": "Cash", "upi": "UPI",
+                       "cheque": "Cheque", "card": "Card"}
+        mode_label = mode_labels.get(p["mode"], p["mode"].title())
+        status_badge = (f'<span class="badge ok">{esc(i18n.t(lang, "Posted"))}</span>'
+                        if p["status"] == "posted"
+                        else f'<span class="badge bad">{esc(i18n.t(lang, "Void"))}</span>')
         replaced_by = conn.execute(
             "SELECT id, voucher_no FROM payment WHERE tenant_id=? AND replaces_id=?",
             (tenant["id"], payment_id)).fetchone()
         replacement_note = ""
         if replaced_by:
-            replacement_note = (f'<p class="small muted">Replaced by '
+            replacement_note = (f'<p class="small muted">{esc(i18n.t(lang, "Replaced by"))} '
                                 f'<a href="/receipts/{esc(replaced_by["id"])}">'
                                 f'{esc(replaced_by["voucher_no"])}</a>.</p>')
         if p["replaces_id"]:
             old = conn.execute("SELECT id, voucher_no FROM payment WHERE id=?",
                                (p["replaces_id"],)).fetchone()
             if old:
-                replacement_note += (f'<p class="small muted">This voucher replaces '
+                replacement_note += (f'<p class="small muted">{esc(i18n.t(lang, "This voucher replaces"))} '
                                      f'<a href="/receipts/{esc(old["id"])}">{esc(old["voucher_no"])}</a>.</p>')
         if p["status"] == "posted":
             edit_card = f"""
-<div class="card pad sect"><h2 style="margin-bottom:8px">Correct this {direction_label.lower()}</h2>
-<p class="small muted" style="margin:0 0 12px">Saving reverses the old journal and records a new
-voucher. The party and direction stay fixed. Existing allocations are carried forward; the new
-amount cannot be less than {money.fmt(alloc_total)} already allocated.</p>
+<div class="card pad sect"><h2 style="margin-bottom:8px">{esc(i18n.t(lang, f"Correct this {direction_label.lower()}"))}</h2>
+<p class="small muted" style="margin:0 0 12px">{esc(i18n.t(lang, "Saving reverses the old journal and records a new voucher. The party and direction stay fixed. Existing allocations are carried forward; the new amount cannot be less than"))} {money.fmt(alloc_total)} {esc(i18n.t(lang, "already allocated."))}</p>
 <form method="post" action="/receipts/{esc(payment_id)}/replace">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <div class="row c4">
-  <div class="field"><label>Date</label><input type="date" name="payment_date" value="{esc(p['payment_date'])}" required></div>
-  <div class="field"><label>Amount</label><input name="amount" value="{money.to_str(p['amount_paise'])}" inputmode="decimal" required></div>
-  <div class="field"><label>Mode</label><select name="mode">
-    {''.join(f'<option value="{m}"{" selected" if p["mode"] == m else ""}>{m.title()}</option>' for m in ('bank','cash','upi','cheque','card'))}
+  <div class="field"><label>{esc(i18n.t(lang, "Date"))}</label><input type="date" name="payment_date" value="{esc(p['payment_date'])}" required></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Amount"))}</label><input name="amount" value="{money.to_str(p['amount_paise'])}" inputmode="decimal" required></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Mode"))}</label><select name="mode">
+    {''.join(f'<option value="{m}"{" selected" if p["mode"] == m else ""}>{esc(i18n.t(lang, mode_labels.get(m, m.title())))}</option>' for m in ('bank','cash','upi','cheque','card'))}
   </select></div>
-  <div class="field"><label>Reference</label><input name="reference" value="{esc(p['reference'] or '')}" maxlength="60"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Reference"))}</label><input name="reference" value="{esc(p['reference'] or '')}" maxlength="60"></div>
 </div>
 <div class="row c2">
-  <div class="field"><label>Notes</label><input name="notes" value="{esc(p['notes'] or '')}" maxlength="200"></div>
-  <div class="field"><label>Why are you correcting it?</label><input name="reason" required maxlength="200" placeholder="e.g. Wrong amount / wrong mode"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Notes"))}</label><input name="notes" value="{esc(p['notes'] or '')}" maxlength="200"></div>
+  <div class="field"><label>{esc(i18n.t(lang, "Why are you correcting it?"))}</label><input name="reason" required maxlength="200" placeholder="{esc(i18n.t(lang, "e.g. Wrong amount / wrong mode"))}"></div>
 </div>
-<button class="btn" type="submit">Reverse and record corrected voucher</button>
+<button class="btn" type="submit">{esc(i18n.t(lang, "Reverse and record corrected voucher"))}</button>
 </form></div>"""
             void_card = f"""
-<div class="card pad sect"><h2 style="margin-bottom:8px">Void without replacement</h2>
+<div class="card pad sect"><h2 style="margin-bottom:8px">{esc(i18n.t(lang, "Void without replacement"))}</h2>
 <form method="post" action="/receipts/{esc(payment_id)}/void" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
-<div class="field" style="min-width:280px"><label>Void reason</label><input name="reason" required maxlength="200"></div>
-<button class="btn ghost" type="submit">Void {direction_label.lower()}</button></form></div>"""
+<div class="field" style="min-width:280px"><label>{esc(i18n.t(lang, "Void reason"))}</label><input name="reason" required maxlength="200"></div>
+<button class="btn ghost" type="submit">{esc(i18n.t(lang, f"Void {direction_label.lower()}"))}</button></form></div>"""
         else:
-            edit_card = (f'<div class="card pad small muted">This voucher is void. Reason: '
+            edit_card = (f'<div class="card pad small muted">{esc(i18n.t(lang, "This voucher is void. Reason:"))} '
                          f'{esc(p["void_reason"] or "—")}.</div>')
             void_card = ""
         body = f"""
 <div class="sect-head"><div><h2>{esc(p["voucher_no"])} {status_badge}</h2>
-<div class="small muted">{direction_label} · {esc(p["payment_date"])} · {esc(party_name)}</div></div>
-<a class="btn ghost" href="/receipts">Back to receipts</a></div>
+<div class="small muted">{esc(direction_text)} · {esc(p["payment_date"])} · {esc(party_name)}</div></div>
+<a class="btn ghost" href="/receipts">{esc(i18n.t(lang, "Back to receipts"))}</a></div>
 <div class="kpis">
-  {kpi("Amount", money.fmt(p["amount_paise"]), f'{p["mode"].title()} voucher')}
-  {kpi("Allocated", money.fmt(alloc_total), f"{len(allocations)} document(s)")}
-  {kpi("Unallocated", money.fmt(p["amount_paise"] - alloc_total), "on account")}
+  {kpi(i18n.t(lang, "Amount"), money.fmt(p["amount_paise"]), f'{esc(i18n.t(lang, mode_label))} {esc(i18n.t(lang, "voucher"))}')}
+  {kpi(i18n.t(lang, "Allocated"), money.fmt(alloc_total), f'{len(allocations)} {esc(i18n.t(lang, "document(s)"))}')}
+  {kpi(i18n.t(lang, "Unallocated"), money.fmt(p["amount_paise"] - alloc_total), i18n.t(lang, "on account"))}
 </div>
 {replacement_note}
 <div class="card sect"><table>
-<thead><tr><th>Document type</th><th>Document</th><th class="num">Allocated</th></tr></thead>
+<thead><tr><th>{esc(i18n.t(lang, "Document type"))}</th><th>{esc(i18n.t(lang, "Document"))}</th><th class="num">{esc(i18n.t(lang, "Allocated"))}</th></tr></thead>
 <tbody>{alloc_rows}</tbody></table></div>
 {edit_card}
 {void_card}"""
-        return layout(f'{direction_label} {p["voucher_no"]}', body, "receipts", user, tenant)
+        return layout(f'{direction_text} {p["voucher_no"]}', body, "receipts", user, tenant)
 
     def page_credit_notes(self, conn, user, tenant) -> str:
         rows = conn.execute(
