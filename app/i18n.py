@@ -7,6 +7,8 @@ break a page.
 """
 from __future__ import annotations
 
+import contextvars
+
 LANGUAGES = ("en", "hi")
 DEFAULT_LANGUAGE = "en"
 LANGUAGE_LABELS = {"en": "English", "hi": "हिंदी"}
@@ -506,6 +508,51 @@ HINDI = {
     "For {name}": "{name} की ओर से",
     "Authorised signatory": "अधिकृत हस्ताक्षरकर्ता",
     "Computer-generated tax invoice. Posted entries are immutable; corrections are made by credit note.": "कंप्यूटर-जनित कर चालान। पोस्ट की गई प्रविष्टियाँ अपरिवर्तनीय हैं; सुधार क्रेडिट नोट से किए जाते हैं।",
+
+    # Auto-generated journal narrations and line memos. Placeholders are filled
+    # with document data, so the accounting entry itself stays unchanged.
+    "Merge {source} into {target}: {reason}": "{source} को {target} में मिलाया: {reason}",
+    "Opening balance - {account}": "प्रारंभिक शेष - {account}",
+    "Opening balance corrected: {reason}": "प्रारंभिक शेष सुधारा गया: {reason}",
+    "Reversal: {reason}": "उलटाव: {reason}",
+    "Invoice for {party}": "{party} के लिए चालान",
+    "Invoice for {party} (corrected)": "{party} के लिए चालान (सुधारा हुआ)",
+    "Bill from {party}": "{party} से बिल",
+    "Bill from {party} (corrected)": "{party} से बिल (सुधारा हुआ)",
+    "Receipt from {party}": "{party} से रसीद",
+    "Payment to {party}": "{party} को भुगतान",
+    "Credit note: {reason}": "क्रेडिट नोट: {reason}",
+    "Debit note: {reason}": "डेबिट नोट: {reason}",
+    "Payment {voucher} voided: {reason}": "भुगतान {voucher} रद्द: {reason}",
+    "Payment {voucher} replaced: {reason}": "भुगतान {voucher} प्रतिस्थापित: {reason}",
+    "Invoice {document} voided: {reason}": "चालान {document} रद्द: {reason}",
+    "Invoice {document} replaced: {reason}": "चालान {document} प्रतिस्थापित: {reason}",
+    "Bill {document} voided: {reason}": "बिल {document} रद्द: {reason}",
+    "Bill {document} replaced: {reason}": "बिल {document} प्रतिस्थापित: {reason}",
+    "Manual journal": "मैन्युअल जर्नल",
+    "Stock increase: {item}": "स्टॉक वृद्धि: {item}",
+    "Stock decrease: {item}": "स्टॉक कमी: {item}",
+    "Stock increase": "स्टॉक वृद्धि",
+    "Stock decrease": "स्टॉक कमी",
+    "Stock adjustment": "स्टॉक समायोजन",
+    "Invoice receivable": "चालान प्राप्य",
+    "Bill payable": "देय बिल",
+    "Inventory in": "इन्वेंटरी अंदर",
+    "GST input": "GST इनपुट",
+    "Credit note": "क्रेडिट नोट",
+    "Sales return": "बिक्री वापसी",
+    "GST output reversal": "GST आउटपुट उलटाव",
+    "Stock in": "स्टॉक अंदर",
+    "COGS reversal": "बिक्री लागत उलटाव",
+    "Debit note / purchase return": "डेबिट नोट / खरीद वापसी",
+    "Stock returned": "स्टॉक वापस",
+    "Purchase return": "खरीद वापसी",
+    "GST input reversal": "GST इनपुट उलटाव",
+    "GST output": "GST आउटपुट",
+    "COGS": "बिक्री लागत",
+    "Inventory out": "इन्वेंटरी बाहर",
+    "Merge-out reclassification": "मर्ज-आउट पुनर्वर्गीकरण",
+    "Merge-in reclassification": "मर्ज-इन पुनर्वर्गीकरण",
 }
 
 TRANSLATIONS = {"hi": HINDI}
@@ -537,3 +584,37 @@ def t(lang: str | None, key: str) -> str:
     if lang == DEFAULT_LANGUAGE:
         return key
     return TRANSLATIONS.get(lang, {}).get(key, key)
+
+
+_CURRENT_LANGUAGE = contextvars.ContextVar("arthivio_language", default=DEFAULT_LANGUAGE)
+_DEVANAGARI_DIGITS = str.maketrans("0123456789", "०१२३४५६७८९")
+
+
+def set_current_language(value: str | None):
+    """Set the language for the current request without changing stored data."""
+    return _CURRENT_LANGUAGE.set(normalize_language(value))
+
+
+def reset_current_language(token) -> None:
+    _CURRENT_LANGUAGE.reset(token)
+
+
+def current_language() -> str:
+    return normalize_language(_CURRENT_LANGUAGE.get())
+
+
+def digits(value, lang: str | None = None) -> str:
+    """Convert ASCII digits to Devanagari digits for Hindi display only."""
+    text = str(value)
+    if normalize_language(lang or current_language()) == "hi":
+        return text.translate(_DEVANAGARI_DIGITS)
+    return text
+
+
+def auto(key: str, **values) -> str:
+    """Translate an auto-generated narration or memo in the request language."""
+    text = t(current_language(), key)
+    try:
+        return text.format(**values)
+    except (KeyError, IndexError):
+        return text

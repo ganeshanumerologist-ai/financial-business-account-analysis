@@ -2051,3 +2051,50 @@ change any accounting calculation, tax rate, journal or report formula.
   review of the tax-invoice wording is still pending.
 - The public link still depends on this PC staying powered on, signed in and online.
 - The hotfix was not independently reviewed or tested on a clean machine.
+
+## 48. Hindi figures and auto narrations (2026-11-12)
+
+This slice makes the saved Hindi language affect displayed money and the text that ARTHIVIO
+writes into new accounting entries. It does not change any stored amount, tax calculation,
+journal line, report formula or document number.
+
+| Check | Result |
+|---|---|
+| Full test suite | **353 tests, OK**, 45.926 s, Python 3.14.6, Windows |
+| Hindi money display | With the saved language set to Hindi, `money.fmt()` shows Devanagari digits, for example `₹१,२३४.५६`; switching back to English shows `₹1,234.56` |
+| Exports and APIs | `/export/` downloads and `/api/` JSON keep ASCII digits so spreadsheets, CSV files and integrations remain portable |
+| Auto narration | New invoices, bills, receipts, payments, credit/debit notes, opening balances, ledger merges, voids, replacements, stock adjustments and the manual-journal fallback use Hindi narration when the acting user's saved language is Hindi |
+| Line memos | Invoice receivable, revenue, GST output, COGS, inventory movement, stock adjustment, round-off and merge reclassification memos follow the same language rule |
+| Historical entries | Already-posted narrations and memos are never rewritten; the audit trail keeps the exact text that was posted |
+| Tests | A money/helper test checks Devanagari digits and narration formatting; an HTTP test posts a receipt in Hindi and reads the resulting journal narration back from SQLite |
+| Live verification | Local Hindi dashboard and posted-invoice print showed `₹२,०७,५३९.८०` and `₹२०,०००.००`; English returned `₹2,07,539.80` and `₹20,000.00` |
+| Public verification | Tester login through the current tunnel returned 200; Hindi dashboard and posted-invoice print showed Devanagari amounts; switching back returned ASCII amounts |
+| Offline package | Rebuilt after this slice; embedded runtime returned `arthivio 0.26`; 516 files / 32,042,540 bytes |
+| Setup EXE | Rebuilt as a self-extracting EXE from the updated offline ZIP and installer BAT |
+| Installer ZIP | Rebuilt with the updated offline ZIP and setup EXE |
+| Release ZIP | Rebuilt with the updated offline folder, setup EXE, offline ZIP, installer BAT, README and access file |
+| Release hashes | Recorded after the rebuild in the release folder and in section 48.2 below |
+
+### 48.1 Honest limits
+
+- The individual report screen bodies (trial balance, profit and loss, balance sheet and cash
+  flow) are still English; the next translation slice is those screens.
+- Credit notes, statements, share links and other print/export documents remain English.
+- Report formulas and the invoice amount-in-words value remain English. A native Hindi
+  accounting and legal review of the tax-invoice wording is still pending.
+- Hindi changes the display and the narration written into **new** entries only. Existing entries
+  keep their original posted narration, which is required for a trustworthy audit trail.
+- Document numbers, dates, GSTIN, HSN/SAC, account codes and IDs stay in ASCII even in Hindi mode.
+- The public link still depends on this PC staying powered on, signed in and online.
+
+### 48.2 Release hashes
+
+| Artifact | Size | SHA-256 |
+|---|---|---|
+| Setup EXE | 15,169,536 | `F8F564874C2BE7C00FA8FB86CB643B8FB6D4D9301E4679A3E109203FB77D43F1` |
+| Installer ZIP | 30,116,919 | `C186D64E99C3F4ED6EEA11ADB8694FE15279D7D21FBD40DC2B7140F3371361ED` |
+| Offline ZIP | 15,161,100 | `64964584A1883D3C4118BA834B02277E86F7D2DC6D27107CCDC1353951E7D2A6` |
+| Release ZIP | 44,923,148 | `8FAA38621B7CF93883C317017F155070D58EDCDA2C9B1BB8E50856FE6F13354B` |
+
+The copies in `D:\ARTHIVIO-Offline-0.26` and `D:\finance business software` match these hashes.
+`SHA256SUMS.txt` is stored next to the artifacts in both folders.

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
+from . import i18n
+
 MINOR = Decimal("0.01")
 
 
@@ -128,7 +130,8 @@ def fmt(paise: int, symbol: str = "\u20b9") -> str:
         if head:
             groups.insert(0, head)
         s = ",".join(groups) + "," + tail
-    return f"{'-' if neg else ''}{symbol}{s}.{p:02d}"
+    text = f"{'-' if neg else ''}{symbol}{s}.{p:02d}"
+    return i18n.digits(text)
 
 
 def to_str(paise: int) -> str:

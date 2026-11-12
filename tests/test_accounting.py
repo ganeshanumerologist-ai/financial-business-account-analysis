@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import accounting as acc
-from app import db, drafts, money, security
+from app import db, drafts, i18n, money, security
 
 
 class Base(unittest.TestCase):
@@ -52,6 +52,17 @@ class TestMoney(unittest.TestCase):
         self.assertEqual(money.fmt(123456), "\u20b91,234.56")
         self.assertEqual(money.fmt(123456789), "\u20b912,34,567.89")
         self.assertEqual(money.fmt(-100), "-\u20b91.00")
+
+    def test_hindi_display_uses_devanagari_digits_and_narration(self):
+        token = i18n.set_current_language("hi")
+        try:
+            self.assertEqual(money.fmt(123456), "\u20b9१,२३४.५६")
+            self.assertEqual(
+                i18n.auto("Invoice for {party}", party="Test Customer"),
+                "Test Customer के लिए चालान")
+        finally:
+            i18n.reset_current_language(token)
+        self.assertEqual(money.fmt(123456), "\u20b91,234.56")
 
     def test_three_decimals_rejected(self):
         with self.assertRaises(money.MoneyError):
@@ -404,6 +415,26 @@ class TestInvoice(Base):
         self.assertEqual(ctx.exception.code, "INVOICE_NOT_POSTED")
         self.assertEqual(
             self.conn.execute("SELECT COUNT(*) c FROM payment").fetchone()["c"], 0)
+
+    def test_hindi_auto_narration_for_invoice_and_receipt(self):
+        it = self.item(stock=2000)
+        token = i18n.set_current_language("hi")
+        try:
+            inv = self.invoice([{"item_id": it, "qty": 1000}])
+            narration = self.conn.execute(
+                "SELECT narration FROM journal_entry WHERE id=?",
+                (inv["journal_entry_id"],)).fetchone()["narration"]
+            self.assertEqual(narration, "Test Customer के लिए चालान")
+
+            pay = acc.record_payment(
+                self.conn, self.t, "receipt", self.cust, "2026-10-24", 5000,
+                allocations=[{"doc_type": "invoice", "doc_id": inv["id"], "amount": 5000}])
+            pay_narration = self.conn.execute(
+                "SELECT narration FROM journal_entry WHERE id=?",
+                (pay["journal_entry_id"],)).fetchone()["narration"]
+            self.assertEqual(pay_narration, "Test Customer से रसीद")
+        finally:
+            i18n.reset_current_language(token)
 
 
 class TestReports(Base):

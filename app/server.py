@@ -1857,6 +1857,11 @@ class Handler(BaseHTTPRequestHandler):
             if not user or not tenant:
                 return self._redirect("/logout")
 
+            # UI pages use the saved language for auto narrations and figures.
+            # Downloads and JSON APIs stay in ASCII digits for portability.
+            request_lang = "en" if path.startswith(("/export/", "/api/")) else i18n.language_for(user)
+            i18n.set_current_language(request_lang)
+
             if path == "/language":
                 return self._set_language(conn, user, tenant, q)
             if path == "/api/v1/analytics/catalog":
@@ -2177,6 +2182,9 @@ class Handler(BaseHTTPRequestHandler):
             tenant = conn.execute("SELECT * FROM tenant WHERE id=?", (sess["tenant_id"],)).fetchone()
             if not user or not tenant:
                 return self._redirect("/logout")
+
+            request_lang = "en" if path.startswith("/api/") else i18n.language_for(user)
+            i18n.set_current_language(request_lang)
 
             if path == "/logout":
                 security.revoke_session(conn, self._cookies().get("sid"))
@@ -11535,13 +11543,13 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                 draft = drafts_mod.save_journal_draft(
                     conn, tenant["id"],
                     first(form, "entry_date") or date.today().isoformat(),
-                    first(form, "narration") or "Manual journal", lines,
+                    first(form, "narration") or i18n.auto("Manual journal"), lines,
                     is_intercompany=bool(first(form, "is_intercompany")),
                     created_by=user["id"])
                 return self._redirect(f'/journal/drafts/{draft["id"]}/edit')
             entry_id = acct.post_journal(
                 conn, tenant["id"], first(form, "entry_date") or date.today().isoformat(),
-                first(form, "narration") or "Manual journal", lines, source_type="manual",
+                first(form, "narration") or i18n.auto("Manual journal"), lines, source_type="manual",
                 created_by=user["id"],
                 is_intercompany=bool(first(form, "is_intercompany")))
             first_account = lines[0]["account_id"] if lines else ""
@@ -11558,7 +11566,7 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             draft = drafts_mod.save_journal_draft(
                 conn, tenant["id"],
                 first(form, "entry_date") or date.today().isoformat(),
-                first(form, "narration") or "Manual journal", lines,
+                first(form, "narration") or i18n.auto("Manual journal"), lines,
                 is_intercompany=bool(first(form, "is_intercompany")),
                 created_by=user["id"])
         except (acct.AccountingError, money.MoneyError) as e:
@@ -11574,7 +11582,7 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             drafts_mod.update_journal_draft(
                 conn, tenant["id"], draft_id,
                 first(form, "entry_date") or date.today().isoformat(),
-                first(form, "narration") or "Manual journal", lines,
+                first(form, "narration") or i18n.auto("Manual journal"), lines,
                 is_intercompany=bool(first(form, "is_intercompany")),
                 created_by=user["id"])
             if action == "submit":

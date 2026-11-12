@@ -11,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from . import accounting as acct, db
+from . import accounting as acct, db, i18n
 
 STOCK_ADJUSTMENT_ACCOUNT = "5950"
 INVENTORY_ACCOUNT = "1200"
@@ -135,19 +135,19 @@ def adjust_stock(conn: sqlite3.Connection, tenant_id: str, item_id: str,
         if qty_milli > 0:
             lines = [
                 {"account_id": inventory, "debit": value, "credit": 0,
-                 "memo": "Stock increase"},
+                 "memo": i18n.auto("Stock increase")},
                 {"account_id": adjustment_account, "debit": 0, "credit": value,
-                 "memo": "Stock adjustment"},
+                 "memo": i18n.auto("Stock adjustment")},
             ]
-            narration = f"Stock increase: {item['name']}"
+            narration = i18n.auto("Stock increase: {item}", item=item["name"])
         else:
             lines = [
                 {"account_id": adjustment_account, "debit": value, "credit": 0,
-                 "memo": "Stock adjustment"},
+                 "memo": i18n.auto("Stock adjustment")},
                 {"account_id": inventory, "debit": 0, "credit": value,
-                 "memo": "Stock decrease"},
+                 "memo": i18n.auto("Stock decrease")},
             ]
-            narration = f"Stock decrease: {item['name']}"
+            narration = i18n.auto("Stock decrease: {item}", item=item["name"])
 
         entry_id = acct.post_journal(
             conn, tenant_id, adjustment_date, narration, lines,

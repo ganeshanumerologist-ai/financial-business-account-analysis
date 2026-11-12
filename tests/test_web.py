@@ -1457,6 +1457,28 @@ class WebTest(unittest.TestCase):
         self.assertIn('href="/language?lang=hi"', printed)
 
         conn = db.connect(self.db_path)
+        invoice = conn.execute(
+            "SELECT id FROM invoice WHERE tenant_id=? AND status='posted'"
+            " ORDER BY invoice_no DESC LIMIT 1", (self.tenant_id,)).fetchone()
+        before = acct.invoice_outstanding(conn, self.tenant_id, invoice["id"])
+        conn.close()
+        self.assertGreater(before, 100)
+        invoice_page = self.get(f"/invoices/{invoice['id']}")[1]
+        token = self.csrf(invoice_page)
+        status, _, _ = self.post("/receipts", {
+            "_csrf": token, "invoice_id": invoice["id"], "amount": "1.00",
+            "mode": "bank", "payment_date": "2026-10-23",
+            "reference": "HI-NARRATION"})
+        self.assertEqual(status, 200)
+        conn = db.connect(self.db_path)
+        narration = conn.execute(
+            "SELECT narration FROM journal_entry WHERE tenant_id=?"
+            " AND source_type='receipt' ORDER BY rowid DESC LIMIT 1",
+            (self.tenant_id,)).fetchone()["narration"]
+        conn.close()
+        self.assertIn("से रसीद", narration)
+
+        conn = db.connect(self.db_path)
         row = conn.execute(
             "SELECT language FROM user WHERE email='owner@arthivio.test'").fetchone()
         audit = conn.execute(

@@ -10,7 +10,7 @@ import sqlite3
 from calendar import monthrange
 from datetime import date
 
-from . import db, money
+from . import db, i18n, money
 from .money import mul_qty_price, split_tax, tax_on
 
 
@@ -821,19 +821,23 @@ def merge_accounts(conn: sqlite3.Connection, tenant_id: str, source_id: str, tar
             if balance > 0:
                 lines = [
                     {"account_id": source_id, "debit": 0, "credit": balance,
-                     "party_id": party_id, "memo": "Merge-out reclassification"},
+                     "party_id": party_id, "memo": i18n.auto("Merge-out reclassification")},
                     {"account_id": target_id, "debit": balance, "credit": 0,
-                     "party_id": party_id, "memo": "Merge-in reclassification"},
+                     "party_id": party_id, "memo": i18n.auto("Merge-in reclassification")},
                 ]
             else:
                 lines = [
                     {"account_id": source_id, "debit": -balance, "credit": 0,
-                     "party_id": party_id, "memo": "Merge-out reclassification"},
+                     "party_id": party_id, "memo": i18n.auto("Merge-out reclassification")},
                     {"account_id": target_id, "debit": 0, "credit": -balance,
-                     "party_id": party_id, "memo": "Merge-in reclassification"},
+                     "party_id": party_id, "memo": i18n.auto("Merge-in reclassification")},
                 ]
-            narration = (f"Merge {source['code']} {source['name']} into "
-                         f"{target['code']} {target['name']}: {reason}")
+            narration = i18n.auto(
+                "Merge {source} into {target}: {reason}",
+                source=f"{source['code']} {source['name']}",
+                target=f"{target['code']} {target['name']}",
+                reason=reason,
+            )
             entry_id = post_journal(
                 conn, tenant_id, _today_iso(), narration, lines,
                 source_type="merge", source_id=source_id, created_by=merged_by,
@@ -1012,7 +1016,7 @@ def set_opening_balance(conn: sqlite3.Connection, tenant_id: str, account_id: st
             {"account_id": equity_id, "debit": amount, "credit": 0},
         ]
 
-    narration = f"Opening balance - {account['name']}"
+    narration = i18n.auto("Opening balance - {account}", account=account["name"])
     note = (note or "").strip()[:160]
     if note:
         narration += f" - {note}"
@@ -1052,7 +1056,8 @@ def replace_opening_balance(conn: sqlite3.Connection, tenant_id: str, account_id
         conn.execute("SAVEPOINT sp_replace_opening")
     try:
         reversal_id = reverse_entry(
-            conn, tenant_id, existing["id"], f"Opening balance corrected: {reason.strip()[:160]}",
+            conn, tenant_id, existing["id"],
+            i18n.auto("Opening balance corrected: {reason}", reason=reason.strip()[:160]),
             created_by=created_by,
         )
         new_id = set_opening_balance(
@@ -1211,7 +1216,7 @@ def reverse_entry(conn: sqlite3.Connection, tenant_id: str, entry_id: str, reaso
     mirrored = [{"account_id": l["account_id"], "debit": l["credit_paise"],
                  "credit": l["debit_paise"], "party_id": l["party_id"],
                  "dimension_id": l["dimension_id"] if "dimension_id" in l.keys() else None,
-                 "memo": f"Reversal: {reason}"} for l in lines]
+                 "memo": i18n.auto("Reversal: {reason}", reason=reason)} for l in lines]
 
     own_tx = not conn.in_transaction
     if own_tx:
@@ -1410,7 +1415,7 @@ def _invoice_journal_lines(conn: sqlite3.Connection, tenant_id: str, customer,
         tax_lines = [(acct(conn, tenant_id, "2102"), tax_total)]
 
     lines = [{"account_id": ar, "debit": total, "credit": 0, "party_id": customer["id"],
-              "memo": "Invoice receivable"}]
+              "memo": i18n.auto("Invoice receivable")}]
     for code, amount in revenue_by_account.items():
         if not amount:
             continue
@@ -1420,17 +1425,17 @@ def _invoice_journal_lines(conn: sqlite3.Connection, tenant_id: str, customer,
             raise AccountingError("REVENUE_ACCOUNT_NOT_FOUND",
                                   f"Revenue account {code} is missing from the chart of accounts") from exc
         lines.append({"account_id": revenue_account, "debit": 0, "credit": amount,
-                      "memo": "Revenue"})
+                      "memo": i18n.auto("Revenue")})
     for acc, amt in tax_lines:
         if amt:
-            lines.append({"account_id": acc, "debit": 0, "credit": amt, "memo": "GST output"})
+            lines.append({"account_id": acc, "debit": 0, "credit": amt, "memo": i18n.auto("GST output")})
     if cogs_total:
-        lines.append({"account_id": cogs, "debit": cogs_total, "credit": 0, "memo": "COGS"})
-        lines.append({"account_id": inventory, "debit": 0, "credit": cogs_total, "memo": "Inventory out"})
+        lines.append({"account_id": cogs, "debit": cogs_total, "credit": 0, "memo": i18n.auto("COGS")})
+        lines.append({"account_id": inventory, "debit": 0, "credit": cogs_total, "memo": i18n.auto("Inventory out")})
     if round_off > 0:
-        lines.append({"account_id": round_acc, "debit": 0, "credit": round_off, "memo": "Round off"})
+        lines.append({"account_id": round_acc, "debit": 0, "credit": round_off, "memo": i18n.auto("Round off")})
     elif round_off < 0:
-        lines.append({"account_id": round_acc, "debit": -round_off, "credit": 0, "memo": "Round off"})
+        lines.append({"account_id": round_acc, "debit": -round_off, "credit": 0, "memo": i18n.auto("Round off")})
     return lines
 
 
@@ -1474,7 +1479,7 @@ def create_invoice(conn: sqlite3.Connection, tenant_id: str, customer_id: str, i
                 return dict(existing)
 
         entry_id = post_journal(conn, tenant_id, invoice_date,
-                                f"Invoice for {customer['name']}", lines,
+                                i18n.auto("Invoice for {party}", party=customer["name"]), lines,
                                 source_type="invoice", idempotency_key=idempotency_key,
                                 created_by=created_by)
         invoice_id = db.new_id()
@@ -1734,7 +1739,8 @@ def post_draft_invoice(conn: sqlite3.Connection, tenant_id: str, invoice_id: str
 
         invoice_no = db.next_number(conn, tenant_id, "invoice", "INV")
         entry_id = post_journal(
-            conn, tenant_id, current["invoice_date"], f"Invoice for {customer['name']}",
+            conn, tenant_id, current["invoice_date"],
+            i18n.auto("Invoice for {party}", party=customer["name"]),
             journal_lines, source_type="invoice", source_id=invoice_id,
             idempotency_key=f"invoice-post-{invoice_id}", created_by=created_by,
         )
@@ -1866,7 +1872,8 @@ def void_posted_invoice(conn: sqlite3.Connection, tenant_id: str, invoice_id: st
         _assert_invoice_replaceable(conn, tenant_id, current)
         reversal_id = reverse_entry(
             conn, tenant_id, current["journal_entry_id"],
-            f"Invoice {current['invoice_no']} voided: {reason.strip()[:160]}",
+            i18n.auto("Invoice {document} voided: {reason}",
+                      document=current["invoice_no"], reason=reason.strip()[:160]),
             created_by=created_by,
         )
         _restore_invoice_stock(conn, tenant_id, invoice_id)
@@ -1920,7 +1927,8 @@ def replace_posted_invoice(conn: sqlite3.Connection, tenant_id: str, invoice_id:
 
         reversal_id = reverse_entry(
             conn, tenant_id, current["journal_entry_id"],
-            f"Invoice {current['invoice_no']} replaced: {reason.strip()[:160]}",
+            i18n.auto("Invoice {document} replaced: {reason}",
+                      document=current["invoice_no"], reason=reason.strip()[:160]),
             created_by=created_by,
         )
         _restore_invoice_stock(conn, tenant_id, invoice_id)
@@ -1935,7 +1943,8 @@ def replace_posted_invoice(conn: sqlite3.Connection, tenant_id: str, invoice_id:
             prep["cogs_total"], prep["revenue_by_account"], intra,
         )
         entry_id = post_journal(
-            conn, tenant_id, invoice_date, f"Invoice for {customer['name']} (corrected)",
+            conn, tenant_id, invoice_date,
+            i18n.auto("Invoice for {party} (corrected)", party=customer["name"]),
             journal_lines, source_type="invoice",
             idempotency_key=f"invoice-replace-{invoice_id}", created_by=created_by,
         )
@@ -2097,21 +2106,23 @@ def record_payment(conn: sqlite3.Connection, tenant_id: str, direction: str, par
         ar = party["account_id"] or db.account_id(conn, tenant_id, AR_ACCOUNT)
         lines = [
             {"account_id": cash_or_bank, "debit": amount_paise, "credit": 0,
-             "memo": f"Receipt from {party['name']}"},
+             "memo": i18n.auto("Receipt from {party}", party=party["name"])},
             {"account_id": ar, "debit": 0, "credit": amount_paise, "party_id": party_id,
-             "memo": f"Receipt from {party['name']}"},
+             "memo": i18n.auto("Receipt from {party}", party=party["name"])},
         ]
-        narration = f"Receipt from {party['name']}" + (f" ({reference})" if reference else "")
+        narration = i18n.auto("Receipt from {party}", party=party["name"]) + (
+            f" ({reference})" if reference else "")
         prefix, doc_type = "RCPT", "receipt"
     else:
         ap = party["account_id"] or db.account_id(conn, tenant_id, AP_ACCOUNT)
         lines = [
             {"account_id": ap, "debit": amount_paise, "credit": 0, "party_id": party_id,
-             "memo": f"Payment to {party['name']}"},
+             "memo": i18n.auto("Payment to {party}", party=party["name"])},
             {"account_id": cash_or_bank, "debit": 0, "credit": amount_paise,
-             "memo": f"Payment to {party['name']}"},
+             "memo": i18n.auto("Payment to {party}", party=party["name"])},
         ]
-        narration = f"Payment to {party['name']}" + (f" ({reference})" if reference else "")
+        narration = i18n.auto("Payment to {party}", party=party["name"]) + (
+            f" ({reference})" if reference else "")
         prefix, doc_type = "PYMT", "payment"
 
     conn.execute("BEGIN IMMEDIATE")
@@ -2206,21 +2217,23 @@ def _payment_plan(conn: sqlite3.Connection, tenant_id: str, direction: str, part
         ar = party["account_id"] or db.account_id(conn, tenant_id, AR_ACCOUNT)
         lines = [
             {"account_id": cash_or_bank, "debit": amount_paise, "credit": 0,
-             "memo": f"Receipt from {party['name']}"},
+             "memo": i18n.auto("Receipt from {party}", party=party["name"])},
             {"account_id": ar, "debit": 0, "credit": amount_paise, "party_id": party_id,
-             "memo": f"Receipt from {party['name']}"},
+             "memo": i18n.auto("Receipt from {party}", party=party["name"])},
         ]
-        narration = f"Receipt from {party['name']}" + (f" ({reference})" if reference else "")
+        narration = i18n.auto("Receipt from {party}", party=party["name"]) + (
+            f" ({reference})" if reference else "")
         prefix, doc_type = "RCPT", "receipt"
     else:
         ap = party["account_id"] or db.account_id(conn, tenant_id, AP_ACCOUNT)
         lines = [
             {"account_id": ap, "debit": amount_paise, "credit": 0, "party_id": party_id,
-             "memo": f"Payment to {party['name']}"},
+             "memo": i18n.auto("Payment to {party}", party=party["name"])},
             {"account_id": cash_or_bank, "debit": 0, "credit": amount_paise,
-             "memo": f"Payment to {party['name']}"},
+             "memo": i18n.auto("Payment to {party}", party=party["name"])},
         ]
-        narration = f"Payment to {party['name']}" + (f" ({reference})" if reference else "")
+        narration = i18n.auto("Payment to {party}", party=party["name"]) + (
+            f" ({reference})" if reference else "")
         prefix, doc_type = "PYMT", "payment"
     return party, cash_or_bank, lines, narration, prefix, doc_type
 
@@ -2250,7 +2263,8 @@ def void_posted_payment(conn: sqlite3.Connection, tenant_id: str, payment_id: st
             raise AccountingError("PAYMENT_NOT_POSTED", "Only a posted payment can be voided")
         reversal_id = reverse_entry(
             conn, tenant_id, current["journal_entry_id"],
-            f"Payment {current['voucher_no']} voided: {reason.strip()[:160]}",
+            i18n.auto("Payment {voucher} voided: {reason}",
+                      voucher=current["voucher_no"], reason=reason.strip()[:160]),
             created_by=created_by,
         )
         conn.execute(
@@ -2310,7 +2324,8 @@ def replace_posted_payment(conn: sqlite3.Connection, tenant_id: str, payment_id:
         # Re-validate after the old payment is excluded from outstanding.
         reversal_id = reverse_entry(
             conn, tenant_id, current["journal_entry_id"],
-            f"Payment {current['voucher_no']} replaced: {reason.strip()[:160]}",
+            i18n.auto("Payment {voucher} replaced: {reason}",
+                      voucher=current["voucher_no"], reason=reason.strip()[:160]),
             created_by=created_by,
         )
         _validate_payment_allocations(conn, tenant_id, current["direction"], amount_paise,
@@ -2447,20 +2462,20 @@ def create_bill(conn: sqlite3.Connection, tenant_id: str, vendor_id: str, bill_d
         tax_lines = [(acct(conn, tenant_id, "2202"), tax_total)]
 
     lines = [{"account_id": ap, "debit": 0, "credit": total, "party_id": vendor_id,
-              "memo": "Bill payable"}]
+              "memo": i18n.auto("Bill payable")}]
     if stock_value:
         lines.append({"account_id": inventory, "debit": stock_value, "credit": 0,
-                      "memo": "Inventory in"})
+                      "memo": i18n.auto("Inventory in")})
     if purchase_value:
         lines.append({"account_id": purchases, "debit": purchase_value, "credit": 0,
-                      "memo": "Purchases"})
+                      "memo": i18n.auto("Purchases")})
     for acc, amt in tax_lines:
         if amt:
-            lines.append({"account_id": acc, "debit": amt, "credit": 0, "memo": "GST input"})
+            lines.append({"account_id": acc, "debit": amt, "credit": 0, "memo": i18n.auto("GST input")})
     if round_off > 0:
-        lines.append({"account_id": round_acc, "debit": round_off, "credit": 0, "memo": "Round off"})
+        lines.append({"account_id": round_acc, "debit": round_off, "credit": 0, "memo": i18n.auto("Round off")})
     elif round_off < 0:
-        lines.append({"account_id": round_acc, "debit": 0, "credit": -round_off, "memo": "Round off"})
+        lines.append({"account_id": round_acc, "debit": 0, "credit": -round_off, "memo": i18n.auto("Round off")})
 
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -2473,7 +2488,8 @@ def create_bill(conn: sqlite3.Connection, tenant_id: str, vendor_id: str, bill_d
                 conn.execute("COMMIT")
                 return dict(existing)
 
-        entry_id = post_journal(conn, tenant_id, bill_date, f"Bill from {vendor['name']}", lines,
+        entry_id = post_journal(conn, tenant_id, bill_date,
+                                i18n.auto("Bill from {party}", party=vendor["name"]), lines,
                                 source_type="bill", idempotency_key=idempotency_key,
                                 created_by=created_by)
         bill_id = db.new_id()
@@ -2583,7 +2599,8 @@ def void_posted_bill(conn: sqlite3.Connection, tenant_id: str, bill_id: str,
         _assert_bill_replaceable(conn, tenant_id, current)
         reversal_id = reverse_entry(
             conn, tenant_id, current["journal_entry_id"],
-            f"Bill {current['bill_no']} voided: {reason.strip()[:160]}",
+            i18n.auto("Bill {document} voided: {reason}",
+                      document=current["bill_no"], reason=reason.strip()[:160]),
             created_by=created_by,
         )
         _undo_bill_stock(conn, tenant_id, bill_id)
@@ -2630,7 +2647,8 @@ def replace_posted_bill(conn: sqlite3.Connection, tenant_id: str, bill_id: str,
         _assert_bill_replaceable(conn, tenant_id, current)
         reversal_id = reverse_entry(
             conn, tenant_id, current["journal_entry_id"],
-            f"Bill {current['bill_no']} replaced: {reason.strip()[:160]}",
+            i18n.auto("Bill {document} replaced: {reason}",
+                      document=current["bill_no"], reason=reason.strip()[:160]),
             created_by=created_by,
         )
         _undo_bill_stock(conn, tenant_id, bill_id)
@@ -2652,25 +2670,26 @@ def replace_posted_bill(conn: sqlite3.Connection, tenant_id: str, bill_id: str,
         else:
             tax_lines = [(acct(conn, tenant_id, "2202"), prep["tax_total"])]
         lines = [{"account_id": ap, "debit": 0, "credit": prep["total"],
-                  "party_id": vendor_id, "memo": "Bill payable"}]
+                  "party_id": vendor_id, "memo": i18n.auto("Bill payable")}]
         if prep["stock_value"]:
             lines.append({"account_id": inventory, "debit": prep["stock_value"], "credit": 0,
-                          "memo": "Inventory in"})
+                          "memo": i18n.auto("Inventory in")})
         if prep["purchase_value"]:
             lines.append({"account_id": purchases, "debit": prep["purchase_value"], "credit": 0,
-                          "memo": "Purchases"})
+                          "memo": i18n.auto("Purchases")})
         for acc, amt in tax_lines:
             if amt:
-                lines.append({"account_id": acc, "debit": amt, "credit": 0, "memo": "GST input"})
+                lines.append({"account_id": acc, "debit": amt, "credit": 0, "memo": i18n.auto("GST input")})
         if prep["round_off"] > 0:
             lines.append({"account_id": round_acc, "debit": prep["round_off"], "credit": 0,
-                          "memo": "Round off"})
+                          "memo": i18n.auto("Round off")})
         elif prep["round_off"] < 0:
             lines.append({"account_id": round_acc, "debit": 0, "credit": -prep["round_off"],
-                          "memo": "Round off"})
+                          "memo": i18n.auto("Round off")})
 
         entry_id = post_journal(
-            conn, tenant_id, bill_date, f"Bill from {vendor['name']} (corrected)", lines,
+            conn, tenant_id, bill_date,
+            i18n.auto("Bill from {party} (corrected)", party=vendor["name"]), lines,
             source_type="bill", idempotency_key=f"bill-replace-{bill_id}", created_by=created_by,
         )
         new_id = db.new_id()
@@ -2795,17 +2814,17 @@ def create_credit_note(conn: sqlite3.Connection, tenant_id: str, invoice_id: str
         tax_lines = [(acct(conn, tenant_id, "2102"), tax_total)]
 
     lines_j = [{"account_id": ar, "debit": 0, "credit": total, "party_id": invoice["customer_id"],
-                "memo": "Credit note"}]
+                "memo": i18n.auto("Credit note")}]
     for code, amount in revenue_by_account.items():
         if amount:
             lines_j.append({"account_id": acct(conn, tenant_id, code), "debit": amount, "credit": 0,
-                            "memo": "Sales return"})
+                            "memo": i18n.auto("Sales return")})
     for acc, amt in tax_lines:
         if amt:
-            lines_j.append({"account_id": acc, "debit": amt, "credit": 0, "memo": "GST output reversal"})
+            lines_j.append({"account_id": acc, "debit": amt, "credit": 0, "memo": i18n.auto("GST output reversal")})
     if cost_total:
-        lines_j.append({"account_id": inventory, "debit": cost_total, "credit": 0, "memo": "Stock in"})
-        lines_j.append({"account_id": cogs, "debit": 0, "credit": cost_total, "memo": "COGS reversal"})
+        lines_j.append({"account_id": inventory, "debit": cost_total, "credit": 0, "memo": i18n.auto("Stock in")})
+        lines_j.append({"account_id": cogs, "debit": 0, "credit": cost_total, "memo": i18n.auto("COGS reversal")})
 
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -2818,7 +2837,8 @@ def create_credit_note(conn: sqlite3.Connection, tenant_id: str, invoice_id: str
                 conn.execute("COMMIT")
                 return dict(existing)
 
-        entry_id = post_journal(conn, tenant_id, note_date, f"Credit note: {reason}", lines_j,
+        entry_id = post_journal(conn, tenant_id, note_date,
+                                i18n.auto("Credit note: {reason}", reason=reason), lines_j,
                                 source_type="credit_note", idempotency_key=idempotency_key,
                                 created_by=created_by)
         note_id = db.new_id()
@@ -2968,17 +2988,17 @@ def create_debit_note(conn: sqlite3.Connection, tenant_id: str, bill_id: str, no
         tax_lines = [(acct(conn, tenant_id, "2202"), tax_total)]
 
     lines_j = [{"account_id": ap, "debit": total, "credit": 0, "party_id": bill["vendor_id"],
-                "memo": "Debit note / purchase return"}]
+                "memo": i18n.auto("Debit note / purchase return")}]
     if stock_value:
         lines_j.append({"account_id": inventory, "debit": 0, "credit": stock_value,
-                        "memo": "Stock returned"})
+                        "memo": i18n.auto("Stock returned")})
     if purchase_value:
         lines_j.append({"account_id": purchases, "debit": 0, "credit": purchase_value,
-                        "memo": "Purchase return"})
+                        "memo": i18n.auto("Purchase return")})
     for acc, amt in tax_lines:
         if amt:
             lines_j.append({"account_id": acc, "debit": 0, "credit": amt,
-                            "memo": "GST input reversal"})
+                            "memo": i18n.auto("GST input reversal")})
 
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -2991,7 +3011,8 @@ def create_debit_note(conn: sqlite3.Connection, tenant_id: str, bill_id: str, no
                 conn.execute("COMMIT")
                 return dict(existing)
 
-        entry_id = post_journal(conn, tenant_id, note_date, f"Debit note: {reason}", lines_j,
+        entry_id = post_journal(conn, tenant_id, note_date,
+                                i18n.auto("Debit note: {reason}", reason=reason), lines_j,
                                 source_type="debit_note", idempotency_key=idempotency_key,
                                 created_by=created_by)
         note_id = db.new_id()
