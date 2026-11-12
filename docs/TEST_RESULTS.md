@@ -2084,7 +2084,7 @@ journal line, report formula or document number.
   accounting and legal review of the tax-invoice wording is still pending.
 - Hindi changes the display and the narration written into **new** entries only. Existing entries
   keep their original posted narration, which is required for a trustworthy audit trail.
-- Document numbers, dates, GSTIN, HSN/SAC, account codes and IDs stay in ASCII even in Hindi mode.
+- Document numbers, dates, quantities, GSTIN, HSN/SAC, account codes and IDs stay in ASCII even in Hindi mode.
 - The public link still depends on this PC staying powered on, signed in and online.
 
 ### 48.2 Release hashes
