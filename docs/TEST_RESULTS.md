@@ -2098,3 +2098,76 @@ journal line, report formula or document number.
 
 The copies in `D:\ARTHIVIO-Offline-0.26` and `D:\finance business software` match these hashes.
 `SHA256SUMS.txt` is stored next to the artifacts in both folders.
+
+## 49. Visual gallery, report-screen Hindi and pack guide (2026-11-12)
+
+This slice adds an app-native visual gallery and a Power BI Desktop build guide.
+It does not change any accounting calculation, journal, tax rate, report formula,
+tenant rule or posted document. Every series is derived from the same posted
+actuals contract used by the analytics page, Excel workbook and static pack.
+
+| Check | Result |
+|---|---|
+| Full test suite | **359 tests, OK**, 50.963 s, Python 3.14.6, Windows |
+| Gallery route | `GET /reports/visuals`, linked from the Analysis navigation group; English and Hindi titles and labels |
+| Visual coverage | Clustered column/bar, stacked column/bar, 100% stacked column/bar, line, area, stacked area, 100% stacked area, line-and-stacked-column, waterfall, funnel, scatter, pie, donut, treemap, map, filled map, shape map, key influencers, decomposition tree, smart narrative, goals, paginated report links, R/Python status cards, Azure Maps status card and a button-style visual-family slicer |
+| Render check | Browser mounted **21 ECharts canvases** across five groups; the grid used two columns at the tested viewport; the visual-family slicer hid and restored the expected groups |
+| Map | A 1,024,198-byte India state GeoJSON is bundled at `app/static/india_states.geojson` and served as `application/geo+json`; the map registered as `arthivio-india`; posted sales joined through customer GST state codes (Maharashtra, Delhi and Karnataka in the live trial) |
+| Unmapped states | Blank or unknown state codes are listed in a table instead of being silently dropped |
+| Empty period | `/reports/visuals?from=2020-01-01&to=2020-01-31` returned 200 and kept every visual type visible with explicit empty cards; no zero series was drawn |
+| Hindi mode | Page title, group headings, chart titles, slicer labels, KPI labels and notes rendered in Hindi; KPI amounts used Devanagari digits (for example the revenue KPI); English restored ASCII digits |
+| Hindi chart formatting | The ECharts helper accepts a language and formats axis labels and tooltips with Devanagari digits in Hindi mode; percentages use the same rule |
+| Power BI pack | Added `powerbi/VISUAL_GUIDE.md`, `powerbi/arthivio-theme.json` and `powerbi/report-blueprint.json`; the manifest hashes and row counts still verify |
+| Power BI theme | Importable theme named `ARTHIVIO Actuals` with the app palette and text classes |
+| Power BI blueprint | Four pages: Executive, Composition, Parties and geography, Advanced and native-only; fields, measures and status are explicit |
+| Report screen Hindi | Trial balance, profit and loss, balance sheet and cash flow now translate page labels, table headers, KPI labels and hints, chart legends, known generated cash-flow categories, directions and bridge text; account names, posted narration, dates, codes and amounts in exports stay unchanged |
+| Tests | New `tests/test_visuals.py` (5 tests) covers the full catalogue, totals reconciliation, empty periods, Hindi titles and map names; `test_bi` checks the new pack files; `test_web.test_43b` checks the route, map asset, empty state, Hindi page and chart containers |
+| Offline package | Rebuilt after this slice; embedded runtime returned `arthivio 0.26`; size and hashes recorded in section 49.2 |
+
+### 49.1 Honest limits
+
+- The gallery is **ECharts**, not embedded Power BI. Power BI Desktop can use the
+  pack, theme and blueprint, but this build does not generate a `.pbix`, a Service
+  dataset, RLS roles or a scheduled refresh.
+- R script visuals, Python visuals and Azure Maps are labelled native-only. The
+  offline build does not execute R/Python and has no Azure Maps key.
+- Paginated reports are printable report links, not a Power BI Report Server
+  paginated report.
+- The bundled map is state-level only. It has no district, pincode or street
+  geometry and no geocoding.
+- Key influencers is a deterministic expense-change ranking versus the previous
+  equal-length period, not an AI model. Smart narrative is grounded deterministic
+  text, not a generative model.
+- Goals uses stored monthly budgets only; when no budget exists the card says so
+  instead of inventing a target.
+- The gallery inherits the existing report permission and tenant isolation. It
+  does not add a public sharing route.
+- The public link still depends on this PC staying powered on, signed in and
+  online.
+
+### 49.2 Report-screen Hindi
+
+The four main financial statements now follow the saved language switch:
+
+- Trial balance: page title, as-of label, apply button, balanced/out-of-balance badge, table headers, type labels and totals.
+- Profit and loss: period labels, income/expense headings, total rows, net-profit label, chart legend, axis categories, mix headings, empty states and notes.
+- Balance sheet: as-of label, asset/liability/equity headings, total rows, retained-earnings label, difference badge, chart labels, composition headings and notes.
+- Cash flow: period labels, R-104 badge, five KPI labels and hints, category/direction tables, bridge labels and basis text, chart categories and series, movement-detail headers and notes.
+
+Account names, posted narration, document numbers, dates, quantities, GSTIN, HSN/SAC, account codes and IDs stay in their stored form. `/export/` and `/api/` remain English/ASCII. English mode returns the original labels and normal digits.
+
+Verified in the browser at the live local server: the Hindi trial balance showed `इस तिथि तक`, `संतुलित`, `कोड`, `खाता`, `प्रकार` and Devanagari amounts; P&L, balance sheet and cash flow showed Hindi headings, legends, KPI hints, categories and bridge text. Switching back to English restored `As of`, `Balanced` and ASCII money.
+
+### 49.3 Release hashes
+
+The offline package, setup EXE, installer ZIP and release ZIP are rebuilt after
+the source and documentation are final. Final SHA-256 values are stored in
+`SHA256SUMS.txt` next to the artifacts in `D:\ARTHIVIO-Offline-0.26` and
+`D:\finance business software`; the two copies must match. The hashes are kept
+outside this document so that changing the document cannot invalidate the
+artifact hashes it describes.
+
+The app folder contains **519 files**. The self-extracting setup was run against
+a temporary `%LOCALAPPDATA%`, installed 519 files and reported `Build 0.26`; the
+embedded runtime reported `APP_VERSION 0.26`. The installer and release ZIPs
+passed an archive integrity check.

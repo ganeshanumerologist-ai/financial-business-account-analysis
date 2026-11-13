@@ -26,7 +26,7 @@ from openpyxl import Workbook, load_workbook
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import accounting as acct
-from app import bank, db, security, server
+from app import bank, db, i18n, security, server
 from app.demo import DEMO_PASSWORD, seed_demo
 
 
@@ -1442,6 +1442,17 @@ class WebTest(unittest.TestCase):
                      "वित्तीय विवरण", "ट्रायल बैलेंस"):
             self.assertIn(text, report_library)
 
+        for path, labels in (
+                ("/reports/trial-balance", ("As of", "Balanced", "Code", "Debit", "Totals")),
+                ("/reports/pnl", ("Total income", "Total expenses", "NET PROFIT", "Income mix")),
+                ("/reports/balance-sheet", ("Assets", "Liabilities", "Equity", "Asset composition")),
+                ("/reports/cash-flow", ("Opening cash + bank", "Closing cash + bank",
+                                        "Cash movement by category", "Movement detail"))):
+            status, page = self.get(path)
+            self.assertEqual(status, 200)
+            for label in labels:
+                self.assertIn(html.escape(i18n.t("hi", label)), page)
+
         conn = db.connect(self.db_path)
         invoice_id = conn.execute(
             "SELECT id FROM invoice WHERE tenant_id=? AND status='posted' LIMIT 1",
@@ -1787,6 +1798,71 @@ class WebTest(unittest.TestCase):
             status, body = self.get(route)
             self.assertEqual(status, 200, route)
             self.assertIn(marker, body, route)
+
+    def test_43b_visual_gallery_and_offline_map(self):
+        self.login()
+        status, page = self.get("/reports/visuals")
+        self.assertEqual(status, 200)
+        for marker in (
+            'id="vis-clustered-column"',
+            'id="vis-clustered-bar"',
+            'id="vis-stacked-column"',
+            'id="vis-stacked-bar"',
+            'id="vis-100-stacked-column"',
+            'id="vis-100-stacked-bar"',
+            'id="vis-line"',
+            'id="vis-area"',
+            'id="vis-stacked-area"',
+            'id="vis-100-stacked-area"',
+            'id="vis-line-stacked-column"',
+            'id="vis-waterfall"',
+            'id="vis-funnel"',
+            'id="vis-pie"',
+            'id="vis-donut"',
+            'id="vis-treemap"',
+            'id="vis-scatter"',
+            'id="vis-map"',
+            'id="vis-filled-map"',
+            'id="vis-shape-map"',
+            'id="vis-key-influencers"',
+            'id="vis-decomposition-tree"',
+        ):
+            self.assertIn(marker, page)
+        for text in (
+            "Visual slicer",
+            "Button slicer",
+            "Smart narrative",
+            "Paginated report",
+            "R / Python script visuals",
+            "Azure Maps",
+            "Actuals only",
+        ):
+            self.assertIn(text, page)
+        self.assertIn("/static/india_states.geojson", page)
+        self.assertIn("fetch(item.url)", page)
+
+        status, headers, data = self.get_bytes("/static/india_states.geojson")
+        self.assertEqual(status, 200)
+        self.assertIn("geo+json", headers.get("Content-Type", ""))
+        self.assertGreater(len(data), 500000)
+        self.assertIn(b"FeatureCollection", data[:200])
+
+        status, empty = self.get(
+            "/reports/visuals?from=2020-01-01&to=2020-01-31")
+        self.assertEqual(status, 200)
+        self.assertIn("Empty", empty)
+        self.assertIn("No posted actuals", empty)
+        self.assertIn('id="vis-goals"', empty)
+
+        status, hindi = self.get("/language?lang=hi")
+        self.assertEqual(status, 200)
+        status, hindi_page = self.get("/reports/visuals")
+        self.assertEqual(status, 200)
+        self.assertIn("विज़ुअल गैलरी", hindi_page)
+        self.assertIn("क्लस्टर्ड कॉलम", hindi_page)
+        self.assertIn("बटन स्लाइसर", hindi_page)
+        self.assertTrue(any(ch in hindi_page for ch in "०१२३४५६७८९"))
+        self.get("/language?lang=en")
 
     def test_44_grounded_insight_api_and_page(self):
         jar = http.cookiejar.CookieJar()

@@ -50,7 +50,10 @@ class PowerBiPackTest(unittest.TestCase):
             for expected in ("README.md", "manifest.json", "arthivio-analytics.json",
                              "arthivio-metric-catalog.json", "fact_journal.csv",
                              "fact_monthly.csv", "dim_account.csv", "dim_party.csv",
-                             "power-query/ArthivioAnalytics.m"):
+                             "power-query/ArthivioAnalytics.m",
+                             "powerbi/VISUAL_GUIDE.md",
+                             "powerbi/arthivio-theme.json",
+                             "powerbi/report-blueprint.json"):
                 self.assertIn(expected, names)
             manifest = json.loads(zf.read("manifest.json"))
             self.assertEqual(manifest["pack"], "arthivio-powerbi-pack")
@@ -65,6 +68,23 @@ class PowerBiPackTest(unittest.TestCase):
             self.assertIn("No estimate or forecast", readme)
             self.assertIn("`.pbix`", readme)
             self.assertIn("not", readme)
+            guide = zf.read("powerbi/VISUAL_GUIDE.md").decode("utf-8")
+            self.assertIn("Clustered column", guide)
+            self.assertIn("Azure Maps", guide)
+            self.assertIn("native-only", guide)
+            theme = json.loads(zf.read("powerbi/arthivio-theme.json"))
+            self.assertEqual(theme["name"], "ARTHIVIO Actuals")
+            self.assertTrue(theme["dataColors"])
+            blueprint = json.loads(zf.read("powerbi/report-blueprint.json"))
+            self.assertTrue(blueprint["actuals_only"])
+            self.assertFalse(blueprint["forecast_included"])
+            self.assertEqual(blueprint["theme"], "powerbi/arthivio-theme.json")
+            visual_types = {v["type"] for page in blueprint["pages"]
+                            for v in page["visuals"]}
+            self.assertIn("clusteredColumnChart", visual_types)
+            self.assertIn("waterfallChart", visual_types)
+            self.assertIn("shapeMap", visual_types)
+            self.assertIn("pythonVisual", visual_types)
 
     def test_facts_are_integer_paise_and_reconcile_to_analytics(self):
         data = self.pack()

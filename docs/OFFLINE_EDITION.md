@@ -169,7 +169,7 @@ deserves a verified backup and a restore drill.
 
 | Check | Result |
 |---|---|
-| Full test suite | **353 tests, OK**, 45.926 s, Python 3.14.6, Windows |
+| Full test suite | **359 tests, OK**, 48.326 s, Python 3.14.6, Windows |
 | Report tests | 45 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, R-204 draft entries, R-508 expiry, R-601 project costing, R-602 WIP, R-603 consumption, R-604 yield, R-605 cost centre, R-902 dimension P&L, R-1004 consolidation, credit-limit detection, malformed journal detection and tenant isolation |
 | Draft workflow tests | save draft, post draft, insufficient stock at posting, void with reason, idempotent post, receipt guard and draft-print block |
 | Correction workflow tests | 9 `TestPostedCorrections` cases plus the HTTP flow: invoice, bill and payment void/replace, stock restore/undo, blocked replacement and opening-balance replacement |
@@ -184,6 +184,12 @@ deserves a verified backup and a restore drill.
 | Filtered dashboard totals | `test_analytics.test_filtered_metric_totals_for_dashboard_cards` and `test_web.test_56`: full filtered aggregates, unsupported metrics, invalid-filter fallback and filter-carrying drill-down links |
 | Chart-level filtering | `test_analytics.test_filtered_chart_data_uses_matching_posted_lines`: monthly revenue/expense, expense breakdown, top customers and top vendors from matching posted lines, with dimension, account, party and text filters, tenant isolation and invalid-filter rejection |
 | Filtered chart surface | `test_web.test_56` confirms the monthly chart is rendered in filtered mode with the **Filtered charts use matching posted journal lines.** note; empty chart states are used instead of fabricated data |
+| Visual gallery | `/reports/visuals` mounts 21 ECharts across five groups, covers the requested comparison, trend, composition, geography and advanced visual types, and keeps every visual type visible with an empty card when the period has no actuals |
+| Report screen Hindi | Trial balance, profit and loss, balance sheet and cash flow translate labels, table headers, KPI hints, chart legends, known cash-flow categories and bridge text. Account names, posted narration, identifiers and exports remain unchanged. English mode restores the original labels and ASCII digits. |
+| Offline map | A 1,024,198-byte India state GeoJSON is bundled and served as `application/geo+json`; map, filled map and shape map register as `arthivio-india` and join posted sales through customer GST state codes |
+| Visual slicer | Button-style family slicer hides and restores the five visual groups without a page reload; charts resize after the filter changes |
+| Power BI build aids | The pack includes `powerbi/VISUAL_GUIDE.md`, `powerbi/arthivio-theme.json` and `powerbi/report-blueprint.json`; these are build aids, not a `.pbix` or Service dataset |
+| Native-only labels | R script, Python script and Azure Maps cards state their native requirements; the build does not pretend to execute them |
 | Embedded runtime import | `openpyxl 3.1.5`, `arthivio 0.26` |
 | Package health | `GET /health` returned `ok` from the embedded runtime; `Server: ARTHIVIO/0.26 Python/3.14.6` |
 | Template library | **35 templates**, including the six new packs; `full_finance` keeps all 19 registered actual metrics |
@@ -199,8 +205,10 @@ deserves a verified backup and a restore drill.
 
 The post-release hotfix rebuilt this package with the login redirect, the Hindi dashboard and
 transaction pages, the Hindi report library, the Hindi posted-invoice print document, Devanagari
-money display in Hindi mode and Hindi auto narration for new accounting entries. See
-`docs/TEST_RESULTS.md` section 48 for the new release hashes.
+money display in Hindi mode and Hindi auto narration for new accounting entries. This slice also
+adds the app-native visual gallery, the Power BI build aids and Hindi for the trial balance,
+profit and loss, balance sheet and cash flow screens. See `docs/TEST_RESULTS.md` section 49 for
+the new release hashes.
 
 Not verified in this build:
 
@@ -220,8 +228,11 @@ Not verified in this build:
 - No offline-to-online sync. If the online version is used later, offline entry during an internet
   outage is still a separate, unbuilt feature.
 - GST outputs are working aids, not filed returns.
-- The report library is translated, but individual report screen bodies and other print/export
-  documents remain English. Report formulas and the invoice amount-in-words value also remain English.
+- The report library and the four main financial statements are translated, but other
+  individual report screen bodies and print/export documents remain English. Report formulas and
+  the invoice amount-in-words value also remain English.
 - AI insights are deterministic rules over posted records; no generative model is configured.
-- Power BI output is a static import pack, not a Power BI Service dataset or `.pbix`.
+- Power BI output is a static import pack plus an app-native ECharts gallery, theme,
+  blueprint and guide; it is not a Power BI Service dataset or `.pbix`. R, Python,
+  Azure Maps and paginated reports need native Power BI features or credentials.
 - No permanent public URL. A Cloudflare quick tunnel or Render free service is temporary/demo-only.

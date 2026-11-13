@@ -34,6 +34,7 @@ from . import opening_import as opening_mod
 from . import reports as reports_mod
 from . import sharing
 from . import stock_adjustments as stock_adjust_mod
+from . import visuals as visuals_mod
 from . import xlsx_import as xlsx_mod
 
 APP_VERSION = "0.26"
@@ -279,6 +280,7 @@ label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margi
 .badge.ok{background:var(--success-soft);color:var(--success-ink)}
 .badge.bad{background:var(--danger-bg);color:var(--danger)}
 .badge.neutral{background:#F1F5F9;color:#475569}
+.badge.warn{background:#FEF3C7;color:#92400E}
 .theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;border:0;padding:0;margin:0}
 .theme-option{position:relative;display:block;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;cursor:pointer}
 .theme-option:hover{border-color:var(--primary-line);background:var(--primary-pale)}
@@ -313,6 +315,12 @@ label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margi
 .mini-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--chart-a),var(--chart-b));border-radius:999px}
 .echart{width:100%;min-height:220px}
 .echart-empty{display:flex;align-items:center;justify-content:center;min-height:220px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:13px;text-align:center;padding:18px}
+.visual-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px}
+.visual-card{min-width:0;overflow:hidden}
+.visual-card .sect-head{margin-bottom:6px}
+.visual-card .sect-head h2{font-size:15px;margin:0}
+.btn.on{background:var(--primary);border-color:var(--primary);color:#fff}
+@media (max-width:760px){.visual-grid{grid-template-columns:1fr}}
 .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
 .login{width:100%;max-width:410px}
 .brandline{display:flex;align-items:center;gap:11px;margin-bottom:18px}
@@ -479,6 +487,7 @@ NAV = [
             ("Analysis", [
                 ("reports/library", "rep", "Report Library"),
                 ("reports/analytics", "rep", "Analytics Overview"),
+                ("reports/visuals", "rep", "Visual Gallery"),
                 ("dashboards", "dash", "Saved Dashboards"),
             ]),
             ("Financial statements", [
@@ -1701,6 +1710,7 @@ class Handler(BaseHTTPRequestHandler):
         allowed = {
             "echarts.min.js": "application/javascript; charset=utf-8",
             "ECHARTS_NOTICE.txt": "text/plain; charset=utf-8",
+            "india_states.geojson": "application/geo+json; charset=utf-8",
         }
         content_type = allowed.get(name)
         if not content_type:
@@ -1933,6 +1943,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(body)
             if path == "/reports/analytics":
                 return self._send(self.page_analytics(conn, user, tenant, q))
+            if path == "/reports/visuals":
+                return self._send(self.page_visuals(conn, user, tenant, q))
             if path == "/analytics/drilldown":
                 return self._send(self.page_analytics_drilldown(conn, user, tenant, q))
             if path == "/reports/cash-flow":
@@ -6189,46 +6201,60 @@ correction path. Every correction stays in the audit trail.</p>
         return layout(f'Ledger — {gl["account"]["name"]}', body, "ledger", user, tenant)
 
     def page_tb(self, conn, user, tenant, q) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         as_of = (q.get("as_of") or [date.today().isoformat()])[0]
         tb = acct.trial_balance(conn, tenant["id"], as_of)
         rows = "".join(
-            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td>{esc(r["type"])}</td>'
+            f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td>'
+            f'<td>{esc(tr(r["type"].title()))}</td>'
             f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
             f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
             f'<td class="num">{money.fmt(r["balance"])}</td></tr>' for r in tb["rows"])
-        badge = '<span class="badge ok">Balanced</span>' if tb["balanced"] else '<span class="badge bad">Out of balance</span>'
+        badge = (f'<span class="badge ok">{esc(tr("Balanced"))}</span>' if tb["balanced"]
+                 else f'<span class="badge bad">{esc(tr("Out of balance"))}</span>')
         body = f"""
 <form method="get" class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
-<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
-<button class="btn" type="submit">Apply</button>{badge}</form>
+<div><label>{esc(tr("As of"))}</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">{esc(tr("Apply"))}</button>{badge}</form>
 <div class="card"><table>
-<thead><tr><th>Code</th><th>Account</th><th>Type</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance (Dr+)</th></tr></thead>
+<thead><tr><th>{esc(tr("Code"))}</th><th>{esc(tr("Account"))}</th><th>{esc(tr("Type"))}</th>
+<th class="num">{esc(tr("Debit"))}</th><th class="num">{esc(tr("Credit"))}</th>
+<th class="num">{esc(tr("Balance (Dr+)"))}</th></tr></thead>
 <tbody>{rows}</tbody>
-<tfoot><tr><td colspan="3">Totals</td><td class="num">{money.fmt(tb["total_debit"])}</td>
+<tfoot><tr><td colspan="3">{esc(tr("Totals"))}</td><td class="num">{money.fmt(tb["total_debit"])}</td>
 <td class="num">{money.fmt(tb["total_credit"])}</td><td class="num">{money.fmt(tb["total_debit"] - tb["total_credit"])}</td></tr></tfoot>
 </table></div>"""
         return layout("Trial balance", body, "reports/trial-balance", user, tenant)
 
     def page_pnl(self, conn, user, tenant, q) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         today = date.today()
         dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
         p = acct.profit_and_loss(conn, tenant["id"], dfrom, dto)
         inc = "".join(f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["amount"])}</td></tr>'
-                      for r in p["income"]) or '<tr><td colspan="3" class="empty">No income</td></tr>'
+                      for r in p["income"]) or f'<tr><td colspan="3" class="empty">{esc(tr("No income"))}</td></tr>'
         exp = "".join(f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["amount"])}</td></tr>'
-                      for r in p["expense"]) or '<tr><td colspan="3" class="empty">No expenses</td></tr>'
+                      for r in p["expense"]) or f'<tr><td colspan="3" class="empty">{esc(tr("No expenses"))}</td></tr>'
         income_rows = [r for r in p["income"] if int(r["amount"]) > 0]
         expense_rows = [r for r in p["expense"] if int(r["amount"]) > 0]
         pnl_charts = []
         if p["total_income"] or p["total_expense"]:
             pnl_charts.append({"id": "pnl-totals", "option": {
                 "tooltip": {"trigger": "axis"},
-                "legend": {"top": 0, "data": ["Actual"]},
-                "xAxis": {"type": "category", "data": ["Income", "Expenses", "Net profit"]},
+                "legend": {"top": 0, "data": [tr("Actual")]},
+                "xAxis": {"type": "category", "data": [tr("Income"), tr("Expenses"), tr("Net profit")]},
                 "yAxis": {"type": "value"},
                 "series": [{
-                    "name": "Actual", "type": "bar", "colorBy": "data",
+                    "name": tr("Actual"), "type": "bar", "colorBy": "data",
                     "data": [round(int(p["total_income"]) / 100, 2),
                              round(int(p["total_expense"]) / 100, 2),
                              round(int(p["net_profit"]) / 100, 2)],
@@ -6239,7 +6265,7 @@ correction path. Every correction stays in the audit trail.</p>
                 "tooltip": {"trigger": "item"},
                 "legend": {"type": "scroll", "bottom": 0},
                 "series": [{
-                    "name": "Income actuals", "type": "pie",
+                    "name": tr("Income actuals"), "type": "pie",
                     "radius": ["46%", "70%"], "center": ["50%", "44%"],
                     "data": [{"name": f'{r["code"]} {r["name"]}',
                               "value": round(int(r["amount"]) / 100, 2)}
@@ -6251,7 +6277,7 @@ correction path. Every correction stays in the audit trail.</p>
                 "tooltip": {"trigger": "item"},
                 "legend": {"type": "scroll", "bottom": 0},
                 "series": [{
-                    "name": "Expense actuals", "type": "pie",
+                    "name": tr("Expense actuals"), "type": "pie",
                     "radius": ["46%", "70%"], "center": ["50%", "44%"],
                     "data": [{"name": f'{r["code"]} {r["name"]}',
                               "value": round(int(r["amount"]) / 100, 2)}
@@ -6259,46 +6285,50 @@ correction path. Every correction stays in the audit trail.</p>
                 }],
             }})
         pnl_totals_html = (charting.container("pnl-totals", 300) if p["total_income"] or p["total_expense"]
-                           else charting.empty("No posted income or expense actuals in this period."))
+                           else charting.empty(tr("No posted income or expense actuals in this period.")))
         pnl_income_html = (charting.container("pnl-income", 300) if income_rows
-                           else charting.empty("No posted income actuals in this period."))
+                           else charting.empty(tr("No posted income actuals in this period.")))
         pnl_expense_html = (charting.container("pnl-expense", 300) if expense_rows
-                            else charting.empty("No posted expense actuals in this period."))
-        pnl_chart_script = charting.render(pnl_charts)
+                            else charting.empty(tr("No posted expense actuals in this period.")))
+        pnl_chart_script = charting.render(pnl_charts, lang=lang)
         body = f"""
 <form method="get" class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
-<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
-<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
-<button class="btn" type="submit">Apply</button></form>
+<div><label>{esc(tr("From"))}</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>{esc(tr("To"))}</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">{esc(tr("Apply"))}</button></form>
 <div class="grid2">
-<div class="card"><div class="pad"><h2>Income</h2></div><table><tbody>{inc}</tbody>
-<tfoot><tr><td colspan="2">Total income</td><td class="num">{money.fmt(p["total_income"])}</td></tr></tfoot></table></div>
-<div class="card"><div class="pad"><h2>Expenses</h2></div><table><tbody>{exp}</tbody>
-<tfoot><tr><td colspan="2">Total expenses</td><td class="num">{money.fmt(p["total_expense"])}</td></tr></tfoot></table></div>
+<div class="card"><div class="pad"><h2>{esc(tr("Income"))}</h2></div><table><tbody>{inc}</tbody>
+<tfoot><tr><td colspan="2">{esc(tr("Total income"))}</td><td class="num">{money.fmt(p["total_income"])}</td></tr></tfoot></table></div>
+<div class="card"><div class="pad"><h2>{esc(tr("Expenses"))}</h2></div><table><tbody>{exp}</tbody>
+<tfoot><tr><td colspan="2">{esc(tr("Total expenses"))}</td><td class="num">{money.fmt(p["total_expense"])}</td></tr></tfoot></table></div>
 </div>
 <div class="card pad" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-<div><div class="lbl small muted">NET PROFIT</div><div style="font-size:28px;font-weight:700">{money.fmt(p["net_profit"])}</div></div>
+<div><div class="lbl small muted">{esc(tr("NET PROFIT"))}</div><div style="font-size:28px;font-weight:700">{money.fmt(p["net_profit"])}</div></div>
 <span class="badge neutral">{esc(dfrom)} → {esc(dto)}</span></div>"""
         body += f"""
 <div class="card pad sect">
-  <div class="sect-head"><h2>Income, expenses and net profit</h2>
-    <span class="badge neutral">actuals only</span></div>
+  <div class="sect-head"><h2>{esc(tr("Income, expenses and net profit"))}</h2>
+    <span class="badge neutral">{esc(tr("actuals only"))}</span></div>
   {pnl_totals_html}
-  <p class="small muted" style="margin:10px 0 0">Bars are posted actuals for the selected period. Net profit
-  is income minus expenses; it is not a forecast.</p>
+  <p class="small muted" style="margin:10px 0 0">{esc(tr("Bars are posted actuals for the selected period. Net profit is income minus expenses; it is not a forecast."))}</p>
 </div>
 <div class="grid2" style="margin-top:16px">
-  <div class="card pad"><div class="sect-head"><h2>Income mix</h2></div>
+  <div class="card pad"><div class="sect-head"><h2>{esc(tr("Income mix"))}</h2></div>
     {pnl_income_html}
-    <p class="small muted" style="margin:10px 0 0">Income accounts with a positive posted balance.</p></div>
-  <div class="card pad"><div class="sect-head"><h2>Expense mix</h2></div>
+    <p class="small muted" style="margin:10px 0 0">{esc(tr("Income accounts with a positive posted balance."))}</p></div>
+  <div class="card pad"><div class="sect-head"><h2>{esc(tr("Expense mix"))}</h2></div>
     {pnl_expense_html}
-    <p class="small muted" style="margin:10px 0 0">Expense accounts with a positive posted balance.</p></div>
+    <p class="small muted" style="margin:10px 0 0">{esc(tr("Expense accounts with a positive posted balance."))}</p></div>
 </div>
 {pnl_chart_script}"""
         return layout("Profit & Loss", body, "reports/pnl", user, tenant)
 
     def page_bs(self, conn, user, tenant, q) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         as_of = (q.get("as_of") or [date.today().isoformat()])[0]
         bs = acct.balance_sheet(conn, tenant["id"], as_of)
         asset_rows = [r for r in bs["assets"] if int(r["amount"]) > 0]
@@ -6306,11 +6336,11 @@ correction path. Every correction stays in the audit trail.</p>
         if bs["total_assets"] or bs["total_liabilities"] or bs["total_equity"]:
             bs_charts.append({"id": "bs-balance", "option": {
                 "tooltip": {"trigger": "axis"},
-                "legend": {"top": 0, "data": ["Actual"]},
-                "xAxis": {"type": "category", "data": ["Assets", "Liabilities", "Equity"]},
+                "legend": {"top": 0, "data": [tr("Actual")]},
+                "xAxis": {"type": "category", "data": [tr("Assets"), tr("Liabilities"), tr("Equity")]},
                 "yAxis": {"type": "value"},
                 "series": [{
-                    "name": "Actual", "type": "bar", "colorBy": "data",
+                    "name": tr("Actual"), "type": "bar", "colorBy": "data",
                     "data": [round(int(bs["total_assets"]) / 100, 2),
                              round(int(bs["total_liabilities"]) / 100, 2),
                              round(int(bs["total_equity"]) / 100, 2)],
@@ -6321,7 +6351,7 @@ correction path. Every correction stays in the audit trail.</p>
                 "tooltip": {"trigger": "item"},
                 "legend": {"type": "scroll", "bottom": 0},
                 "series": [{
-                    "name": "Asset actuals", "type": "pie",
+                    "name": tr("Asset actuals"), "type": "pie",
                     "radius": ["46%", "70%"], "center": ["50%", "44%"],
                     "data": [{"name": f'{r["code"]} {r["name"]}',
                               "value": round(int(r["amount"]) / 100, 2)}
@@ -6330,42 +6360,47 @@ correction path. Every correction stays in the audit trail.</p>
             }})
         bs_balance_html = (charting.container("bs-balance", 300)
                            if bs["total_assets"] or bs["total_liabilities"] or bs["total_equity"]
-                           else charting.empty("No balance-sheet actuals at this date."))
+                           else charting.empty(tr("No balance-sheet actuals at this date.")))
         bs_assets_html = (charting.container("bs-assets", 300) if asset_rows
-                          else charting.empty("No positive asset balances at this date."))
-        bs_chart_script = charting.render(bs_charts)
+                          else charting.empty(tr("No positive asset balances at this date.")))
+        bs_chart_script = charting.render(bs_charts, lang=lang)
 
         def sect(title, rows, total):
             trs = "".join(f'<tr><td>{esc(r["code"])}</td><td>{esc(r["name"])}</td><td class="num">{money.fmt(r["amount"])}</td></tr>'
                           for r in rows) or '<tr><td colspan="3" class="empty">—</td></tr>'
-            return f'<div class="card"><div class="pad"><h2>{title}</h2></div><table><tbody>{trs}</tbody>' \
-                   f'<tfoot><tr><td colspan="2">Total</td><td class="num">{money.fmt(total)}</td></tr></tfoot></table></div>'
+            return f'<div class="card"><div class="pad"><h2>{esc(title)}</h2></div><table><tbody>{trs}</tbody>' \
+                   f'<tfoot><tr><td colspan="2">{esc(tr("Total"))}</td><td class="num">{money.fmt(total)}</td></tr></tfoot></table></div>'
 
-        badge = '<span class="badge ok">A = L + E</span>' if bs["balanced"] else f'<span class="badge bad">Difference {money.fmt(bs["difference"])}</span>'
+        badge = (f'<span class="badge ok">{esc(tr("A = L + E"))}</span>' if bs["balanced"]
+                 else f'<span class="badge bad">{esc(tr("Difference"))} {money.fmt(bs["difference"])}</span>')
+        equity_rows = bs["equity"] + [{
+            "code": "3999",
+            "name": tr("Retained earnings (current period)"),
+            "amount": bs["retained_earnings"],
+        }]
         body = f"""
 <form method="get" class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
-<div><label>As of</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
-<button class="btn" type="submit">Apply</button>{badge}</form>
+<div><label>{esc(tr("As of"))}</label><input type="date" name="as_of" value="{esc(as_of)}"></div>
+<button class="btn" type="submit">{esc(tr("Apply"))}</button>{badge}</form>
 <div class="grid2">
-{sect("Assets", bs["assets"], bs["total_assets"])}
+{sect(tr("Assets"), bs["assets"], bs["total_assets"])}
 <div>
-{sect("Liabilities", bs["liabilities"], bs["total_liabilities"])}
+{sect(tr("Liabilities"), bs["liabilities"], bs["total_liabilities"])}
 <div style="height:14px"></div>
-{sect("Equity", bs["equity"] + [{"code":"3999","name":"Retained earnings (current period)","amount":bs["retained_earnings"]}], bs["total_equity"])}
+{sect(tr("Equity"), equity_rows, bs["total_equity"])}
 </div></div>"""
         body += f"""
 <div class="grid2" style="margin-top:16px">
   <div class="card pad">
-    <div class="sect-head"><h2>Assets vs liabilities + equity</h2>
-      <span class="badge neutral">as of {esc(as_of)}</span></div>
+    <div class="sect-head"><h2>{esc(tr("Assets vs liabilities + equity"))}</h2>
+      <span class="badge neutral">{esc(tr("as of"))} {esc(as_of)}</span></div>
     {bs_balance_html}
-    <p class="small muted" style="margin:10px 0 0">Actual posted balances only. A balanced sheet shows
-    assets equal to liabilities plus equity.</p>
+    <p class="small muted" style="margin:10px 0 0">{esc(tr("Actual posted balances only. A balanced sheet shows assets equal to liabilities plus equity."))}</p>
   </div>
   <div class="card pad">
-    <div class="sect-head"><h2>Asset composition</h2></div>
+    <div class="sect-head"><h2>{esc(tr("Asset composition"))}</h2></div>
     {bs_assets_html}
-    <p class="small muted" style="margin:10px 0 0">Positive asset account balances at the selected date.</p>
+    <p class="small muted" style="margin:10px 0 0">{esc(tr("Positive asset account balances at the selected date."))}</p>
   </div>
 </div>
 {bs_chart_script}"""
@@ -6444,6 +6479,11 @@ correction path. Every correction stays in the audit trail.</p>
         return layout("Report library", body, "reports/library", user, tenant)
 
     def page_cash_flow(self, conn, user, tenant, q) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         dfrom, dto = self._report_period(tenant, q)
         data = reports_mod.cash_flow(conn, tenant, dfrom, dto)
         cash_cats = list(data["categories"])[:12]
@@ -6454,80 +6494,78 @@ correction path. Every correction stays in the audit trail.</p>
                 "tooltip": {"trigger": "axis"},
                 "grid": {"left": 150, "right": 28, "top": 24, "bottom": 28, "containLabel": True},
                 "xAxis": {"type": "value"},
-                "yAxis": {"type": "category", "data": [c["category"] for c in ordered]},
+                "yAxis": {"type": "category", "data": [tr(c["category"]) for c in ordered]},
                 "series": [{
-                    "name": "Cash movement", "type": "bar",
+                    "name": tr("Cash movement"), "type": "bar",
                     "data": [{"value": round(int(c["amount"]) / 100, 2),
                               "itemStyle": {"color": "#059669" if int(c["amount"]) >= 0 else "#DC2626"}}
                              for c in ordered],
                 }],
             }})
         cash_chart_html = (charting.container("cash-categories", max(240, 34 * len(cash_cats) + 40))
-                           if cash_cats else charting.empty("No cash movements in this period."))
-        cash_chart_script = charting.render(cash_chart)
+                           if cash_cats else charting.empty(tr("No cash movements in this period.")))
+        cash_chart_script = charting.render(cash_chart, lang=lang)
         rows = "".join(
             f'<tr><td>{esc(r["date"])}</td><td>{esc(r["ref"])}</td>'
-            f'<td>{esc(r["category"])}</td><td>{esc(r["narration"])}</td>'
+            f'<td>{esc(tr(r["category"]))}</td><td>{esc(r["narration"])}</td>'
             f'<td class="num">{money.fmt(r["amount"])}</td></tr>'
-            for r in data["rows"]) or '<tr><td colspan="5" class="empty">No cash movements in this period</td></tr>'
+            for r in data["rows"]) or f'<tr><td colspan="5" class="empty">{esc(tr("No cash movements in this period"))}</td></tr>'
         cats = "".join(
-            f'<tr><td>{esc(c["category"])}</td>'
+            f'<tr><td>{esc(tr(c["category"]))}</td>'
             f'<td class="num">{money.fmt(c["amount"])}</td>'
-            f'<td>{esc(c["direction"])}</td></tr>'
-            for c in data["categories"]) or '<tr><td colspan="3" class="empty">No cash movements</td></tr>'
+            f'<td>{esc(tr(c["direction"]))}</td></tr>'
+            for c in data["categories"]) or f'<tr><td colspan="3" class="empty">{esc(tr("No cash movements"))}</td></tr>'
         bridge_rows = "".join(
-            f'<tr><td>{esc(r["label"])}</td><td class="num">{money.fmt(r["amount"])}</td>'
-            f'<td class="small muted">{esc(r["basis"])}</td></tr>'
-            for r in data["bridge"]) or '<tr><td colspan="3" class="empty">No bridge lines</td></tr>'
-        diff_badge = ('<span class="badge ok">Reconciled</span>'
+            f'<tr><td>{esc(tr(r["label"]))}</td><td class="num">{money.fmt(r["amount"])}</td>'
+            f'<td class="small muted">{esc(tr(r["basis"]))}</td></tr>'
+            for r in data["bridge"]) or f'<tr><td colspan="3" class="empty">{esc(tr("No bridge lines"))}</td></tr>'
+        diff_badge = (f'<span class="badge ok">{esc(tr("Reconciled"))}</span>'
                       if data["difference"] == 0 else
-                      f'<span class="badge bad">Difference {money.fmt(data["difference"])}</span>')
+                      f'<span class="badge bad">{esc(tr("Difference"))} {money.fmt(data["difference"])}</span>')
+        accounts_badge = i18n.t(lang, "{count} cash/bank account(s)").replace(
+            "{count}", str(data["cash_accounts"]))
         body = f"""
 <form method="get" action="/reports/cash-flow" class="sect"
  style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
-<div><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
-<div><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
-<button class="btn" type="submit">Apply</button>
-<span class="badge neutral">R-104 · actual cash only</span>{diff_badge}</form>
+<div><label>{esc(tr("From"))}</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div><label>{esc(tr("To"))}</label><input type="date" name="to" value="{esc(dto)}"></div>
+<button class="btn" type="submit">{esc(tr("Apply"))}</button>
+<span class="badge neutral">{esc(tr("R-104 · actual cash only"))}</span>{diff_badge}</form>
 <div class="kpis">
-  {kpi("Opening cash + bank", money.fmt(data["opening"]), "as of day before period")}
-  {kpi("Closing cash + bank", money.fmt(data["closing"]), "as of period end")}
-  {kpi("Net change", money.fmt(data["net_change"]), "closing minus opening")}
-  {kpi("Operating inflow", money.fmt(data.get("operating_in", 0)), "customer and trading receipts")}
-  {kpi("Operating outflow", money.fmt(data.get("operating_out", 0)), "supplier, expense and tax payments")}
+  {kpi(tr("Opening cash + bank"), money.fmt(data["opening"]), tr("as of day before period"))}
+  {kpi(tr("Closing cash + bank"), money.fmt(data["closing"]), tr("as of period end"))}
+  {kpi(tr("Net change"), money.fmt(data["net_change"]), tr("closing minus opening"))}
+  {kpi(tr("Operating inflow"), money.fmt(data.get("operating_in", 0)), tr("customer and trading receipts"))}
+  {kpi(tr("Operating outflow"), money.fmt(data.get("operating_out", 0)), tr("supplier, expense and tax payments"))}
 </div>
 <div class="grid2">
   <div class="card pad">
-    <div class="sect-head"><h2>Cash movement by category</h2>
-      <span class="badge neutral">{data["cash_accounts"]} cash/bank account(s)</span></div>
-    <div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Amount</th><th>Direction</th></tr></thead>
+    <div class="sect-head"><h2>{esc(tr("Cash movement by category"))}</h2>
+      <span class="badge neutral">{esc(accounts_badge)}</span></div>
+    <div class="table-wrap"><table><thead><tr><th>{esc(tr("Category"))}</th><th class="num">{esc(tr("Amount"))}</th><th>{esc(tr("Direction"))}</th></tr></thead>
       <tbody>{cats}</tbody></table></div>
-    <p class="small muted" style="margin:10px 0 0">Each line is a posted journal that touches a cash or bank
-    account. Transfers between cash and bank net to zero and are omitted.</p>
+    <p class="small muted" style="margin:10px 0 0">{esc(tr("Each line is a posted journal that touches a cash or bank account. Transfers between cash and bank net to zero and are omitted."))}</p>
   </div>
   <div class="card pad">
-    <div class="sect-head"><h2>Indirect reconciliation</h2>{diff_badge}</div>
-    <table><thead><tr><th>Bridge line</th><th class="num">Amount</th><th>Basis</th></tr></thead>
+    <div class="sect-head"><h2>{esc(tr("Indirect reconciliation"))}</h2>{diff_badge}</div>
+    <table><thead><tr><th>{esc(tr("Bridge line"))}</th><th class="num">{esc(tr("Amount"))}</th><th>{esc(tr("Basis"))}</th></tr></thead>
       <tbody>{bridge_rows}</tbody>
-      <tfoot><tr><td>Bridge total</td><td class="num">{money.fmt(data["bridge_total"])}</td>
-      <td class="small muted">actual change {money.fmt(data["net_change"])}</td></tr></tfoot></table>
-    <p class="small muted" style="margin:10px 0 0">The bridge starts with posted net profit and adjusts for
-    receivables, inventory, payables, net GST, fixed assets and equity. A non-zero difference is shown,
-    never hidden.</p>
+      <tfoot><tr><td>{esc(tr("Bridge total"))}</td><td class="num">{money.fmt(data["bridge_total"])}</td>
+      <td class="small muted">{esc(tr("actual change"))} {money.fmt(data["net_change"])}</td></tr></tfoot></table>
+    <p class="small muted" style="margin:10px 0 0">{esc(tr("The bridge starts with posted net profit and adjusts for receivables, inventory, payables, net GST, fixed assets and equity. A non-zero difference is shown, never hidden."))}</p>
   </div>
 </div>
 <div class="card pad sect">
-  <div class="sect-head"><h2>Cash movement by category</h2>
-    <span class="badge neutral">positive = inflow, negative = outflow</span></div>
+  <div class="sect-head"><h2>{esc(tr("Cash movement by category"))}</h2>
+    <span class="badge neutral">{esc(tr("positive = inflow, negative = outflow"))}</span></div>
   {cash_chart_html}
-  <p class="small muted" style="margin:10px 0 0">Each bar is the net posted cash effect of a category in the
-  selected period. Transfers between cash and bank net to zero and are omitted.</p>
+  <p class="small muted" style="margin:10px 0 0">{esc(tr("Each bar is the net posted cash effect of a category in the selected period. Transfers between cash and bank net to zero and are omitted."))}</p>
 </div>
-<div class="card pad sect"><div class="sect-head"><h2>Movement detail</h2>
+<div class="card pad sect"><div class="sect-head"><h2>{esc(tr("Movement detail"))}</h2>
 <a class="btn ghost small" href="/export/cash-flow.csv?from={esc(dfrom)}&amp;to={esc(dto)}">CSV</a></div>
-<div class="table-wrap"><table><thead><tr><th>Date</th><th>Ref</th><th>Category</th><th>Narration</th><th class="num">Cash effect</th></tr></thead>
+<div class="table-wrap"><table><thead><tr><th>{esc(tr("Date"))}</th><th>{esc(tr("Ref"))}</th><th>{esc(tr("Category"))}</th><th>{esc(tr("Narration"))}</th><th class="num">{esc(tr("Cash effect"))}</th></tr></thead>
 <tbody>{rows}</tbody></table></div></div>
-<p class="small muted">This is a working report. It does not forecast cash and does not replace a bank statement.</p>
+<p class="small muted">{esc(tr("This is a working report. It does not forecast cash and does not replace a bank statement."))}</p>
 {cash_chart_script}"""
         return layout("Cash flow", body, "reports/cash-flow", user, tenant)
 
@@ -9359,6 +9397,191 @@ journal, change a document or compute an authoritative total outside the account
 <p class="small muted" style="margin-top:14px">GST figures are working aids, not filed returns. Receivable and payable ageing use posted invoices and bills as of the period end.</p>
 {chart_script}"""
         return layout("Analytics overview", body, "reports/analytics", user, tenant)
+
+    def page_visuals(self, conn, user, tenant, q) -> str:
+        security.require(conn, user["id"], tenant["id"], analytics_mod.PERMISSION)
+        lang = i18n.language_for(user)
+        default = analytics_mod.resolve_period(tenant)
+        dfrom = (q.get("from") or [default["from"]])[0] or default["from"]
+        dto = (q.get("to") or [default["to"]])[0] or default["to"]
+        error = ""
+        try:
+            data = visuals_mod.gallery(conn, tenant, dfrom, dto, lang)
+        except (analytics_mod.AnalyticsError, acct.AccountingError) as exc:
+            error = exc.message
+            dfrom, dto = default["from"], default["to"]
+            data = visuals_mod.gallery(conn, tenant, dfrom, dto, lang)
+
+        charts = visuals_mod.chart_items(data)
+        map_needed = any(
+            visual.get("key") in ("map", "filled-map", "shape-map")
+            and visual.get("option")
+            for group in data["groups"] for visual in group["visuals"])
+        chart_script = charting.render(
+            charts, lang=lang, maps=[data["map"]] if map_needed else None)
+        period_q = urllib.parse.urlencode({"from": dfrom, "to": dto})
+        err_html = (
+            f'<div class="card pad" style="border-color:var(--danger);margin-bottom:14px">'
+            f'<b>{esc(i18n.t(lang, "Could not use that period."))}</b> {esc(error)} '
+            f'{esc(i18n.t(lang, "Showing the default period instead."))}</div>'
+            if error else "")
+
+        def narrative_card(visual: dict) -> str:
+            narrative = data["narrative"]
+            observations = "".join(
+                f'<li><b>{esc(o.get("label", ""))}</b>: {esc(o.get("text", ""))}'
+                f'<br><span class="small muted">{esc(o.get("basis", ""))}</span></li>'
+                for o in narrative.get("observations", []))
+            return f"""
+<div class="card pad visual-card" id="{esc(visual["id"])}">
+  <div class="sect-head"><h2>{esc(visual["title"])}</h2>
+    <span class="badge neutral">{esc(i18n.t(lang, "Actuals only"))}</span></div>
+  <p>{esc(narrative.get("summary", ""))}</p>
+  <ul class="small" style="margin:0;padding-left:18px">{observations}</ul>
+  <p class="small muted" style="margin:10px 0 0">{esc(visual["note"])}</p>
+</div>"""
+
+        def links_card(visual: dict) -> str:
+            links = (
+                f'<a class="btn ghost small" href="/reports/pnl?{esc(period_q)}">'
+                f'{i18n.t(lang, "Profit &amp; Loss")}</a>'
+                f'<a class="btn ghost small" href="/reports/balance-sheet?{esc(period_q)}">'
+                f'{esc(i18n.t(lang, "Balance Sheet"))}</a>'
+                f'<a class="btn ghost small" href="/reports/trial-balance?{esc(period_q)}">'
+                f'{esc(i18n.t(lang, "Trial Balance"))}</a>'
+                f'<a class="btn ghost small" href="/reports/cash-flow?{esc(period_q)}">'
+                f'{esc(i18n.t(lang, "Cash Flow"))}</a>')
+            return f"""
+<div class="card pad visual-card" id="{esc(visual["id"])}">
+  <div class="sect-head"><h2>{esc(visual["title"])}</h2>
+    <span class="badge neutral">{esc(i18n.t(lang, "Printable"))}</span></div>
+  <p class="small muted">{esc(visual["note"])}</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">{links}</div>
+  <p style="margin:12px 0 0"><button class="btn small" type="button" onclick="window.print()">{esc(i18n.t(lang, "Print this page"))}</button></p>
+</div>"""
+
+        def status_card(visual: dict) -> str:
+            return f"""
+<div class="card pad visual-card" id="{esc(visual["id"])}">
+  <div class="sect-head"><h2>{esc(visual["title"])}</h2>
+    <span class="badge warn">{esc(i18n.t(lang, "Power BI Desktop only"))}</span></div>
+  <p class="small muted">{esc(visual["note"])}</p>
+  <p class="small muted" style="margin:0">{esc(i18n.t(
+      lang, "ARTHIVIO keeps the offline/self-hosted build free of an R, Python or Azure Maps runtime."))}</p>
+</div>"""
+
+        sections = []
+        filter_buttons = [
+            f'<button class="btn small" type="button" data-visual-filter="all">'
+            f'{esc(i18n.t(lang, "All"))}</button>']
+        for group in data["groups"]:
+            group_key = group["key"]
+            filter_buttons.append(
+                f'<button class="btn ghost small" type="button" '
+                f'data-visual-filter="{esc(group_key)}">{esc(group["title"])}</button>')
+            cards = []
+            for visual in group["visuals"]:
+                if visual.get("option"):
+                    cards.append(f"""
+<div class="card pad visual-card">
+  <div class="sect-head"><h2>{esc(visual["title"])}</h2>
+    <span class="badge neutral">{esc(i18n.t(lang, "Actuals only"))}</span></div>
+  {charting.container(visual["id"], visual.get("height", 300))}
+  <p class="small muted" style="margin:8px 0 0">{esc(visual["note"])}</p>
+</div>""")
+                elif visual.get("kind") == "narrative":
+                    cards.append(narrative_card(visual))
+                elif visual.get("kind") == "links":
+                    cards.append(links_card(visual))
+                elif visual.get("kind") == "empty":
+                    cards.append(f"""
+<div class="card pad visual-card" id="{esc(visual["id"])}">
+  <div class="sect-head"><h2>{esc(visual["title"])}</h2>
+    <span class="badge neutral">{esc(i18n.t(lang, "Empty"))}</span></div>
+  {charting.empty(visual["note"])}
+</div>""")
+                else:
+                    cards.append(status_card(visual))
+            sections.append(f"""
+<section class="sect visual-group" data-visual-group="{esc(group_key)}">
+  <div class="sect-head"><h2>{esc(group["title"])}</h2></div>
+  <p class="small muted" style="margin:0 0 12px">{esc(group["note"])}</p>
+  <div class="visual-grid">{''.join(cards)}</div>
+</section>""")
+
+        unmapped = data.get("unmapped_states") or []
+        unmapped_html = ""
+        if unmapped:
+            rows = "".join(
+                f'<tr><td>{esc(item["state_code"])}</td>'
+                f'<td class="num">{money.fmt(round(item["amount"] * 100))}</td>'
+                f'<td class="num">{item["invoices"]}</td></tr>'
+                for item in unmapped)
+            unmapped_html = f"""
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(i18n.t(lang, "Unmapped state codes"))}</h2></div>
+  <p class="small muted">{esc(i18n.t(lang, "These posted invoice states are not in the bundled map; they are listed rather than dropped."))}</p>
+  <table><thead><tr><th>{esc(i18n.t(lang, "State code"))}</th>
+  <th class="num">{esc(i18n.t(lang, "Sales"))}</th>
+  <th class="num">{esc(i18n.t(lang, "Invoices"))}</th></tr></thead>
+  <tbody>{rows}</tbody></table>
+</div>"""
+
+        body = f"""
+{err_html}
+<form method="get" action="/reports/visuals" class="sect" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+  <div><label>{esc(i18n.t(lang, "From"))}</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+  <div><label>{esc(i18n.t(lang, "To"))}</label><input type="date" name="to" value="{esc(dto)}"></div>
+  <button class="btn" type="submit">{esc(i18n.t(lang, "Apply"))}</button>
+  <span class="badge neutral">{esc(i18n.t(lang, "Actuals only"))}</span>
+  <a class="btn ghost" href="/reports/analytics?{esc(period_q)}">{esc(i18n.t(lang, "Analytics overview"))}</a>
+  <a class="btn ghost" href="/export/powerbi.zip?{esc(period_q)}">{esc(i18n.t(lang, "Power BI pack"))}</a>
+</form>
+<div class="kpis">
+  {kpi(i18n.t(lang, "Revenue"), money.fmt(data["totals"]["revenue_paise"]), i18n.t(lang, "posted journals"))}
+  {kpi(i18n.t(lang, "Net profit"), money.fmt(data["totals"]["profit_paise"]), i18n.t(lang, "revenue minus expenses"))}
+  {kpi(i18n.t(lang, "GST net"), money.fmt(data["gst"]["net"]), i18n.t(lang, "working aid; not a filed return"))}
+  {kpi(i18n.t(lang, "Receivable ageing"), money.fmt(data["ageing"]["receivable_total"]), i18n.t(lang, "as of period end"))}
+  {kpi(i18n.t(lang, "Payable ageing"), money.fmt(data["ageing"]["payable_total"]), i18n.t(lang, "as of period end"))}
+</div>
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(i18n.t(lang, "Visual slicer"))}</h2>
+    <span class="badge neutral">{esc(i18n.t(lang, "Button slicer"))}</span></div>
+  <p class="small muted" style="margin:0 0 10px">{esc(i18n.t(lang, "Choose a visual family. Every card still uses the same posted actuals and the selected period."))}</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">{''.join(filter_buttons)}</div>
+</div>
+{''.join(sections)}
+{unmapped_html}
+<div class="card pad sect">
+  <div class="sect-head"><h2>{esc(i18n.t(lang, "How this gallery stays honest"))}</h2></div>
+  <ul class="small" style="margin:0;padding-left:18px">
+    <li>{esc(i18n.t(lang, "Every series comes from posted journal, invoice or bill actuals; nothing is cached or invented."))}</li>
+    <li>{esc(i18n.t(lang, "The Power BI pack remains a static import ZIP, not a .pbix or a scheduled Service dataset."))}</li>
+    <li>{esc(i18n.t(lang, "R, Python and Azure Maps are not executed by this offline build; their cards say so instead of pretending."))}</li>
+    <li>{esc(i18n.t(lang, "GST figures are working aids, not filed returns or claimed input credit."))}</li>
+  </ul>
+</div>
+<script>
+(function () {{
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-visual-filter]'));
+  var groups = Array.prototype.slice.call(document.querySelectorAll('[data-visual-group]'));
+  buttons.forEach(function (button) {{
+    button.addEventListener('click', function () {{
+      var key = button.getAttribute('data-visual-filter');
+      buttons.forEach(function (item) {{
+        item.classList.toggle('on', item === button);
+      }});
+      groups.forEach(function (group) {{
+        group.style.display = (key === 'all' || group.getAttribute('data-visual-group') === key)
+          ? '' : 'none';
+      }});
+      window.dispatchEvent(new Event('resize'));
+    }});
+  }});
+}})();
+</script>
+{chart_script}"""
+        return layout("Visual Gallery", body, "reports/visuals", user, tenant)
 
     def page_analytics_drilldown(self, conn, user, tenant, q) -> str:
         security.require(conn, user["id"], tenant["id"], analytics_mod.PERMISSION)

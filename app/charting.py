@@ -26,11 +26,17 @@ def empty(message: str = "No posted actuals to chart for this period.") -> str:
     return f'<div class="echart-empty">{_escape(message)}</div>'
 
 
-def render(charts: list[dict[str, Any]], *, include_library: bool = True) -> str:
+def render(charts: list[dict[str, Any]], *, include_library: bool = True,
+           lang: str = "en", maps: list[dict[str, str]] | None = None) -> str:
     """Return the ECharts library tag and one init script for a page.
 
-    Each chart item is ``{"id": str, "option": dict}``. Callers put
-    :func:`container` in the page body and call this at the end of the body.
+    Each chart item is ``{"id": str, "option": dict}`` and may add
+    ``"format": "money" | "percent"``. Callers put :func:`container` in the
+    page body and call this at the end of the body.
+
+    ``maps`` is an optional list of ``{"name": str, "url": str}`` GeoJSON
+    sources. When supplied, the script loads and registers them before it
+    initialises chart instances, so a map series can use the registered name.
     """
     valid: list[dict[str, Any]] = []
     for item in charts:
@@ -40,9 +46,19 @@ def render(charts: list[dict[str, Any]], *, include_library: bool = True) -> str
             raise ValueError("A chart needs an id and an option dictionary")
         if not _ID_RE.match(chart_id):
             raise ValueError(f"Invalid chart id: {chart_id!r}")
-        valid.append({"id": chart_id, "option": option})
+        value_format = item.get("format", "money")
+        if value_format not in ("money", "percent", "number"):
+            raise ValueError(f"Invalid chart format: {value_format!r}")
+        valid.append({"id": chart_id, "option": option, "format": value_format})
     if not valid:
         return ""
+
+    map_defs = []
+    for item in maps or []:
+        name = item.get("name")
+        url = item.get("url")
+        if name and url:
+            map_defs.append({"name": str(name), "url": str(url)})
 
     parts: list[str] = []
     if include_library:
@@ -63,31 +79,43 @@ def render(charts: list[dict[str, Any]], *, include_library: bool = True) -> str
         "  var muted = css('--muted', '#6C757D');\n"
         "  var line = css('--line', '#E6EDF7');\n"
         "  var ink = css('--ink', '#212529');\n"
+        "  var hindi = " + ("true" if lang == "hi" else "false") + ";\n"
+        "  function devanagari(text) {\n"
+        "    if (!hindi) return String(text);\n"
+        "    return String(text).replace(/[0-9]/g, function (digit) {\n"
+        "      return '०१२३४५६७८९'.charAt(Number(digit));\n"
+        "    });\n"
+        "  }\n"
         "  function inr(value) {\n"
         "    var n = Number(value);\n"
         "    if (!isFinite(n)) return String(value);\n"
-        "    return '\\u20b9' + n.toLocaleString('en-IN', {\n"
+        "    return devanagari('\\u20b9' + n.toLocaleString('en-IN', {\n"
         "      minimumFractionDigits: 2, maximumFractionDigits: 2\n"
-        "    });\n"
+        "    }));\n"
+        "  }\n"
+        "  function percent(value) {\n"
+        "    var n = Number(value);\n"
+        "    if (!isFinite(n)) return String(value);\n"
+        "    return devanagari(n.toFixed(1)) + '%';\n"
         "  }\n"
         "  function compact(value) {\n"
         "    var n = Number(value);\n"
         "    if (!isFinite(n)) return String(value);\n"
         "    var sign = n < 0 ? '-' : '';\n"
         "    n = Math.abs(n);\n"
-        "    if (n >= 10000000) return sign + (n / 10000000).toFixed(1) + ' Cr';\n"
-        "    if (n >= 100000) return sign + (n / 100000).toFixed(1) + ' L';\n"
-        "    if (n >= 1000) return sign + (n / 1000).toFixed(1) + 'k';\n"
-        "    return sign + n.toFixed(0);\n"
+        "    if (n >= 10000000) return devanagari(sign + (n / 10000000).toFixed(1) + ' Cr');\n"
+        "    if (n >= 100000) return devanagari(sign + (n / 100000).toFixed(1) + ' L');\n"
+        "    if (n >= 1000) return devanagari(sign + (n / 1000).toFixed(1) + 'k');\n"
+        "    return devanagari(sign + n.toFixed(0));\n"
         "  }\n"
-        "  function styleAxis(axis) {\n"
+        "  function styleAxis(axis, fmt, percentAxis) {\n"
         "    if (!axis) return;\n"
         "    var list = Array.isArray(axis) ? axis : [axis];\n"
         "    list.forEach(function (a) {\n"
         "      if (!a.axisLabel) a.axisLabel = {};\n"
         "      if (!a.axisLabel.color) a.axisLabel.color = muted;\n"
         "      if (a.type === 'value' && !a.axisLabel.formatter) {\n"
-        "        a.axisLabel.formatter = compact;\n"
+        "        a.axisLabel.formatter = percentAxis ? percent : compact;\n"
         "      }\n"
         "      if (a.type === 'value' && !a.splitLine) {\n"
         "        a.splitLine = { lineStyle: { color: line } };\n"
@@ -95,12 +123,13 @@ def render(charts: list[dict[str, Any]], *, include_library: bool = True) -> str
         "      if (!a.axisLine) a.axisLine = { lineStyle: { color: line } };\n"
         "    });\n"
         "  }\n"
-        "  function applyDefaults(option) {\n"
+        "  function applyDefaults(option, valueFormat) {\n"
         "    option.animationDuration = option.animationDuration || 400;\n"
         "    option.aria = option.aria || { enabled: true };\n"
         "    if (!option.color) option.color = palette;\n"
+        "    var fmt = valueFormat === 'percent' ? percent : inr;\n"
         "    if (option.tooltip) {\n"
-        "      if (!option.tooltip.valueFormatter) option.tooltip.valueFormatter = inr;\n"
+        "      if (!option.tooltip.valueFormatter) option.tooltip.valueFormatter = fmt;\n"
         "      if (option.tooltip.trigger === 'axis' && !option.tooltip.axisPointer) {\n"
         "        option.tooltip.axisPointer = { type: 'shadow' };\n"
         "      }\n"
@@ -111,8 +140,8 @@ def render(charts: list[dict[str, Any]], *, include_library: bool = True) -> str
         "        if (!legend.textStyle) legend.textStyle = { color: muted };\n"
         "      });\n"
         "    }\n"
-        "    styleAxis(option.xAxis);\n"
-        "    styleAxis(option.yAxis);\n"
+        "    styleAxis(option.xAxis, fmt, valueFormat === 'percent');\n"
+        "    styleAxis(option.yAxis, fmt, valueFormat === 'percent');\n"
         "    if (!option.grid && option.xAxis && option.yAxis) {\n"
         "      option.grid = { left: 64, right: 24, top: 42, bottom: 34, containLabel: true };\n"
         "    } else if (option.grid && option.grid.containLabel === undefined) {\n"
@@ -137,14 +166,33 @@ def render(charts: list[dict[str, Any]], *, include_library: bool = True) -> str
         "    }\n"
         "    return option;\n"
         "  }\n"
-        f"  var charts = {_json(valid)};\n"
-        "  charts.forEach(function (item) {\n"
-        "    var el = document.getElementById(item.id);\n"
-        "    if (!el) return;\n"
-        "    var chart = echarts.init(el, null, { renderer: 'canvas' });\n"
-        "    chart.setOption(applyDefaults(item.option));\n"
-        "    window.addEventListener('resize', function () { chart.resize(); });\n"
-        "  });\n"
+        "  function initCharts() {\n"
+        f"    var charts = {_json(valid)};\n"
+        "    charts.forEach(function (item) {\n"
+        "      var el = document.getElementById(item.id);\n"
+        "      if (!el) return;\n"
+        "      try {\n"
+        "        var chart = echarts.init(el, null, { renderer: 'canvas' });\n"
+        "        chart.setOption(applyDefaults(item.option, item.format));\n"
+        "        window.addEventListener('resize', function () { chart.resize(); });\n"
+        "      } catch (error) {\n"
+        "        el.innerHTML = '<div class=\"echart-empty\">Chart could not be drawn from the available actuals.</div>';\n"
+        "      }\n"
+        "    });\n"
+        "  }\n"
+        f"  var maps = {_json(map_defs)};\n"
+        "  if (maps.length) {\n"
+        "    Promise.all(maps.map(function (item) {\n"
+        "      return fetch(item.url).then(function (response) {\n"
+        "        if (!response.ok) throw new Error('map load failed');\n"
+        "        return response.json();\n"
+        "      }).then(function (geo) {\n"
+        "        echarts.registerMap(item.name, geo);\n"
+        "      });\n"
+        "    })).then(initCharts).catch(function () { initCharts(); });\n"
+        "  } else {\n"
+        "    initCharts();\n"
+        "  }\n"
         "})();\n"
         "</script>"
     )

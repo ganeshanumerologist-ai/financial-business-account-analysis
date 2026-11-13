@@ -1151,3 +1151,34 @@ report totals, GST outputs or audit data.
   accounting review is still pending.
 - The full suite passes **350 tests, OK**, 46.482 s, Python 3.14.6, Windows, recorded in
   `docs/TEST_RESULTS.md` section 44.
+
+## D-052 - Visual gallery is app-native ECharts, not embedded Power BI
+
+**Date:** 2026-11-12. **Status:** accepted for Build 0.26 hotfix 7.
+
+The requested Power BI visual list is delivered in two honest layers. The in-app
+`/reports/visuals` gallery renders ECharts from the same posted actuals as the
+analytics contract. The Power BI pack adds a theme, a report blueprint and a
+visual guide for rebuilding the same pages in Power BI Desktop.
+
+- The gallery covers clustered, stacked and 100% stacked columns and bars, line,
+  area, stacked area, 100% stacked area, line-and-stacked-column, waterfall,
+  funnel, scatter, pie, donut, treemap, map, filled map, shape map, key
+  influencers, decomposition tree, smart narrative, goals, paginated report
+  links and a button-style visual-family slicer.
+- A state-level India GeoJSON is bundled locally, so map, filled map and shape
+  map work offline. State totals join posted invoices through the customer GST
+  state code; unmapped codes are listed instead of dropped.
+- Native-only visuals are labelled, not simulated: R and Python script visuals
+  need their runtimes, Azure Maps needs a subscription key, and paginated
+  reports need a report server or Premium/Fabric capacity.
+- Empty periods keep every visual type visible with an explicit empty card. No
+  chart draws a zero, a forecast or a smoothed point.
+- The Power BI pack remains a static import ZIP. `powerbi/VISUAL_GUIDE.md`,
+  `powerbi/arthivio-theme.json` and `powerbi/report-blueprint.json` are build
+  aids, not a generated `.pbix`, Service dataset, RLS model or scheduled refresh.
+- The same slice translates the trial balance, profit and loss, balance sheet and
+  cash-flow screens. Account names, posted narration, identifiers and exports
+  remain unchanged; English mode restores the original labels and ASCII digits.
+- The full suite passes **359 tests, OK**, 50.963 s, Python 3.14.6, Windows,
+  recorded in `docs/TEST_RESULTS.md` section 49.

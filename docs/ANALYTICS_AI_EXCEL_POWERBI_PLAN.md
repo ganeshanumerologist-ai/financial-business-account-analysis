@@ -416,7 +416,9 @@ Phase B is next. Phase C/D/E first slices are delivered; the remaining full scop
 - Do not call CSV files "Excel workbooks".
 - Do not call a basic CSS bar chart "the full analytics platform".
 - Do not let AI calculate or invent a financial total.
-- Do not embed Power BI visuals in the app without a licensing decision.
+- Do not embed Power BI visuals in the app without a licensing decision. The
+  `/reports/visuals` gallery is app-native ECharts, not an embedded Power BI
+  visual, and it is labelled that way.
 - Do not send tenant data to an external AI provider without consent, configuration and review.
 - Do not ship a report or chart without a written formula and source.
 - Do not fill empty charts with sample numbers.
@@ -452,8 +454,10 @@ The analytics/AI/Excel/Power BI scope is complete only when:
 3. Complete the 66-report catalogue and chart layer (Phase B). **Still pending.**
 4. `.xlsx` export/import (Phase C): **first slice delivered** - 20-sheet actuals workbook and
    server-side import for three flows; general workbook import and AI-authored formulas pending.
-5. Power BI (Phase D): **static import pack delivered**; Service dataset, RLS, refresh and a
-   token-authenticated API pending.
+5. Power BI (Phase D): **static import pack delivered**, plus an app-native
+   `/reports/visuals` gallery, an importable theme, a page/visual blueprint and a
+   visual guide. Service dataset, `.pbix`, RLS, refresh, R/Python visuals, Azure
+   Maps and a token-authenticated API remain pending.
 6. Deterministic insights (Phase E): **delivered**; optional LLM/Q&A/forecast pending consent and
    provider decisions.
 7. Expand to ~150 templates and harden (Phase F). **Still pending.**
