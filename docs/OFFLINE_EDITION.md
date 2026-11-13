@@ -1,4 +1,4 @@
-# ARTHIVIO Offline Edition
+﻿# ARTHIVIO Offline Edition
 
 **Build 0.26. Single-user Windows package. No Python install, no internet, local SQLite.**
 
@@ -169,7 +169,7 @@ deserves a verified backup and a restore drill.
 
 | Check | Result |
 |---|---|
-| Full test suite | **359 tests, OK**, 48.326 s, Python 3.14.6, Windows |
+| Full test suite | **359 tests, OK**, 49.127 s, Python 3.14.6, Windows |
 | Report tests | 45 tests: report formulas, opening/closing reconciliation, lock register, salesperson/collection, price variance, stock movements, valuation, reorder, dead stock, inventory-to-GL, receivables risk, rule version usage, budget vs actual, budget audit, cash-flow forecast, tax ledger, KPI pack, trend explanation, revenue forecast, anomaly digest, R-204 draft entries, R-508 expiry, R-601 project costing, R-602 WIP, R-603 consumption, R-604 yield, R-605 cost centre, R-902 dimension P&L, R-1004 consolidation, credit-limit detection, malformed journal detection and tenant isolation |
 | Draft workflow tests | save draft, post draft, insufficient stock at posting, void with reason, idempotent post, receipt guard and draft-print block |
 | Correction workflow tests | 9 `TestPostedCorrections` cases plus the HTTP flow: invoice, bill and payment void/replace, stock restore/undo, blocked replacement and opening-balance replacement |
@@ -186,6 +186,8 @@ deserves a verified backup and a restore drill.
 | Filtered chart surface | `test_web.test_56` confirms the monthly chart is rendered in filtered mode with the **Filtered charts use matching posted journal lines.** note; empty chart states are used instead of fabricated data |
 | Visual gallery | `/reports/visuals` mounts 21 ECharts across five groups, covers the requested comparison, trend, composition, geography and advanced visual types, and keeps every visual type visible with an empty card when the period has no actuals |
 | Report screen Hindi | Trial balance, profit and loss, balance sheet and cash flow translate labels, table headers, KPI hints, chart legends, known cash-flow categories and bridge text. Account names, posted narration, identifiers and exports remain unchanged. English mode restores the original labels and ASCII digits. |
+| Party document Hindi | Credit/debit-note lists, customer/vendor statements, the statement share card and the public statement link translate headings, table headers, empty states, status labels and print controls. Public links accept `?lang=en` or `?lang=hi` and show a visible language switch without login. |
+| Public statement money | Hindi public statements use Devanagari money, including the closing balance; the amount-in-words value remains English and is explicitly labelled. Share tokens, dates, document numbers and identifiers stay ASCII. |
 | Offline map | A 1,024,198-byte India state GeoJSON is bundled and served as `application/geo+json`; map, filled map and shape map register as `arthivio-india` and join posted sales through customer GST state codes |
 | Visual slicer | Button-style family slicer hides and restores the five visual groups without a page reload; charts resize after the filter changes |
 | Power BI build aids | The pack includes `powerbi/VISUAL_GUIDE.md`, `powerbi/arthivio-theme.json` and `powerbi/report-blueprint.json`; these are build aids, not a `.pbix` or Service dataset |
@@ -200,14 +202,16 @@ deserves a verified backup and a restore drill.
 | Setup EXE | `ARTHIVIO-Setup.exe` built as a self-extracting EXE, installed to `%LOCALAPPDATA%\ARTHIVIO`, existing `data` and `backups` preserved, desktop and Start Menu shortcuts present, installed health returned `ARTHIVIO/0.26`; rebuilt for the post-release hotfix |
 | Package first run | Setup page rendered from the embedded runtime; owner creation covered by `test_first_run` |
 | External-drive backup | Local backup verified, copy hash matched, copy re-verified read-only (Build 0.14, unchanged code path) |
-| Package size | approximately 15.2 MB (ZIP); 32.0 MB extracted |
+| Package size | approximately 15.7 MB (ZIP); 33.3 MB extracted |
 | Package data reset | Smoke-test database and logs were kept outside the package; no test data was added to the built folder |
 
 The post-release hotfix rebuilt this package with the login redirect, the Hindi dashboard and
 transaction pages, the Hindi report library, the Hindi posted-invoice print document, Devanagari
 money display in Hindi mode and Hindi auto narration for new accounting entries. This slice also
 adds the app-native visual gallery, the Power BI build aids and Hindi for the trial balance,
-profit and loss, balance sheet and cash flow screens. See `docs/TEST_RESULTS.md` section 49 for
+profit and loss, balance sheet and cash flow screens. The follow-up hotfix translates the
+credit/debit-note lists, customer/vendor statements, the share card and the public statement
+link, including a no-login English/हिंदी switch. See `docs/TEST_RESULTS.md` section 49 for
 the new release hashes.
 
 Not verified in this build:
@@ -228,9 +232,11 @@ Not verified in this build:
 - No offline-to-online sync. If the online version is used later, offline entry during an internet
   outage is still a separate, unbuilt feature.
 - GST outputs are working aids, not filed returns.
-- The report library and the four main financial statements are translated, but other
-  individual report screen bodies and print/export documents remain English. Report formulas and
-  the invoice amount-in-words value also remain English.
+- The report library, the four main financial statements, credit/debit-note lists,
+  customer/vendor statements and statement share links are translated. Some
+  individual report screen bodies and print/export documents remain English.
+  Report formulas and the amount-in-words values remain English; the public
+  statement labels that value as English in Hindi mode.
 - AI insights are deterministic rules over posted records; no generative model is configured.
 - Power BI output is a static import pack plus an app-native ECharts gallery, theme,
   blueprint and guide; it is not a Power BI Service dataset or `.pbix`. R, Python,

@@ -427,6 +427,9 @@ no authenticated navigation, internal IDs or other-party data; headers are `noin
 and `Cache-Control: no-store`. Owners/admins/managers/accountants can create shares from the
 customer/vendor statement page (`statement.share`), choose 7/30/90 days, and revoke any active
 link. The page is public by design; possession of the link is the access right.
+The public page accepts `?lang=en` or `?lang=hi` and shows a visible English/हिंदी
+switch without a login. Hindi mode formats statement money with Devanagari digits;
+the amount-in-words value stays English and is labelled accordingly.
 
 ### 16.3 GSTR-2B working reconciliation
 

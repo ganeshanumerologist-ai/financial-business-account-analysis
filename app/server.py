@@ -1829,18 +1829,22 @@ class Handler(BaseHTTPRequestHandler):
                                   headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
             share_match = re.fullmatch(r"/share/statement/([A-Za-z0-9_-]{20,})", path)
             if share_match:
+                lang_token = i18n.set_current_language((q.get("lang") or ["en"])[0])
                 try:
-                    body = self.page_statement_share(conn, share_match.group(1))
-                except sharing.ShareError as e:
-                    return self._send(self.page_share_error(e.message), 404,
-                                      headers={"Cache-Control": "no-store",
-                                               "X-Robots-Tag": "noindex, nofollow"})
-                except acct.AccountingError:
-                    return self._send(self.page_share_error("This statement is not available."), 404,
-                                      headers={"Cache-Control": "no-store",
-                                               "X-Robots-Tag": "noindex, nofollow"})
-                return self._send(body, headers={"Cache-Control": "no-store",
-                                                 "X-Robots-Tag": "noindex, nofollow"})
+                    try:
+                        body = self.page_statement_share(conn, share_match.group(1), q)
+                    except sharing.ShareError as e:
+                        return self._send(self.page_share_error(e.message, q), 404,
+                                          headers={"Cache-Control": "no-store",
+                                                   "X-Robots-Tag": "noindex, nofollow"})
+                    except acct.AccountingError:
+                        return self._send(self.page_share_error("This statement is not available.", q), 404,
+                                          headers={"Cache-Control": "no-store",
+                                                   "X-Robots-Tag": "noindex, nofollow"})
+                    return self._send(body, headers={"Cache-Control": "no-store",
+                                                     "X-Robots-Tag": "noindex, nofollow"})
+                finally:
+                    i18n.reset_current_language(lang_token)
 
             sess = self._session(conn)
             landing_theme = self._cookies().get("ui_theme", DEFAULT_THEME)
@@ -3622,6 +3626,11 @@ it is posted. Debits and credits must still balance exactly.</div>
         return layout(f'{direction_text} {p["voucher_no"]}', body, "receipts", user, tenant)
 
     def page_credit_notes(self, conn, user, tenant) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         rows = conn.execute(
             "SELECT n.*, c.name, i.invoice_no FROM credit_note n"
             " JOIN customer c ON c.id=n.customer_id LEFT JOIN invoice i ON i.id=n.invoice_id"
@@ -3630,15 +3639,22 @@ it is posted. Debits and credits must still balance exactly.</div>
             f'<tr><td>{esc(r["note_no"])}</td><td>{esc(r["note_date"])}</td><td>{esc(r["name"])}</td>'
             f'<td>{esc(r["invoice_no"] or "—")}</td><td>{esc(r["reason"])}</td>'
             f'<td class="num">{money.fmt(r["total_paise"])}</td></tr>' for r in rows) or \
-            '<tr><td colspan="6" class="empty">No credit notes yet. Open an invoice to raise one.</td></tr>'
+            f'<tr><td colspan="6" class="empty">{esc(tr("No credit notes yet. Open an invoice to raise one."))}</td></tr>'
+        count = i18n.t(lang, "{count} credit note(s)").replace("{count}", str(len(rows)))
         body = f"""
-<div class="sect-head"><h2>{len(rows)} credit note(s)</h2><a class="btn ghost" href="/export/credit-notes.csv">Export CSV</a></div>
-<div class="card"><table><thead><tr><th>Note</th><th>Date</th><th>Customer</th><th>Invoice</th><th>Reason</th><th class="num">Total</th></tr></thead>
+<div class="sect-head"><h2>{esc(count)}</h2><a class="btn ghost" href="/export/credit-notes.csv">{esc(tr("Export CSV"))}</a></div>
+<div class="card"><table><thead><tr><th>{esc(tr("Note"))}</th><th>{esc(tr("Date"))}</th><th>{esc(tr("Customer"))}</th>
+<th>{esc(tr("Invoice"))}</th><th>{esc(tr("Reason"))}</th><th class="num">{esc(tr("Total"))}</th></tr></thead>
 <tbody>{trs}</tbody></table></div>
-<p class="small muted" style="margin-top:12px">A credit note reverses revenue and GST, returns stock at cost, and reduces the invoice outstanding. The original invoice is never edited.</p>"""
+<p class="small muted" style="margin-top:12px">{esc(tr("A credit note reverses revenue and GST, returns stock at cost, and reduces the invoice outstanding. The original invoice is never edited."))}</p>"""
         return layout("Credit notes", body, "credit-notes", user, tenant)
 
     def page_debit_notes(self, conn, user, tenant) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         rows = conn.execute(
             "SELECT n.*, v.name, b.bill_no FROM debit_note n"
             " JOIN vendor v ON v.id=n.vendor_id LEFT JOIN bill b ON b.id=n.bill_id"
@@ -3651,12 +3667,14 @@ it is posted. Debits and credits must still balance exactly.</div>
                     f'<td>{esc(r["name"])}</td><td>{bill_ref}</td>'
                     f'<td>{esc(r["reason"])}</td>'
                     f'<td class="num">{money.fmt(r["total_paise"])}</td></tr>')
-        trs = trs or '<tr><td colspan="6" class="empty">No debit notes yet. Open a bill to raise one.</td></tr>'
+        trs = trs or f'<tr><td colspan="6" class="empty">{esc(tr("No debit notes yet. Open a bill to raise one."))}</td></tr>'
+        count = i18n.t(lang, "{count} debit note(s)").replace("{count}", str(len(rows)))
         body = f"""
-<div class="sect-head"><h2>{len(rows)} debit note(s)</h2><a class="btn ghost" href="/export/debit-notes.csv">Export CSV</a></div>
-<div class="card"><table><thead><tr><th>Note</th><th>Date</th><th>Vendor</th><th>Bill</th><th>Reason</th><th class="num">Total</th></tr></thead>
+<div class="sect-head"><h2>{esc(count)}</h2><a class="btn ghost" href="/export/debit-notes.csv">{esc(tr("Export CSV"))}</a></div>
+<div class="card"><table><thead><tr><th>{esc(tr("Note"))}</th><th>{esc(tr("Date"))}</th><th>{esc(tr("Vendor"))}</th>
+<th>{esc(tr("Bill"))}</th><th>{esc(tr("Reason"))}</th><th class="num">{esc(tr("Total"))}</th></tr></thead>
 <tbody>{trs}</tbody></table></div>
-<p class="small muted" style="margin-top:12px">A debit note reverses purchase value and input GST, takes stock out at the bill's purchase value, and reduces the vendor payable. The original bill is never edited.</p>"""
+<p class="small muted" style="margin-top:12px">{esc(tr("A debit note reverses purchase value and input GST, takes stock out at the bill's purchase value, and reduces the vendor payable. The original bill is never edited."))}</p>"""
         return layout("Debit notes", body, "debit-notes", user, tenant)
 
     def page_bills(self, conn, user, tenant, sess) -> str:
@@ -3978,13 +3996,19 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
         return layout("Vendors", body, "vendors", user, tenant)
 
     def page_vendor_statement(self, conn, user, tenant, sess, vendor_id: str, q) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         today = date.today()
         dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
         try:
             st = acct.vendor_statement(conn, tenant["id"], vendor_id, dfrom, dto)
         except acct.AccountingError:
-            return layout("Not found", '<div class="card pad">Vendor not found.</div>', "vendors", user, tenant)
+            return layout("Not found", f'<div class="card pad">{esc(tr("Vendor not found."))}</div>',
+                          "vendors", user, tenant)
         v = st["vendor"]
         rows = ""
         for r in st["rows"]:
@@ -3997,32 +4021,33 @@ function addRow(){{ const t=document.createElement('tbody'); t.innerHTML=tpl; do
                      f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
-        rows = rows or '<tr><td colspan="6" class="empty">No transactions in this period</td></tr>'
+        rows = rows or f'<tr><td colspan="6" class="empty">{esc(tr("No transactions in this period"))}</td></tr>'
         share_card = self._statement_share_card(conn, user, tenant, sess, "vendor", vendor_id,
                                                 dfrom, dto, q)
         body = f"""
 <div class="kpis">
-  {kpi("Billed (period)", money.fmt(st["billed"]), "credits to payable")}
-  {kpi("Paid (period)", money.fmt(st["paid"]), "payments to vendor")}
-  {kpi("Debit notes (period)", money.fmt(st["debited"]), "purchase returns")}
-  {kpi("Closing payable", money.fmt(st["closing"]), "amount we owe")}
+  {kpi(tr("Billed (period)"), money.fmt(st["billed"]), tr("credits to payable"))}
+  {kpi(tr("Paid (period)"), money.fmt(st["paid"]), tr("payments to vendor"))}
+  {kpi(tr("Debit notes (period)"), money.fmt(st["debited"]), tr("purchase returns"))}
+  {kpi(tr("Closing payable"), money.fmt(st["closing"]), tr("amount we owe"))}
 </div>
 <form method="get" class="card pad sect">
 <div class="row c4">
-<div class="field"><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
-<div class="field"><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
-<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
-<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/vendors">All vendors</a></div>
+<div class="field"><label>{esc(tr("From"))}</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div class="field"><label>{esc(tr("To"))}</label><input type="date" name="to" value="{esc(dto)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">{esc(tr("Apply"))}</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/vendors">{esc(tr("All vendors"))}</a></div>
 </div></form>
 <div class="card"><table>
-<thead><tr><th>Date</th><th>Ref</th><th>Narration</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
-<tbody><tr><td colspan="5" class="muted">Opening balance</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
+<thead><tr><th>{esc(tr("Date"))}</th><th>{esc(tr("Ref"))}</th><th>{esc(tr("Narration"))}</th>
+<th class="num">{esc(tr("Debit"))}</th><th class="num">{esc(tr("Credit"))}</th><th class="num">{esc(tr("Balance"))}</th></tr></thead>
+<tbody><tr><td colspan="5" class="muted">{esc(tr("Opening balance"))}</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
 {rows}</tbody>
-<tfoot><tr><td colspan="5">Closing payable</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
+<tfoot><tr><td colspan="5">{esc(tr("Closing payable"))}</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
 </table></div>
 {share_card}
-<p class="small muted">Vendor: {esc(v["name"])} · state {esc(v["state_code"])} · GSTIN {esc(v["gstin"] or "—")}</p>"""
-        return layout(f'Vendor — {v["name"]}', body, "vendors", user, tenant)
+<p class="small muted">{esc(tr("Vendor"))}: {esc(v["name"])} · {esc(tr("state"))} {esc(v["state_code"])} · GSTIN {esc(v["gstin"] or "—")}</p>"""
+        return layout(f'{tr("Vendor")} — {v["name"]}', body, "vendors", user, tenant)
 
     def page_daybook(self, conn, user, tenant, q) -> str:
         today = date.today()
@@ -9820,13 +9845,18 @@ posted line, so both sides stay visible in the audit trail.</p>"""
         return layout("Customers", body, "customers", user, tenant)
 
     def page_customer_statement(self, conn, user, tenant, sess, customer_id: str, q) -> str:
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         today = date.today()
         dfrom = (q.get("from") or [f"{today.year}-04-01"])[0]
         dto = (q.get("to") or [today.isoformat()])[0]
         try:
             st = acct.customer_statement(conn, tenant["id"], customer_id, dfrom, dto)
         except acct.AccountingError:
-            return layout("Not found", '<div class="card pad">Customer not found.</div>',
+            return layout("Not found", f'<div class="card pad">{esc(tr("Customer not found."))}</div>',
                           "customers", user, tenant)
         c = st["customer"]
         rows = ""
@@ -9838,32 +9868,33 @@ posted line, so both sides stay visible in the audit trail.</p>"""
                      f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
-        rows = rows or '<tr><td colspan="6" class="empty">No transactions in this period</td></tr>'
+        rows = rows or f'<tr><td colspan="6" class="empty">{esc(tr("No transactions in this period"))}</td></tr>'
         share_card = self._statement_share_card(conn, user, tenant, sess, "customer", customer_id,
                                                 dfrom, dto, q)
         body = f"""
 <div class="kpis">
-  {kpi("Invoiced (period)", money.fmt(st["invoiced"]), "debits to receivable")}
-  {kpi("Received (period)", money.fmt(st["received"]), "credits to receivable")}
-  {kpi("Closing balance", money.fmt(st["closing"]), "amount due from customer")}
+  {kpi(tr("Invoiced (period)"), money.fmt(st["invoiced"]), tr("debits to receivable"))}
+  {kpi(tr("Received (period)"), money.fmt(st["received"]), tr("credits to receivable"))}
+  {kpi(tr("Closing balance"), money.fmt(st["closing"]), tr("amount due from customer"))}
 </div>
 <form method="get" class="card pad sect">
 <div class="row c4">
-<div class="field"><label>From</label><input type="date" name="from" value="{esc(dfrom)}"></div>
-<div class="field"><label>To</label><input type="date" name="to" value="{esc(dto)}"></div>
-<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Apply</button></div>
-<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/customers">All customers</a></div>
+<div class="field"><label>{esc(tr("From"))}</label><input type="date" name="from" value="{esc(dfrom)}"></div>
+<div class="field"><label>{esc(tr("To"))}</label><input type="date" name="to" value="{esc(dto)}"></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">{esc(tr("Apply"))}</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><a class="btn ghost" href="/customers">{esc(tr("All customers"))}</a></div>
 </div></form>
 <div class="card"><table>
-<thead><tr><th>Date</th><th>Ref</th><th>Narration</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+<thead><tr><th>{esc(tr("Date"))}</th><th>{esc(tr("Ref"))}</th><th>{esc(tr("Narration"))}</th>
+<th class="num">{esc(tr("Debit"))}</th><th class="num">{esc(tr("Credit"))}</th><th class="num">{esc(tr("Balance"))}</th></tr></thead>
 <tbody>
-<tr><td colspan="5" class="muted">Opening balance</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
+<tr><td colspan="5" class="muted">{esc(tr("Opening balance"))}</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
 {rows}</tbody>
-<tfoot><tr><td colspan="5">Closing balance</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
+<tfoot><tr><td colspan="5">{esc(tr("Closing balance"))}</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
 </table></div>
 {share_card}
-<p class="small muted">Customer: {esc(c["name"])} · state {esc(c["state_code"])} · GSTIN {esc(c["gstin"] or "—")}</p>"""
-        return layout(f'Statement — {c["name"]}', body, "customers", user, tenant)
+<p class="small muted">{esc(tr("Customer"))}: {esc(c["name"])} · {esc(tr("state"))} {esc(c["state_code"])} · GSTIN {esc(c["gstin"] or "—")}</p>"""
+        return layout(f'{tr("Statement")} — {c["name"]}', body, "customers", user, tenant)
 
     def page_items(self, conn, user, tenant, sess) -> str:
         rows = conn.execute("SELECT * FROM item WHERE tenant_id=? ORDER BY name", (tenant["id"],)).fetchall()
@@ -10488,19 +10519,29 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
 <p class="small muted" style="margin-bottom:0">Already a member? <a href="/login">Sign in</a>.</p>
 </div></div></body></html>"""
 
-    def page_share_error(self, message: str) -> str:
-        return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    def page_share_error(self, message: str, q=None) -> str:
+        lang = i18n.normalize_language((q or {}).get("lang", ["en"])[0])
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
+        return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>Statement unavailable · {APP_NAME}</title><style>{CSS}</style></head>
+<title>{esc(tr("Statement unavailable"))} · {APP_NAME}</title><style>{CSS}</style></head>
 <body><div class="login-wrap"><div class="login card pad">
 <div class="brandline">{LOGO}<div><div style="font-weight:700;letter-spacing:.06em">ARTHIVIO</div>
-<div class="small muted">Shared statement</div></div></div>
-<div class="err">{esc(message)}</div>
-<p class="small muted">Ask the business that shared this statement for a fresh link.</p>
-<a class="btn ghost" href="/login">ARTHIVIO sign in</a>
+<div class="small muted">{esc(tr("Shared statement"))}</div></div></div>
+<div class="err">{esc(tr(message))}</div>
+<p class="small muted">{esc(tr("Ask the business that shared this statement for a fresh link."))}</p>
+<a class="btn ghost" href="/login">{esc(tr("ARTHIVIO sign in"))}</a>
 </div></div></body></html>"""
 
-    def page_statement_share(self, conn, token: str) -> str:
+    def page_statement_share(self, conn, token: str, q=None) -> str:
+        lang = i18n.normalize_language((q or {}).get("lang", ["en"])[0])
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         resolved = sharing.resolve_statement_share(conn, token)
         share = resolved["share"]
         tenant = resolved["tenant"]
@@ -10513,13 +10554,23 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                      f'<td class="num">{money.fmt(r["debit"]) if r["debit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["credit"]) if r["credit"] else ""}</td>'
                      f'<td class="num">{money.fmt(r["balance"])}</td></tr>')
-        rows = rows or '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No transactions in this period</td></tr>'
+        rows = rows or (f'<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">'
+                        f'{esc(tr("No transactions in this period"))}</td></tr>')
         business_addr = ", ".join(x for x in (tenant["address"], tenant["city"], tenant["state_name"],
                                               tenant["pincode"]) if x)
         party_addr = ", ".join(x for x in (party.get("address", ""), state_name(party.get("state_code", ""))) if x)
-        heading = "Statement of account" if is_customer else "Vendor account statement"
-        counterparty = "Customer" if is_customer else "Vendor"
-        closing_label = "Amount due from customer" if is_customer else "Amount payable to vendor"
+        heading = tr("Statement of account") if is_customer else tr("Vendor account statement")
+        counterparty = tr("Customer") if is_customer else tr("Vendor")
+        closing_label = (tr("Amount due from customer") if is_customer
+                         else tr("Amount payable to vendor"))
+        words_label = (tr("Closing balance in words (English)") if lang == "hi"
+                       else tr("Closing balance in words"))
+        note = i18n.t(lang, "This is a computer-generated statement from ARTHIVIO. It is shared as a read-only link and expires on {date}.").replace(
+            "{date}", share["expires_at"][:10])
+        en_current = ' aria-current="true"' if lang == "en" else ""
+        hi_current = ' aria-current="true"' if lang == "hi" else ""
+        lang_links = (f'<a href="?lang=en"{en_current}>English</a> &nbsp; '
+                      f'<a href="?lang=hi"{hi_current}>हिंदी</a>')
         extra_css = """
 .stmt-title{margin:0 0 2px;font-size:18px;font-weight:700;color:var(--ink)}
 .stmt-period{font-size:11px;color:var(--ink-soft);margin-top:2px}
@@ -10527,47 +10578,50 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
 .stmt-total td{font-weight:700;border-top:2px solid var(--primary)}
 .stmt-toolbar{justify-content:space-between;align-items:center}
 .stmt-toolbar .tag{font-size:11px;color:var(--muted);letter-spacing:.03em}
+.stmt-toolbar .lang a[aria-current="true"]{font-weight:700;text-decoration:none;color:var(--primary)}
 """
-        return f"""<!doctype html><html lang="en" data-theme="{DEFAULT_THEME}"><head><meta charset="utf-8">
+        return f"""<!doctype html><html lang="{lang}" data-theme="{DEFAULT_THEME}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <meta name="description" content="Shared statement of account issued by {esc(tenant["name"])} from ARTHIVIO.">
 <title>{esc(heading)} · {esc(tenant["name"])}</title><style>{THEME_CSS}{PRINT_CSS}{extra_css}</style></head>
 <body>
-<div class="toolbar stmt-toolbar"><span class="tag">Shared statement · {esc(tenant["name"])}</span>
-<div><a href="/login">ARTHIVIO</a> &nbsp; <button type="button" onclick="window.print()">Print / Save PDF</button></div></div>
+<div class="toolbar stmt-toolbar"><span class="tag">{esc(tr("Shared statement"))} · {esc(tenant["name"])}</span>
+<div><span class="lang small muted">{lang_links}</span> &nbsp; <a href="/login">ARTHIVIO</a> &nbsp;
+<button type="button" onclick="window.print()">{esc(tr("Print / Save PDF"))}</button></div></div>
 <main class="sheet">
   <div class="head">
     <div><div class="brand">{esc(tenant["name"])}</div>
-      <div class="addr">{esc(business_addr) or "Address not set"}</div>
+      <div class="addr">{esc(business_addr) or esc(tr("Address not set"))}</div>
       <div class="addr">GSTIN {esc(tenant["gstin"] or "—")} &nbsp;·&nbsp; {esc(tenant["phone"] or "")} {esc(tenant["email"] or "")}</div>
     </div>
     <div class="meta"><div class="doc">{esc(heading)}</div>
-      <div class="addr">{esc(share["date_from"])} to {esc(share["date_to"])}</div>
-      <div class="addr">Issued {esc(share["created_at"][:10])}</div>
+      <div class="addr">{esc(tr("From"))} {esc(share["date_from"])} {esc(tr("to"))} {esc(share["date_to"])}</div>
+      <div class="addr">{esc(tr("Issued"))} {esc(share["created_at"][:10])}</div>
     </div>
   </div>
   <div class="parties">
-    <div><h4>{counterparty}</h4><b>{esc(party["name"])}</b>
-      <div class="addr">{esc(party_addr) or "Address not recorded"}</div>
+    <div><h4>{esc(counterparty)}</h4><b>{esc(party["name"])}</b>
+      <div class="addr">{esc(party_addr) or esc(tr("Address not recorded"))}</div>
       <div class="addr">GSTIN {esc(party.get("gstin") or "—")} &nbsp;·&nbsp; {esc(party.get("phone") or "")}</div></div>
-    <div><h4>Statement summary</h4>
-      <div class="small">Opening balance: <b>{money.fmt(st["opening"])}</b></div>
-      <div class="small">Closing balance: <b>{money.fmt(st["closing"])}</b></div>
+    <div><h4>{esc(tr("Statement summary"))}</h4>
+      <div class="small">{esc(tr("Opening balance"))}: <b>{money.fmt(st["opening"])}</b></div>
+      <div class="small">{esc(tr("Closing balance"))}: <b>{money.fmt(st["closing"])}</b></div>
       <div class="addr">{esc(closing_label)}</div></div>
   </div>
   <table>
-    <thead><tr><th>Date</th><th>Reference</th><th>Particulars</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+    <thead><tr><th>{esc(tr("Date"))}</th><th>{esc(tr("Reference"))}</th><th>{esc(tr("Particulars"))}</th>
+    <th class="num">{esc(tr("Debit"))}</th><th class="num">{esc(tr("Credit"))}</th><th class="num">{esc(tr("Balance"))}</th></tr></thead>
     <tbody>
-      <tr><td colspan="5" style="color:var(--muted)">Opening balance</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
+      <tr><td colspan="5" style="color:var(--muted)">{esc(tr("Opening balance"))}</td><td class="num"><b>{money.fmt(st["opening"])}</b></td></tr>
       {rows}
     </tbody>
-    <tfoot><tr class="stmt-total"><td colspan="5">Closing balance</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
+    <tfoot><tr class="stmt-total"><td colspan="5">{esc(tr("Closing balance"))}</td><td class="num">{money.fmt(st["closing"])}</td></tr></tfoot>
   </table>
-  <div class="words"><b>Closing balance in words:</b> {esc(money.amount_in_words(st["closing"]))}</div>
+  <div class="words"><b>{esc(words_label)}:</b> {esc(money.amount_in_words(st["closing"]))}</div>
   <div class="foot">
     <div class="box"><b>{esc(tenant["name"])}</b><div class="addr">{esc(tenant["bank_name"] or "")} {esc(tenant["bank_account"] or "")} {esc(tenant["bank_ifsc"] or "")}</div>
-      <div class="stmt-note">This is a computer-generated statement from ARTHIVIO. It is shared as a read-only link and expires on {esc(share["expires_at"][:10])}.</div></div>
-    <div class="sign"><span class="line">Authorised signatory</span></div>
+      <div class="stmt-note">{esc(note)}</div></div>
+    <div class="sign"><span class="line">{esc(tr("Authorised signatory"))}</span></div>
   </div>
 </main>
 </body></html>"""
@@ -10578,16 +10632,21 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
             security.require(conn, user["id"], tenant["id"], "statement.share")
         except security.AuthError:
             return ""
+        lang = i18n.language_for(user)
+
+        def tr(text: str) -> str:
+            return i18n.t(lang, text)
+
         token = (q.get("share") or [""])[0]
         shared = ""
         if token:
             link = f"{self._base_url()}/share/statement/{token}"
             shared = f"""
 <div class="card pad" style="margin:0 0 14px;background:#F8FAFC">
-<div class="sect-head" style="margin-bottom:6px"><b>Share link created</b><span class="badge ok">Shown once</span></div>
+<div class="sect-head" style="margin-bottom:6px"><b>{esc(tr("Share link created"))}</b><span class="badge ok">{esc(tr("Shown once"))}</span></div>
 <div class="field" style="margin-bottom:8px"><input readonly value="{esc(link)}" onclick="this.select()" style="font-family:ui-monospace,monospace;font-size:13px"></div>
-<div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn small" href="{esc(link)}" target="_blank" rel="noopener">Open print view</a>
-<span class="small muted" style="align-self:center">Copy this link now. It cannot be shown again.</span></div></div>"""
+<div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn small" href="{esc(link)}" target="_blank" rel="noopener">{esc(tr("Open print view"))}</a>
+<span class="small muted" style="align-self:center">{esc(tr("Copy this link now. It cannot be shown again."))}</span></div></div>"""
         shares = sharing.list_statement_shares(conn, tenant["id"], party_type, party_id)
         share_rows = ""
         for s in shares:
@@ -10600,28 +10659,29 @@ journal entry and use <b>Edit</b> on the entry to correct it.</p>
                           f'<input type="hidden" name="party_id" value="{esc(party_id)}">'
                           f'<input type="hidden" name="from" value="{esc(dfrom)}">'
                           f'<input type="hidden" name="to" value="{esc(dto)}">'
-                          f'<button class="btn small ghost" type="submit">Revoke</button></form>')
+                          f'<button class="btn small ghost" type="submit">{esc(tr("Revoke"))}</button></form>')
             cls = "ok" if s["link_status"] == "active" else "neutral"
             share_rows += (f'<tr><td>{esc(s["date_from"])} → {esc(s["date_to"])}</td>'
                            f'<td>{esc(s["created_at"][:10])}</td><td>{esc(s["expires_at"][:10])}</td>'
-                           f'<td><span class="badge {cls}">{esc(s["link_status"])}</span></td>'
+                           f'<td><span class="badge {cls}">{esc(tr(s["link_status"]))}</span></td>'
                            f'<td class="num">{s["view_count"]}</td><td>{revoke}</td></tr>')
-        share_rows = share_rows or '<tr><td colspan="6" class="empty">No share links yet</td></tr>'
+        share_rows = share_rows or f'<tr><td colspan="6" class="empty">{esc(tr("No share links yet"))}</td></tr>'
         return f"""
 <div class="card pad sect">
-<div class="sect-head"><h2 style="margin-bottom:0">Share and print</h2>
-<span class="small muted">Read-only link · no sign-in needed</span></div>
+<div class="sect-head"><h2 style="margin-bottom:0">{esc(tr("Share and print"))}</h2>
+<span class="small muted">{esc(tr("Read-only link · no sign-in needed"))}</span></div>
 {shared}
 <form method="post" action="/{party_type}s/{esc(party_id)}/share">
 <input type="hidden" name="_csrf" value="{esc(sess['csrf_token'])}">
 <input type="hidden" name="from" value="{esc(dfrom)}">
 <input type="hidden" name="to" value="{esc(dto)}">
 <div class="row c3">
-<div class="field"><label>Link validity</label><select name="days"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></div>
-<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">Create share link</button></div>
-<div class="field" style="display:flex;align-items:flex-end"><span class="small muted">Opens a print-ready statement. Revoke any time.</span></div>
+<div class="field"><label>{esc(tr("Link validity"))}</label><select name="days"><option value="7">{esc(tr("7 days"))}</option><option value="30" selected>{esc(tr("30 days"))}</option><option value="90">{esc(tr("90 days"))}</option></select></div>
+<div class="field" style="display:flex;align-items:flex-end"><button class="btn" type="submit">{esc(tr("Create share link"))}</button></div>
+<div class="field" style="display:flex;align-items:flex-end"><span class="small muted">{esc(tr("Opens a print-ready statement. Revoke any time."))}</span></div>
 </div></form>
-<table><thead><tr><th>Period</th><th>Created</th><th>Expires</th><th>Status</th><th class="num">Views</th><th></th></tr></thead>
+<table><thead><tr><th>{esc(tr("Period"))}</th><th>{esc(tr("Created"))}</th><th>{esc(tr("Expires"))}</th>
+<th>{esc(tr("Status"))}</th><th class="num">{esc(tr("Views"))}</th><th></th></tr></thead>
 <tbody>{share_rows}</tbody></table>
 </div>"""
 

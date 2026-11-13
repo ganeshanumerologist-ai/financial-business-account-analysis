@@ -1,4 +1,4 @@
-# ARTHIVIO — Decision Log
+﻿# ARTHIVIO — Decision Log
 
 Append-only. New decisions get a new ID; superseded ones are marked, never deleted.
 
@@ -314,7 +314,10 @@ once at creation. Links expire after 7, 30 or 90 days, can be revoked immediatel
 viewed without an ARTHIVIO login. The public page is a print-ready A4 statement with
 `noindex, nofollow` and `Cache-Control: no-store`; it exposes no internal document IDs, other
 parties, ledger accounts or business settings. View counts are recorded. The link grants only
-that one statement, not access to the business.
+that one statement, not access to the business. The public page accepts
+`?lang=en` or `?lang=hi` and shows a visible English/हिंदी switch; Hindi mode
+uses Devanagari money, while the amount-in-words value remains English and is
+labelled as such.
 
 ## D-019 - GSTR-2B reconciliation reports differences and never changes the books
 
@@ -1154,7 +1157,7 @@ report totals, GST outputs or audit data.
 
 ## D-052 - Visual gallery is app-native ECharts, not embedded Power BI
 
-**Date:** 2026-11-12. **Status:** accepted for Build 0.26 hotfix 7.
+**Date:** 2026-11-12. **Status:** accepted for Build 0.26 hotfix 8.
 
 The requested Power BI visual list is delivered in two honest layers. The in-app
 `/reports/visuals` gallery renders ECharts from the same posted actuals as the
@@ -1178,7 +1181,13 @@ visual guide for rebuilding the same pages in Power BI Desktop.
   `powerbi/arthivio-theme.json` and `powerbi/report-blueprint.json` are build
   aids, not a generated `.pbix`, Service dataset, RLS model or scheduled refresh.
 - The same slice translates the trial balance, profit and loss, balance sheet and
-  cash-flow screens. Account names, posted narration, identifiers and exports
-  remain unchanged; English mode restores the original labels and ASCII digits.
-- The full suite passes **359 tests, OK**, 50.963 s, Python 3.14.6, Windows,
+  cash-flow screens, the credit/debit-note lists, customer/vendor statements and
+  the statement share card. Account names, posted narration, identifiers and
+  exports remain unchanged; English mode restores the original labels and ASCII
+  digits.
+- Public statement links accept `?lang=en` or `?lang=hi` and show a visible
+  English/हिंदी switch without requiring a login. The public page uses Devanagari
+  money in Hindi. The amount-in-words value stays English and is explicitly
+  labelled, because a native Hindi words conversion is not implemented.
+- The full suite passes **359 tests, OK**, 49.127 s, Python 3.14.6, Windows,
   recorded in `docs/TEST_RESULTS.md` section 49.

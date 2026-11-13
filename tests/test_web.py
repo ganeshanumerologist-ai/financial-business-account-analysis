@@ -1453,6 +1453,67 @@ class WebTest(unittest.TestCase):
             for label in labels:
                 self.assertIn(html.escape(i18n.t("hi", label)), page)
 
+        status, credit_notes = self.get("/credit-notes")
+        self.assertEqual(status, 200)
+        for text in ("क्रेडिट नोट", "नोट", "कारण", "कुल"):
+            self.assertIn(text, credit_notes)
+
+        status, debit_notes = self.get("/debit-notes")
+        self.assertEqual(status, 200)
+        for text in ("डेबिट नोट", "नोट", "कारण", "कुल"):
+            self.assertIn(text, debit_notes)
+
+        conn = db.connect(self.db_path)
+        vendor_id = conn.execute(
+            "SELECT id FROM vendor WHERE tenant_id=? LIMIT 1",
+            (self.tenant_id,)).fetchone()["id"]
+        conn.close()
+        for path, labels in (
+                (f"/customers/{self.customer_id}?from=2026-04-01&to=2026-10-31",
+                 ("समापन शेष", "ग्राहक से देय राशि",
+                  "साझा करें और प्रिंट करें", "लिंक की वैधता")),
+                (f"/vendors/{vendor_id}?from=2026-04-01&to=2026-10-31",
+                 ("समापन देय", "हमारी देय राशि",
+                  "साझा करें और प्रिंट करें", "लिंक की वैधता"))):
+            status, statement = self.get(path)
+            self.assertEqual(status, 200)
+            for label in labels:
+                self.assertIn(label, statement)
+
+        status, customer_page = self.get(f"/customers/{self.customer_id}")
+        share_csrf = self.csrf(customer_page)
+        status, share_page, _ = self.post(f"/customers/{self.customer_id}/share", {
+            "_csrf": share_csrf, "from": "2026-04-01", "to": "2026-10-31",
+            "days": "7"})
+        self.assertEqual(status, 200)
+        self.assertIn("शेयर लिंक बनाया गया", share_page)
+        match = re.search(r'value="(http://[^"]+/share/statement/[A-Za-z0-9_-]+)"',
+                          share_page)
+        self.assertIsNotNone(match)
+        with urllib.request.urlopen(match.group(1) + "?lang=hi", timeout=15) as r:
+            shared = r.read().decode("utf-8")
+        self.assertIn('<html lang="hi"', shared)
+        self.assertIn('href="?lang=en"', shared)
+        self.assertIn('href="?lang=hi"', shared)
+        for text in ("खाता विवरण", "विवरण सारांश", "शब्दों में समापन शेष (अंग्रेज़ी)",
+                     "प्रिंट / PDF सहेजें"):
+            self.assertIn(text, shared)
+        self.assertRegex(shared, r"₹[०-९]")
+        with urllib.request.urlopen(match.group(1) + "?lang=en", timeout=15) as r:
+            shared_en = r.read().decode("utf-8")
+        self.assertIn('<html lang="en"', shared_en)
+        self.assertIn("Statement of account", shared_en)
+        self.assertRegex(shared_en, r"₹[0-9]")
+
+        try:
+            self.get("/share/statement/not-a-real-token-000000?lang=hi")
+            self.fail("invalid share token should return 404")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 404)
+            error_page = e.read().decode("utf-8")
+            e.close()
+        self.assertIn("विवरण उपलब्ध नहीं", error_page)
+
         conn = db.connect(self.db_path)
         invoice_id = conn.execute(
             "SELECT id FROM invoice WHERE tenant_id=? AND status='posted' LIMIT 1",

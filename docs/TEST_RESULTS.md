@@ -1,4 +1,4 @@
-# ARTHIVIO — Test Results
+﻿# ARTHIVIO — Test Results
 
 > **Current status: Build 0.26.** The latest application run is `RUN-2026-11-10-02` with
 > **350 tests, OK**, Python 3.14.6, Windows - see section 45. The table immediately below is the original
@@ -2108,7 +2108,7 @@ actuals contract used by the analytics page, Excel workbook and static pack.
 
 | Check | Result |
 |---|---|
-| Full test suite | **359 tests, OK**, 50.963 s, Python 3.14.6, Windows |
+| Full test suite | **359 tests, OK**, 49.127 s, Python 3.14.6, Windows |
 | Gallery route | `GET /reports/visuals`, linked from the Analysis navigation group; English and Hindi titles and labels |
 | Visual coverage | Clustered column/bar, stacked column/bar, 100% stacked column/bar, line, area, stacked area, 100% stacked area, line-and-stacked-column, waterfall, funnel, scatter, pie, donut, treemap, map, filled map, shape map, key influencers, decomposition tree, smart narrative, goals, paginated report links, R/Python status cards, Azure Maps status card and a button-style visual-family slicer |
 | Render check | Browser mounted **21 ECharts canvases** across five groups; the grid used two columns at the tested viewport; the visual-family slicer hid and restored the expected groups |
@@ -2122,7 +2122,7 @@ actuals contract used by the analytics page, Excel workbook and static pack.
 | Power BI blueprint | Four pages: Executive, Composition, Parties and geography, Advanced and native-only; fields, measures and status are explicit |
 | Report screen Hindi | Trial balance, profit and loss, balance sheet and cash flow now translate page labels, table headers, KPI labels and hints, chart legends, known generated cash-flow categories, directions and bridge text; account names, posted narration, dates, codes and amounts in exports stay unchanged |
 | Tests | New `tests/test_visuals.py` (5 tests) covers the full catalogue, totals reconciliation, empty periods, Hindi titles and map names; `test_bi` checks the new pack files; `test_web.test_43b` checks the route, map asset, empty state, Hindi page and chart containers |
-| Offline package | Rebuilt after this slice; embedded runtime returned `arthivio 0.26`; size and hashes recorded in section 49.2 |
+| Offline package | Rebuilt after this slice; embedded runtime returned `arthivio 0.26`; size and hashes recorded in section 49.4 |
 
 ### 49.1 Honest limits
 
@@ -2158,7 +2158,20 @@ Account names, posted narration, document numbers, dates, quantities, GSTIN, HSN
 
 Verified in the browser at the live local server: the Hindi trial balance showed `इस तिथि तक`, `संतुलित`, `कोड`, `खाता`, `प्रकार` and Devanagari amounts; P&L, balance sheet and cash flow showed Hindi headings, legends, KPI hints, categories and bridge text. Switching back to English restored `As of`, `Balanced` and ASCII money.
 
-### 49.3 Release hashes
+### 49.3 Credit/debit notes, party statements and share links
+
+The remaining customer-facing documents now follow the saved language:
+
+- Credit-note and debit-note lists: headings, counts, table headers, empty states and the explanatory notes.
+- Customer and vendor statements: KPI labels and hints, date-range labels, opening/closing rows, table headers, party footer and the share card.
+- Statement share card: validity options, create/revoke buttons, status labels, view count, empty state and the one-time link notice.
+- Public statement link: page heading, party labels, summary, table headers, opening/closing labels, expiry note, print button and signatory line. A visible `English` / `हिंदी` switch changes the public page without a login; the chosen language is carried in `?lang=hi` or `?lang=en`.
+- In Hindi, statement money uses Devanagari digits, including the public share page. The amount-in-words value is explicitly labelled as English because the native Hindi words conversion is not implemented.
+- Share tokens, document numbers, dates, quantities, GSTIN, HSN/SAC, account codes and IDs remain ASCII. Posted narration and party names are never rewritten.
+- `test_38b` now covers the Hindi credit/debit-note lists, both party statements, the share card, the public Hindi statement, Devanagari money and the Hindi unavailable-link page. The invalid-link check also verifies the 404 response.
+- Browser check: the Hindi public statement showed `खाता विवरण`, `विवरण सारांश`, `प्रारंभिक शेष`, `समापन शेष`, `₹३०,१६१.००` and `शब्दों में समापन शेष (अंग्रेज़ी)`; English restored `Statement of account` and ASCII money.
+
+### 49.4 Release hashes
 
 The offline package, setup EXE, installer ZIP and release ZIP are rebuilt after
 the source and documentation are final. Final SHA-256 values are stored in
@@ -2167,7 +2180,9 @@ the source and documentation are final. Final SHA-256 values are stored in
 outside this document so that changing the document cannot invalidate the
 artifact hashes it describes.
 
-The app folder contains **519 files**. The self-extracting setup was run against
-a temporary `%LOCALAPPDATA%`, installed 519 files and reported `Build 0.26`; the
-embedded runtime reported `APP_VERSION 0.26`. The installer and release ZIPs
-passed an archive integrity check.
+The app folder contains **519 files** (about 33.3 MB). Final artifacts are about
+15.7 MB (Setup), 31.2 MB (installer ZIP), 15.7 MB (offline ZIP) and 46.5 MB
+(release ZIP). The self-extracting setup was run against a temporary
+`%LOCALAPPDATA%`, installed 519 package files plus the preserved test marker and
+reported `Build 0.26`; the embedded runtime reported `APP_VERSION 0.26`. The
+installer and release ZIPs passed an archive integrity check.
